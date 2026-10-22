@@ -1,0 +1,4407 @@
+{
+  "CRITICAL": 0,
+  "HIGH": 0,
+  "MEDIUM": 0,
+  "templates": {
+    "product-launch": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-trust-reviews": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-price-compare": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-how-it-works": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-lookbook": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-demo-reel": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-faq-buy": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-nav-shop": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-early-order": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-launch-minimal-buy": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-trust-skin": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-kit-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-routine": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-lookbook": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-tutorial": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-faq-safe": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-nav-shop": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-early-order": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "cosmetics-skincare-minimal-buy": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-trust-fit": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-price-drop": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-style-guide": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-lookbook": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-runway-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-faq-size": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-nav-collection": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-early-preorder": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "fashion-drop-minimal-drop": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-soft-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-clinic-clean": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-dark-premium": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-organic-wellness": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-offer-conversion": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-booking-first": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-gallery-first": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-local-business": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "spa-wellness-social-proof": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "real-estate-project-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-problem-first": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-pricing-packages": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-process-roadmap": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-portfolio-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-video-audit": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-faq-authority": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-split-nav": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-early-audit-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "seo-service-minimal-cta": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-portfolio-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-package-first": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-build-steps": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-showcase": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-demo-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-faq-quote": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-nav-services": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-early-brief": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "website-build-minimal-quote": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-neighborhood-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-package-pro": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-work-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-job-proof": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-team-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-faq-booking": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-area-nav": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-early-book": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "local-service-quick-book": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "online-course-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "webinar-register-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "coaching-1on1-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-trust-credentials": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-retainer-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-engagement-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-case-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-thought-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-faq-authority": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-practice-nav": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-early-brief": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "consulting-b2b-minimal-consult": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "quote-request-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "ebook-magnet-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "product-demo-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "lead-magnet-checklist-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-enterprise": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-ai-modern": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "saas-trial-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-care-warm": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-premium-medical": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "clinic-booking-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-pricing": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-video": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "restaurant-promo-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-trust": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-cream-editorial": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-process": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-gallery": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-modern-saas": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-faq": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-split": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-form": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    },
+    "agency-portfolio-minimal": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "viewports": {
+        "desktop": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "tablet": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        },
+        "mobile": {
+          "CRITICAL": [],
+          "HIGH": [],
+          "MEDIUM": []
+        }
+      }
+    }
+  }
+}
