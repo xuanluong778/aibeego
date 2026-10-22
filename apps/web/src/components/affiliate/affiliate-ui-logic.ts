@@ -33,6 +33,6 @@ export function canRequestWithdraw(input: {
 }
 
 export function buildAffiliateLink(baseUrl: string, code: string): string {
-  const base = (baseUrl || 'https://marketingautoaz.com').replace(/\/$/, '');
+  const base = (baseUrl || 'https://aibeego.com').replace(/\/$/, '');
   return `${base}/register?ref=${encodeURIComponent(code)}`;
 }

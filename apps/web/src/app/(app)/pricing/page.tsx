@@ -419,7 +419,7 @@ function TrialCard({
       <section className="rounded-2xl border border-red-400/50 bg-[#0A3D31] p-6 text-white shadow-md">
         <h2 className="text-lg font-semibold text-red-300">Dùng thử đã kết thúc</h2>
         <p className="mt-2 text-sm text-white/90">
-          Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng MarketingAutoAZ.
+          Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng AI Beego.
         </p>
         {trial?.trialEndsAt && (
           <p className="mt-2 text-xs text-white/65">
@@ -557,7 +557,7 @@ function PricingPageInner() {
         <p className="mx-auto max-w-2xl text-muted-foreground">{t('pricing.subtitle')}</p>
         {reason === 'trial_expired' && (
           <p className="mx-auto max-w-2xl rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
-            Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng MarketingAutoAZ.
+            Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng AI Beego.
           </p>
         )}
         {reason === 'subscription_required' && (

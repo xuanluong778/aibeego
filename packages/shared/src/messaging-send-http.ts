@@ -154,7 +154,7 @@ async function uploadMessengerAttachmentFromUrl(params: {
         u.pathname.startsWith('/uploads/') &&
         (u.hostname === 'localhost' ||
           u.hostname === '127.0.0.1' ||
-          u.hostname.endsWith('marketingautoaz.com'))
+          u.hostname.endsWith('marketingautoaz.com') || u.hostname.endsWith('aibeego.com'))
       ) {
         const port = process.env.PORT || '4000';
         mediaUrl = `http://127.0.0.1:${port}${u.pathname}`;

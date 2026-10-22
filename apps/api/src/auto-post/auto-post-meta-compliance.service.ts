@@ -268,7 +268,7 @@ export class AutoPostMetaComplianceService {
     const appUrl = (
       this.config.get<string>('APP_URL') ??
       process.env.APP_URL ??
-      'https://marketingautoaz.com'
+      'https://aibeego.com'
     ).replace(/\/$/, '');
     return `${appUrl}/facebook/data-deletion/status/${encodeURIComponent(confirmationCode)}`;
   }

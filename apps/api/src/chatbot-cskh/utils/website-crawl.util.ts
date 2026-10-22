@@ -79,7 +79,7 @@ export async function fetchAndExtractUrl(url: string): Promise<CrawlExtractResul
           method: 'GET',
           redirect: 'manual',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; MarketingAutoAZ-ChatbotCrawler/1.0)',
+            'User-Agent': 'Mozilla/5.0 (compatible; AIBeego-ChatbotCrawler/1.0)',
             Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
           },
           signal: controller.signal,

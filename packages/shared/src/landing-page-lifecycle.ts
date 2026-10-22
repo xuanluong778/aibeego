@@ -259,7 +259,7 @@ export function createEmptyLandingPageSpec(theme: LandingPageTheme = 'MODERN'): 
         type: 'Footer',
         enabled: true,
         spacing: 'sm',
-        body: '© MarketingAutoAZ — Landing Page Auto',
+        body: '© AI Beego — Landing Page Auto',
       },
     ],
   };

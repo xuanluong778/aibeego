@@ -4,15 +4,15 @@ import { Shield, ChevronRight, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/brand/brand-logo';
 
-const SITE_URL = 'https://marketingautoaz.com';
+const SITE_URL = 'https://aibeego.com';
 const CONTACT_EMAIL = 'thegioimarketingdigi@gmail.com';
 const CONTACT_PHONE = '0934 077 360';
 const CONTACT_ADDRESS = '134/93 Lý Chính Thắng, Phường Xuân Hòa, Thành phố Hồ Chí Minh, Việt Nam';
 
 export const metadata: Metadata = {
-  title: 'Chính sách bảo mật | MarketingAutoAZ',
+  title: 'Chính sách bảo mật | AI Beego',
   description:
-    'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống MarketingAutoAZ - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Cam kết an toàn và minh bạch dữ liệu.',
+    'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Cam kết an toàn và minh bạch dữ liệu.',
   alternates: {
     canonical: `${SITE_URL}/privacy`,
   },
@@ -21,15 +21,15 @@ export const metadata: Metadata = {
     follow: true,
   },
   openGraph: {
-    title: 'Chính sách bảo mật | MarketingAutoAZ',
+    title: 'Chính sách bảo mật | AI Beego',
     description:
-      'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống MarketingAutoAZ - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
+      'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
     url: `${SITE_URL}/privacy`,
-    siteName: 'MarketingAutoAZ',
+    siteName: 'AI Beego',
     type: 'website',
     locale: 'vi_VN',
     images: [
-      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'MarketingAutoAZ' },
+      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'AI Beego' },
     ],
   },
 };
@@ -53,7 +53,7 @@ export default function PrivacyPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6">
-          <BrandLogo size={32} wordmark="MarketingAutoAZ" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/"
@@ -129,7 +129,7 @@ export default function PrivacyPage() {
                 1. Dữ liệu chúng tôi thu thập
               </h2>
               <p>
-                Để cung cấp dịch vụ quản lý và tự động hóa marketing tốt nhất, MarketingAutoAZ thu
+                Để cung cấp dịch vụ quản lý và tự động hóa marketing tốt nhất, AI Beego thu
                 thập các loại dữ liệu sau đây:
               </p>
               <ul className="list-disc pl-5 space-y-2">
@@ -233,7 +233,7 @@ export default function PrivacyPage() {
                 4. Tích hợp và truyền nhận dữ liệu với nền tảng bên thứ ba
               </h2>
               <p>
-                MarketingAutoAZ cung cấp các cổng kết nối đến các nền tảng lớn để tự động hóa quy
+                AI Beego cung cấp các cổng kết nối đến các nền tảng lớn để tự động hóa quy
                 trình làm việc. Bằng việc chủ động cấu hình kết nối, bạn cho phép chúng tôi truyền
                 nhận dữ liệu với:
               </p>
@@ -338,7 +338,7 @@ export default function PrivacyPage() {
                 7. Quyền của người dùng đối với dữ liệu cá nhân
               </h2>
               <p>
-                Khách hàng của MarketingAutoAZ được bảo đảm đầy đủ các quyền lợi đối với thông tin
+                Khách hàng của AI Beego được bảo đảm đầy đủ các quyền lợi đối với thông tin
                 cá nhân của mình:
               </p>
               <ul className="list-disc pl-5 space-y-2">

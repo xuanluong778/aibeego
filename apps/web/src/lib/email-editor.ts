@@ -49,7 +49,7 @@ export function defaultEmailBlocks(): EmailBlock[] {
       type: 'text',
       text: 'Cảm ơn bạn đã quan tâm. Đây là vài dòng dành riêng cho bạn tại {{company}}.',
     },
-    { id: newBlockId(), type: 'button', label: 'Đặt lịch ngay', url: 'https://marketingautoaz.com' },
+    { id: newBlockId(), type: 'button', label: 'Đặt lịch ngay', url: 'https://aibeego.com' },
     { id: newBlockId(), type: 'divider' },
     {
       id: newBlockId(),
@@ -104,7 +104,7 @@ export function blocksFromGenerated(content: GeneratedEmailContent): EmailBlock[
       id: newBlockId(),
       type: 'button',
       label: content.ctaLabel.trim(),
-      url: content.ctaUrl.trim() || 'https://marketingautoaz.com',
+      url: content.ctaUrl.trim() || 'https://aibeego.com',
     });
   }
   blocks.push({ id: newBlockId(), type: 'divider' });

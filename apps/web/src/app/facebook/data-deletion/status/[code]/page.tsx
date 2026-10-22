@@ -16,8 +16,8 @@ type StatusPayload = {
 };
 
 export const metadata: Metadata = {
-  title: 'Facebook data deletion status | MarketingAutoAZ',
-  description: 'Check the status of a Facebook data deletion request for MarketingAutoAZ.',
+  title: 'Facebook data deletion status | AI Beego',
+  description: 'Check the status of a Facebook data deletion request for AI Beego.',
   robots: { index: false, follow: false },
 };
 
@@ -25,7 +25,7 @@ async function fetchStatus(code: string): Promise<StatusPayload | null> {
   const apiBase = (
     process.env.API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    'https://marketingautoaz.com'
+    'https://aibeego.com'
   ).replace(/\/$/, '');
   const url = `${apiBase}/api/v1/auto-post/facebook/data-deletion/status/${encodeURIComponent(code)}`;
   try {
@@ -63,7 +63,7 @@ export default async function FacebookDataDeletionStatusPage({
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between px-4 py-4 sm:px-6">
-          <BrandLogo size={32} wordmark="MarketingAutoAZ" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-3">
             <Link
               href="/facebook/data-deletion"
@@ -89,7 +89,7 @@ export default async function FacebookDataDeletionStatusPage({
         </div>
         <h1 className="text-3xl font-extrabold text-white">Deletion request status</h1>
         <p className="mt-3 text-muted-foreground">
-          This page confirms the status of a Facebook data deletion request for MarketingAutoAZ.
+          This page confirms the status of a Facebook data deletion request for AI Beego.
         </p>
 
         <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-6">

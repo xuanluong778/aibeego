@@ -16,7 +16,7 @@ export const ZALO_OA_OAUTH_CALLBACK_PATH =
   '/api/v1/zalo-marketing/public/oauth/callback';
 
 export const ZALO_OA_OAUTH_CANONICAL_REDIRECT_URI =
-  'https://marketingautoaz.com/api/v1/zalo-marketing/public/oauth/callback';
+  'https://aibeego.com/api/v1/zalo-marketing/public/oauth/callback';
 
 export type ZaloOAuthStatePayload = {
   userId: string;

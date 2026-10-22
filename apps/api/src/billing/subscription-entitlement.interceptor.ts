@@ -75,7 +75,7 @@ export class SubscriptionEntitlementInterceptor implements NestInterceptor {
         ent.reason === 'TRIAL_EXPIRED' ? 'TRIAL_EXPIRED' : 'SUBSCRIPTION_REQUIRED';
       const message =
         ent.reason === 'TRIAL_EXPIRED'
-          ? 'Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng MarketingAutoAZ.'
+          ? 'Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng AI Beego.'
           : ent.reason === 'EXPIRED'
             ? 'Gói đã hết hạn. Vui lòng gia hạn để tiếp tục sử dụng.'
             : 'Vui lòng thanh toán hoặc kích hoạt dùng thử để sử dụng tính năng này.';

@@ -6,7 +6,7 @@ type RequestWithRawBody = Request & { rawBody?: Buffer };
 
 /**
  * Public Zalo OA webhook — production callback URL:
- *   POST https://marketingautoaz.com/api/v1/webhooks/zalo
+ *   POST https://aibeego.com/api/v1/webhooks/zalo
  *
  * Thin ingress: verify + enqueue via MessagingWebhookIngressService; always 200.
  * Alias of messaging path kept for backward compatibility.

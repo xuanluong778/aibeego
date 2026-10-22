@@ -349,7 +349,7 @@ async function importFacebookPublicHtml(
     await assertPublicHttpUrl(url);
     const fetched = await fetchPublicHtmlSafe(url, {
       userAgent:
-        'Mozilla/5.0 (compatible; MarketingAutoAZ-PolicyImporter/1.0; +https://marketingautoaz.com)',
+        'Mozilla/5.0 (compatible; AIBeego-PolicyImporter/1.0; +https://aibeego.com)',
       timeoutMs: 14_000,
       maxBytes: 2_000_000,
       maxRedirects: 4,

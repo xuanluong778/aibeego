@@ -49,6 +49,8 @@ export interface WsChatbotMessageNewPayload {
     origin: [
       process.env.NEXT_PUBLIC_APP_URL,
       process.env.APP_URL,
+      'https://aibeego.com',
+      'https://www.aibeego.com',
       'https://marketingautoaz.com',
       'https://www.marketingautoaz.com',
       'http://localhost:3000',

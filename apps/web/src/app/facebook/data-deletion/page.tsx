@@ -5,30 +5,30 @@ import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/brand/brand-logo';
 
 export const metadata: Metadata = {
-  title: 'Hướng dẫn xóa dữ liệu Facebook | MarketingAutoAZ',
+  title: 'Hướng dẫn xóa dữ liệu Facebook | AI Beego',
   description:
-    'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng MarketingAutoAZ trên Facebook/Meta. Quy trình xóa dữ liệu Fanpage, Messenger và token theo yêu cầu Meta.',
+    'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng AI Beego trên Facebook/Meta. Quy trình xóa dữ liệu Fanpage, Messenger và token theo yêu cầu Meta.',
   alternates: {
-    canonical: 'https://marketingautoaz.com/facebook/data-deletion',
+    canonical: 'https://aibeego.com/facebook/data-deletion',
   },
   robots: {
     index: true,
     follow: true,
   },
   openGraph: {
-    title: 'Hướng dẫn xóa dữ liệu Facebook | MarketingAutoAZ',
+    title: 'Hướng dẫn xóa dữ liệu Facebook | AI Beego',
     description:
-      'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng MarketingAutoAZ trên Facebook/Meta.',
-    url: 'https://marketingautoaz.com/facebook/data-deletion',
-    siteName: 'MarketingAutoAZ',
+      'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng AI Beego trên Facebook/Meta.',
+    url: 'https://aibeego.com/facebook/data-deletion',
+    siteName: 'AI Beego',
     type: 'website',
     locale: 'vi_VN',
     images: [
       {
-        url: 'https://marketingautoaz.com/brand/logo.png',
+        url: 'https://aibeego.com/brand/logo.png',
         width: 1024,
         height: 1024,
-        alt: 'MarketingAutoAZ',
+        alt: 'AI Beego',
       },
     ],
   },
@@ -53,7 +53,7 @@ export default function FacebookDataDeletionPage() {
     <div className="min-h-screen bg-background text-foreground scroll-smooth">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6">
-          <BrandLogo size={32} wordmark="MarketingAutoAZ" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/privacy"
@@ -89,7 +89,7 @@ export default function FacebookDataDeletionPage() {
           </h1>
           <p className="mt-4 text-base text-muted-foreground max-w-2xl">
             Trang này mô tả cách bạn (hoặc người dùng cuối) có thể yêu cầu xóa dữ liệu liên quan đến
-            Facebook Fanpage / Messenger mà MarketingAutoAZ đã lưu khi bạn kết nối ứng dụng. Nội
+            Facebook Fanpage / Messenger mà AI Beego đã lưu khi bạn kết nối ứng dụng. Nội
             dung tuân thủ yêu cầu Data Deletion Instructions của Meta.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
@@ -99,8 +99,8 @@ export default function FacebookDataDeletionPage() {
             <span className="hidden sm:inline">•</span>
             <span>
               Website:{' '}
-              <a href="https://marketingautoaz.com" className="text-[#F97316] hover:underline">
-                marketingautoaz.com
+              <a href="https://aibeego.com" className="text-[#F97316] hover:underline">
+                aibeego.com
               </a>
             </span>
             <span className="hidden sm:inline">•</span>
@@ -135,7 +135,7 @@ export default function FacebookDataDeletionPage() {
                 1. Tổng quan
               </h2>
               <p>
-                Khi bạn kết nối Fanpage / Messenger với MarketingAutoAZ, hệ thống có thể lưu một số
+                Khi bạn kết nối Fanpage / Messenger với AI Beego, hệ thống có thể lưu một số
                 thông tin cần thiết để vận hành chatbot CSKH, nhắn tin và tự động hóa marketing. Bạn
                 có quyền yêu cầu xóa các dữ liệu này bất kỳ lúc nào.
               </p>
@@ -194,7 +194,7 @@ export default function FacebookDataDeletionPage() {
                   .
                 </li>
                 <li>
-                  Tìm ứng dụng <strong>MarketingAutoAZ</strong> (hoặc tên App Meta tương ứng).
+                  Tìm ứng dụng <strong>AI Beego</strong> (hoặc tên App Meta tương ứng).
                 </li>
                 <li>
                   Chọn <strong>Xóa</strong> / <strong>Gỡ</strong> để thu hồi quyền truy cập.
@@ -220,11 +220,11 @@ export default function FacebookDataDeletionPage() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-3">Tiêu đề gợi ý</p>
                 <p className="text-white text-sm">
-                  [Xóa dữ liệu Facebook] — MarketingAutoAZ — [Email tài khoản của bạn]
+                  [Xóa dữ liệu Facebook] — AI Beego — [Email tài khoản của bạn]
                 </p>
                 <p className="text-xs text-muted-foreground mt-3">Nội dung cần có</p>
                 <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                  <li>Email / số điện thoại đăng ký trên MarketingAutoAZ</li>
+                  <li>Email / số điện thoại đăng ký trên AI Beego</li>
                   <li>Page ID hoặc tên Fanpage cần xóa liên kết</li>
                   <li>
                     Xác nhận: “Tôi yêu cầu xóa toàn bộ dữ liệu Facebook liên kết với tài khoản”
@@ -241,7 +241,7 @@ export default function FacebookDataDeletionPage() {
                 <li>
                   Đăng nhập{' '}
                   <Link href="/login" className="text-[#F97316] hover:underline">
-                    marketingautoaz.com
+                    aibeego.com
                   </Link>
                   .
                 </li>
@@ -259,7 +259,7 @@ export default function FacebookDataDeletionPage() {
                 </li>
                 <li>
                   Hoặc trên Facebook: <strong>Cài đặt</strong> →{' '}
-                  <strong>Ứng dụng và trang web</strong> → <strong>MarketingAutoAZ</strong> →{' '}
+                  <strong>Ứng dụng và trang web</strong> → <strong>AI Beego</strong> →{' '}
                   <strong>Gỡ</strong> để thu hồi toàn bộ quyền truy cập.
                 </li>
               </ol>
@@ -329,10 +329,10 @@ export default function FacebookDataDeletionPage() {
                       <br />
                       Website:{' '}
                       <a
-                        href="https://marketingautoaz.com"
+                        href="https://aibeego.com"
                         className="text-[#F97316] hover:underline"
                       >
-                        marketingautoaz.com
+                        aibeego.com
                       </a>
                     </span>
                   </div>

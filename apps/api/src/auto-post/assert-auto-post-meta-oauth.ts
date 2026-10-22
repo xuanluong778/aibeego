@@ -30,7 +30,7 @@ function isMarketingAutoazProduction(getEnv: (key: string) => string | undefined
   if (explicitUrls.length > 0) {
     return explicitUrls.some((value) => {
       const host = safeHostname(value);
-      return host === 'marketingautoaz.com' || host === 'www.marketingautoaz.com';
+      return host === 'marketingautoaz.com' || host === 'www.marketingautoaz.com' || host === 'aibeego.com' || host === 'www.aibeego.com';
     });
   }
   // Only infer production when no environment URL is available.
@@ -139,9 +139,9 @@ export function assertAutoPostMetaOAuthConfig(
         MARKETINGAUTOAZ_AUTO_POST_OAUTH_REDIRECT_URI,
     );
   }
-  if (host !== 'marketingautoaz.com' && host !== 'www.marketingautoaz.com') {
+  if (host !== 'marketingautoaz.com' && host !== 'www.marketingautoaz.com' && host !== 'aibeego.com' && host !== 'www.aibeego.com') {
     throw new Error(
-      `Redirect OAuth domain phải là marketingautoaz.com (hiện: ${host}).`,
+      `Redirect OAuth domain phải là aibeego.com hoặc marketingautoaz.com (hiện: ${host}).`,
     );
   }
   const expectedRedirect =

@@ -415,7 +415,7 @@ export async function fetchPublicHtmlSafe(
         timeoutMs,
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MarketingAutoAZ-LandingPageCrawl/1.0)',
+          'User-Agent': 'Mozilla/5.0 (compatible; AIBeego-LandingPageCrawl/1.0)',
           Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
         },
       });

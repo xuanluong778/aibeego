@@ -4,15 +4,15 @@ import { FileText, ChevronRight, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/brand/brand-logo';
 
-const SITE_URL = 'https://marketingautoaz.com';
+const SITE_URL = 'https://aibeego.com';
 const CONTACT_EMAIL = 'thegioimarketingdigi@gmail.com';
 const CONTACT_PHONE = '0934 077 360';
 const CONTACT_ADDRESS = '134/93 Lý Chính Thắng, Phường Xuân Hòa, Thành phố Hồ Chí Minh, Việt Nam';
 
 export const metadata: Metadata = {
-  title: 'Điều khoản dịch vụ | MarketingAutoAZ',
+  title: 'Điều khoản dịch vụ | AI Beego',
   description:
-    'Điều khoản dịch vụ và quy định sử dụng nền tảng MarketingAutoAZ - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Xem chi tiết quyền lợi và nghĩa vụ của người dùng.',
+    'Điều khoản dịch vụ và quy định sử dụng nền tảng AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Xem chi tiết quyền lợi và nghĩa vụ của người dùng.',
   alternates: {
     canonical: `${SITE_URL}/terms`,
   },
@@ -21,15 +21,15 @@ export const metadata: Metadata = {
     follow: true,
   },
   openGraph: {
-    title: 'Điều khoản dịch vụ | MarketingAutoAZ',
+    title: 'Điều khoản dịch vụ | AI Beego',
     description:
-      'Điều khoản dịch vụ và quy định sử dụng nền tảng MarketingAutoAZ - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
+      'Điều khoản dịch vụ và quy định sử dụng nền tảng AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
     url: `${SITE_URL}/terms`,
-    siteName: 'MarketingAutoAZ',
+    siteName: 'AI Beego',
     type: 'website',
     locale: 'vi_VN',
     images: [
-      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'MarketingAutoAZ' },
+      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'AI Beego' },
     ],
   },
 };
@@ -57,7 +57,7 @@ export default function TermsPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6">
-          <BrandLogo size={32} wordmark="MarketingAutoAZ" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/"
@@ -87,7 +87,7 @@ export default function TermsPage() {
             Điều khoản dịch vụ
           </h1>
           <p className="mt-4 text-base text-muted-foreground max-w-2xl">
-            Chào mừng bạn đến với MarketingAutoAZ. Vui lòng đọc kỹ các điều khoản sử dụng dưới đây
+            Chào mừng bạn đến với AI Beego. Vui lòng đọc kỹ các điều khoản sử dụng dưới đây
             trước khi bắt đầu sử dụng các tính năng trên hệ thống của chúng tôi.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
@@ -133,7 +133,7 @@ export default function TermsPage() {
               </h2>
               <p>
                 Bằng việc đăng ký tài khoản, truy cập hoặc sử dụng bất kỳ dịch vụ nào do nền tảng{' '}
-                <strong>MarketingAutoAZ</strong> cung cấp, bạn xác nhận rằng bạn đã đọc, hiểu và
+                <strong>AI Beego</strong> cung cấp, bạn xác nhận rằng bạn đã đọc, hiểu và
                 đồng ý chịu sự ràng buộc bởi các Điều khoản dịch vụ này, cùng với{' '}
                 <Link href="/privacy" className="text-[#F97316] hover:underline">
                   Chính sách bảo mật
@@ -142,7 +142,7 @@ export default function TermsPage() {
               </p>
               <p>
                 Nếu bạn không đồng ý với bất kỳ phần nào trong các điều khoản này, vui lòng không
-                đăng ký hoặc ngừng sử dụng toàn bộ dịch vụ của MarketingAutoAZ ngay lập tức. Việc
+                đăng ký hoặc ngừng sử dụng toàn bộ dịch vụ của AI Beego ngay lập tức. Việc
                 bạn tiếp tục sử dụng dịch vụ sau khi các điều khoản có sự thay đổi sẽ được coi là
                 bạn đã chấp nhận các sửa đổi đó.
               </p>
@@ -183,7 +183,7 @@ export default function TermsPage() {
                 3. Gói dịch vụ, thanh toán, thời hạn, dùng thử và credit
               </h2>
               <p>
-                MarketingAutoAZ cung cấp các gói dịch vụ trả phí định kỳ (theo tháng hoặc theo năm)
+                AI Beego cung cấp các gói dịch vụ trả phí định kỳ (theo tháng hoặc theo năm)
                 và các dịch vụ phụ trợ đi kèm.
               </p>
               <ul className="list-disc pl-5 space-y-2">
@@ -217,7 +217,7 @@ export default function TermsPage() {
                 4. Trách nhiệm kiểm tra nội dung do trí tuệ nhân tạo (AI) tạo ra
               </h2>
               <p>
-                Dịch vụ Content AI của MarketingAutoAZ sử dụng các mô hình ngôn ngữ lớn (LLM) để hỗ
+                Dịch vụ Content AI của AI Beego sử dụng các mô hình ngôn ngữ lớn (LLM) để hỗ
                 trợ người dùng tạo ra nội dung tiếp thị, bài viết mạng xã hội hoặc trả lời tin nhắn
                 tự động.
               </p>
@@ -258,7 +258,7 @@ export default function TermsPage() {
                 <li>
                   Chúng tôi không kiểm soát và không chịu trách nhiệm trong trường hợp bên thứ ba
                   thay đổi chính sách, cơ chế API, tạm dừng dịch vụ hoặc thu hồi mã token truy cập,
-                  làm gián đoạn tính năng liên kết của MarketingAutoAZ.
+                  làm gián đoạn tính năng liên kết của AI Beego.
                 </li>
                 <li>
                   Bạn có quyền ngắt kết nối với các ứng dụng bên thứ ba này bất kỳ lúc nào thông qua
@@ -329,7 +329,7 @@ export default function TermsPage() {
                 8. Quyền sở hữu trí tuệ
               </h2>
               <p>
-                Toàn bộ nền tảng MarketingAutoAZ, bao gồm giao diện người dùng, logo thương hiệu, mã
+                Toàn bộ nền tảng AI Beego, bao gồm giao diện người dùng, logo thương hiệu, mã
                 nguồn ứng dụng, tài liệu hướng dẫn, hình ảnh đồ họa và cấu trúc cơ sở dữ liệu đều
                 thuộc sở hữu độc quyền của <strong>CÔNG TY TNHH THẾ GIỚI DIGI</strong> hoặc các đối
                 tác được cấp phép. Bạn không được quyền sao chép, sửa đổi, phân phối hoặc sử dụng
@@ -393,7 +393,7 @@ export default function TermsPage() {
                 11. Giới hạn trách nhiệm pháp lý
               </h2>
               <p>
-                Dịch vụ MarketingAutoAZ được cung cấp trên cơ sở nguyên trạng &ldquo;như hiện
+                Dịch vụ AI Beego được cung cấp trên cơ sở nguyên trạng &ldquo;như hiện
                 có&rdquo; và &ldquo;sẵn có&rdquo;. Chúng tôi không đưa ra bất kỳ bảo đảm nào rằng
                 dịch vụ sẽ liên tục không bị gián đoạn, hoàn hảo không có lỗi kỹ thuật, hoặc mọi kết
                 quả tiếp thị từ việc sử dụng công cụ đều đạt được doanh thu mong muốn.

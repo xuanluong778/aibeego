@@ -72,7 +72,7 @@ export function AffiliateDashboard() {
   const link = useMemo(() => {
     if (!data?.profile?.code) return '';
     if (data.profile.referralLink) return data.profile.referralLink;
-    return buildAffiliateLink(data.settings?.publicBaseUrl || 'https://marketingautoaz.com', data.profile.code);
+    return buildAffiliateLink(data.settings?.publicBaseUrl || 'https://aibeego.com', data.profile.code);
   }, [data]);
 
   const copyLink = useCallback(async () => {

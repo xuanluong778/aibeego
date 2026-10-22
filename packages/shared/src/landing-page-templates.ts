@@ -184,7 +184,7 @@ function buildTemplate(input: {
     enabled: true,
     spacing: 'sm',
     headline: input.name,
-    body: `© ${new Date().getFullYear()} ${input.name} — Powered by MarketingAutoAZ`,
+    body: `© ${new Date().getFullYear()} ${input.name} — Powered by AI Beego`,
   });
   return {
     slug: input.slug,
@@ -240,7 +240,7 @@ function buildWebinarTemplate(): LandingPageTemplateDefinition {
       theme,
       themeTokens,
       seo: {
-        title: 'Webinar AI & Automation | MarketingAutoAZ',
+        title: 'Webinar AI & Automation | AI Beego',
         metaDescription:
           'Đăng ký webinar miễn phí: framework AI/Automation tăng doanh thu bền vững — nhận slide & checklist.',
         canonical: null,
@@ -254,7 +254,7 @@ function buildWebinarTemplate(): LandingPageTemplateDefinition {
           type: 'Header',
           enabled: true,
           spacing: 'none',
-          headline: 'MarketingAutoAZ',
+          headline: 'AI Beego',
           body: 'Trang chủ|Webinar|Tài nguyên|Liên hệ',
           ctaLabel: 'Đăng ký ngay',
           ctaUrl: '#lead-form',
@@ -469,8 +469,8 @@ function buildWebinarTemplate(): LandingPageTemplateDefinition {
           type: 'Footer',
           enabled: true,
           spacing: 'sm',
-          headline: 'MarketingAutoAZ',
-          body: `© ${new Date().getFullYear()} MarketingAutoAZ — Webinar AI & Automation`,
+          headline: 'AI Beego',
+          body: `© ${new Date().getFullYear()} AI Beego — Webinar AI & Automation`,
         },
       ],
     },

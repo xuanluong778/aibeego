@@ -198,7 +198,7 @@ export function ZaloOaConnectionsPanel() {
             </p>
             <p className="text-xs text-muted-foreground font-normal">
               Webhook:{' '}
-              <code className="text-[11px]">https://marketingautoaz.com/api/v1/webhooks/zalo</code>
+              <code className="text-[11px]">https://aibeego.com/api/v1/webhooks/zalo</code>
             </p>
           </div>
           <Button size="sm" onClick={() => setOpen(true)}>

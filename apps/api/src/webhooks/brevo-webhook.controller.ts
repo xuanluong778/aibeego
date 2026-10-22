@@ -15,7 +15,7 @@ type RequestWithRawBody = Request & { rawBody?: Buffer };
 
 /**
  * Public Brevo transactional webhook:
- *   POST https://marketingautoaz.com/api/v1/webhooks/brevo
+ *   POST https://aibeego.com/api/v1/webhooks/brevo
  *
  * Auth: header `x-maz-brevo-secret` (or `x-brevo-webhook-secret`) = BREVO_WEBHOOK_SECRET.
  * Always responds quickly with 2xx after accept; processing is sync but lightweight.

@@ -20,7 +20,7 @@ export const PRESET_EMAIL_TEMPLATES: PresetEmailTemplate[] = [
     heading: 'Xin chào {{firstName}},',
     body: 'Cảm ơn bạn đã để lại thông tin. Đội ngũ {{company}} rất vui được đồng hành cùng bạn.\n\nBạn có thể trả lời email này khi muốn được tư vấn liệu trình phù hợp.',
     ctaLabel: 'Đặt lịch tư vấn',
-    ctaUrl: 'https://marketingautoaz.com',
+    ctaUrl: 'https://aibeego.com',
   },
   {
     category: 'nurturing',
@@ -30,7 +30,7 @@ export const PRESET_EMAIL_TEMPLATES: PresetEmailTemplate[] = [
     heading: 'Dành riêng cho {{firstName}}',
     body: 'Nếu bạn đang cân nhắc liệu trình, hãy bắt đầu với buổi tư vấn 15 phút — không phát sinh chi phí.\n\nInbox này cũng là nơi {{company}} gửi ưu đãi theo nhu cầu của bạn.',
     ctaLabel: 'Chọn khung giờ',
-    ctaUrl: 'https://marketingautoaz.com',
+    ctaUrl: 'https://aibeego.com',
   },
   {
     category: 'voucher',
@@ -40,7 +40,7 @@ export const PRESET_EMAIL_TEMPLATES: PresetEmailTemplate[] = [
     heading: 'Một lời cảm ơn gửi {{firstName}}',
     body: 'Cảm ơn bạn đã tin tưởng {{company}}. Chúng tôi gửi bạn ưu đãi để dành cho lần trải nghiệm tiếp theo.\n\nĐưa mã khi đặt lịch: CAMON-{{firstName}}',
     ctaLabel: 'Dùng voucher',
-    ctaUrl: 'https://marketingautoaz.com',
+    ctaUrl: 'https://aibeego.com',
   },
   {
     category: 'birthday',
@@ -50,7 +50,7 @@ export const PRESET_EMAIL_TEMPLATES: PresetEmailTemplate[] = [
     heading: 'Chúc mừng sinh nhật {{firstName}}!',
     body: '{{company}} chúc bạn một năm mới thật rạng rỡ. Đến spa trong tháng sinh nhật để nhận liệu trình tri ân.',
     ctaLabel: 'Nhận quà sinh nhật',
-    ctaUrl: 'https://marketingautoaz.com',
+    ctaUrl: 'https://aibeego.com',
   },
   {
     category: 'reengagement',
@@ -60,7 +60,7 @@ export const PRESET_EMAIL_TEMPLATES: PresetEmailTemplate[] = [
     heading: '{{firstName}} ơi, mình nhắc bạn một chút',
     body: 'Bạn chưa xem email trước của {{company}}. Nếu vẫn quan tâm, hãy mở lịch trống tuần này — chúng tôi giữ ưu đãi đến hết tuần.',
     ctaLabel: 'Xem lịch trống',
-    ctaUrl: 'https://marketingautoaz.com',
+    ctaUrl: 'https://aibeego.com',
   },
 ];
 

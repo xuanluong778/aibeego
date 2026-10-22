@@ -40,7 +40,7 @@ export const vi: Dictionary = {
     saving: 'Đang lưu…',
     saved: 'Đã lưu',
     saveFailed: 'Lưu thất bại',
-    brandName: 'Marketing Auto AZ',
+    brandName: 'AI Beego',
     more: 'Thêm',
     copy: 'Sao chép',
     archive: 'Lưu trữ',
@@ -290,7 +290,7 @@ export const vi: Dictionary = {
     hasAccount: 'Đã có tài khoản?',
     logout: 'Đăng xuất',
     verifyOtp: 'Xác minh OTP',
-    loginDescription: 'Marketing Auto AZ — nền tảng Marketing Auto',
+    loginDescription: 'AI Beego — nền tảng Marketing Auto',
     orEmail: 'hoặc email',
     verifyEmailTitle: 'Xác minh email',
     verifyEmailDescription: 'Nhập mã OTP 6 số gửi về Gmail để hoàn tất đăng ký',
@@ -2114,7 +2114,7 @@ export const vi: Dictionary = {
     syncKeepOld: 'Không đồng bộ được từ Facebook. Dữ liệu cũ được giữ nguyên.',
     scopeShowListTitle: 'Quyền pages_show_list',
     scopeShowListBody:
-      'MarketingAutoAZ sử dụng quyền pages_show_list để hiển thị những Fanpage mà người dùng được Facebook cho phép quản lý. Người dùng tự chọn Fanpage muốn kết nối. Hệ thống không tự động kết nối hoặc đăng bài lên Fanpage chưa được chọn.',
+      'AI Beego sử dụng quyền pages_show_list để hiển thị những Fanpage mà người dùng được Facebook cho phép quản lý. Người dùng tự chọn Fanpage muốn kết nối. Hệ thống không tự động kết nối hoặc đăng bài lên Fanpage chưa được chọn.',
     scopeReadTitle: 'Quyền pages_read_engagement',
     scopeReadBody:
       'Nút Đồng bộ thông tin Fanpage và Làm mới từ Facebook gọi Facebook Graph API bằng Page Access Token (quyền pages_read_engagement) để đọc metadata Page và bài viết do chính Fanpage đã đăng. Dữ liệu không lấy từ cache/database cũ. Auto Post vẫn dùng riêng quyền pages_manage_posts để đăng bài.',

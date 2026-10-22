@@ -901,7 +901,7 @@ export class AffiliateService {
     },
     settings?: { publicBaseUrl: string },
   ) {
-    const base = settings?.publicBaseUrl || 'https://marketingautoaz.com';
+    const base = settings?.publicBaseUrl || 'https://aibeego.com';
     return {
       id: p.id,
       code: p.code,

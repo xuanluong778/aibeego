@@ -5705,7 +5705,7 @@ model AffiliateSetting {
   cookieDays               Int      @default(30) @map("cookie_days")
   firstOrderOnlyDefault    Boolean  @default(true) @map("first_order_only_default")
   allowRenewalCommission   Boolean  @default(false) @map("allow_renewal_commission")
-  publicBaseUrl            String   @default("https://marketingautoaz.com") @map("public_base_url")
+  publicBaseUrl            String   @default("https://aibeego.com") @map("public_base_url")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("affiliate_settings")

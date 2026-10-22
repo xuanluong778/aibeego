@@ -3,7 +3,7 @@ import { lookupCname, normalizeSenderDomain, isValidSenderDomain } from '../emai
 /** Default CNAME target for MarketingAutoAZ landing pages (Dev). Override via env. */
 export function landingPageCnameTarget(): string {
   const fromEnv = process.env.LANDING_PAGE_CNAME_TARGET?.trim().toLowerCase();
-  return (fromEnv || 'lp-edge.dev.marketingautoaz.com').replace(/\.$/, '');
+  return (fromEnv || 'lp-edge.aibeego.com').replace(/\.$/, '');
 }
 
 export function normalizeLandingCustomDomain(input: string): string {

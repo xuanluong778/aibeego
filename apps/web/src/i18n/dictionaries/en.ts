@@ -40,7 +40,7 @@ export const en: Dictionary = {
     saving: 'Saving…',
     saved: 'Saved',
     saveFailed: 'Save failed',
-    brandName: 'Marketing Auto AZ',
+    brandName: 'AI Beego',
     more: 'More',
     copy: 'Copy',
     archive: 'Archive',
@@ -290,7 +290,7 @@ export const en: Dictionary = {
     hasAccount: 'Already have an account?',
     logout: 'Sign out',
     verifyOtp: 'Verify OTP',
-    loginDescription: 'Marketing Auto AZ — marketing automation platform',
+    loginDescription: 'AI Beego — marketing automation platform',
     orEmail: 'or email',
     verifyEmailTitle: 'Verify email',
     verifyEmailDescription: 'Enter the 6-digit OTP sent to your Gmail to complete registration',
@@ -2112,7 +2112,7 @@ export const en: Dictionary = {
     syncKeepOld: 'Could not sync from Facebook. Previous data is kept.',
     scopeShowListTitle: 'pages_show_list permission',
     scopeShowListBody:
-      'MarketingAutoAZ uses the pages_show_list permission to show Fanpages Facebook allows the user to manage. The user chooses which Fanpages to connect. The system does not auto-connect or publish to Fanpages that were not selected.',
+      'AI Beego uses the pages_show_list permission to show Fanpages Facebook allows the user to manage. The user chooses which Fanpages to connect. The system does not auto-connect or publish to Fanpages that were not selected.',
     scopeReadTitle: 'pages_read_engagement permission',
     scopeReadBody:
       'Sync Page information and Refresh from Facebook call the Facebook Graph API with a Page Access Token (pages_read_engagement) to read Page metadata and posts published by the Page itself. Data is not taken from an old cache or database. Auto Post still uses pages_manage_posts separately to publish.',

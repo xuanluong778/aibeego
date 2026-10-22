@@ -12,12 +12,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/brand/brand-logo';
 
-const SITE_URL = 'https://marketingautoaz.com';
+const SITE_URL = 'https://aibeego.com';
 
 export const metadata: Metadata = {
-  title: 'Facebook Fanpage Integration | MarketingAutoAZ',
+  title: 'Facebook Fanpage Integration | AI Beego',
   description:
-    'How MarketingAutoAZ uses Facebook Login for Business and pages_show_list to list and connect Fanpages you manage for Auto Post.',
+    'How AI Beego uses Facebook Login for Business and pages_show_list to list and connect Fanpages you manage for Auto Post.',
   alternates: {
     canonical: `${SITE_URL}/facebook-integration`,
   },
@@ -26,15 +26,15 @@ export const metadata: Metadata = {
     follow: true,
   },
   openGraph: {
-    title: 'Facebook Fanpage Integration | MarketingAutoAZ',
+    title: 'Facebook Fanpage Integration | AI Beego',
     description:
-      'MarketingAutoAZ connects Fanpages you manage via Facebook Login for Business (pages_show_list) for scheduled publishing.',
+      'AI Beego connects Fanpages you manage via Facebook Login for Business (pages_show_list) for scheduled publishing.',
     url: `${SITE_URL}/facebook-integration`,
-    siteName: 'MarketingAutoAZ',
+    siteName: 'AI Beego',
     type: 'website',
     locale: 'en_US',
     images: [
-      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'MarketingAutoAZ' },
+      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'AI Beego' },
     ],
   },
 };
@@ -52,7 +52,7 @@ export default function FacebookIntegrationPage() {
     <div className="min-h-screen bg-background text-foreground scroll-smooth">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between px-4 py-4 sm:px-6">
-          <BrandLogo size={32} wordmark="MarketingAutoAZ" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/privacy"
@@ -87,7 +87,7 @@ export default function FacebookIntegrationPage() {
             Facebook Fanpage integration
           </h1>
           <p className="mt-4 max-w-3xl text-base text-muted-foreground">
-            MarketingAutoAZ uses Facebook Login for Business so spa / business owners can connect
+            AI Beego uses Facebook Login for Business so spa / business owners can connect
             Fanpages they manage and schedule posts from Content Studio. We request{' '}
             <code className="rounded bg-white/10 px-1.5 py-0.5 text-sm text-white">
               pages_show_list
@@ -136,7 +136,7 @@ export default function FacebookIntegrationPage() {
               1. Purpose of <span className="text-[#F97316]">pages_show_list</span>
             </h2>
             <p>
-              After Facebook Login for Business, MarketingAutoAZ calls Meta Graph{' '}
+              After Facebook Login for Business, AI Beego calls Meta Graph{' '}
               <code className="rounded bg-white/10 px-1 text-white">/me/accounts</code> to retrieve
               Fanpages the user manages. <strong className="text-white">pages_show_list</strong>{' '}
               is required for that listing step.
@@ -160,7 +160,7 @@ export default function FacebookIntegrationPage() {
             </h2>
             <ol className="list-decimal space-y-2 pl-5">
               <li>
-                Sign in to MarketingAutoAZ → Content Studio →{' '}
+                Sign in to AI Beego → Content Studio →{' '}
                 <Link className="text-[#F97316] hover:underline" href="/content?tab=channels">
                   Kết nối Fanpage
                 </Link>
@@ -256,7 +256,7 @@ export default function FacebookIntegrationPage() {
           <section className="rounded-xl border border-white/10 bg-white/5 p-5">
             <h3 className="mb-2 text-lg font-semibold text-white">Tiếng Việt (tóm tắt)</h3>
             <p>
-              MarketingAutoAZ dùng Facebook Login for Business và quyền{' '}
+              AI Beego dùng Facebook Login for Business và quyền{' '}
               <strong className="text-white">pages_show_list</strong> để liệt kê Fanpage mà bạn
               quản lý, rồi cho phép chọn/lưu Fanpage để Auto Post. Không kết nối Page bạn không
               quản trị. Vào{' '}

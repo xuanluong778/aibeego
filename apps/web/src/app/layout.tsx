@@ -11,7 +11,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Marketing Auto AZ - Nền tảng marketing automation',
+  title: 'AI Beego - Nền tảng Marketing Automation',
   description: 'SaaS marketing automation dành cho spa, thẩm mỹ và doanh nghiệp dịch vụ',
   icons: {
     icon: [{ url: '/favicon.png', type: 'image/png' }],
@@ -19,9 +19,9 @@ export const metadata: Metadata = {
     apple: '/favicon.png',
   },
   openGraph: {
-    title: 'Marketing Auto AZ',
+    title: 'AI Beego',
     description: 'Nền tảng marketing automation',
-    images: [{ url: '/brand/logo.png', width: 1024, height: 1024, alt: 'Marketing Auto AZ' }],
+    images: [{ url: '/brand/logo.png', width: 1024, height: 1024, alt: 'AI Beego' }],
   },
 };
 

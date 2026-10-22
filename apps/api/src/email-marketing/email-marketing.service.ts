@@ -2121,7 +2121,7 @@ Quy tắc:
 - subject tối đa 70 ký tự, previewText tối đa 90 ký tự.
 - heading 1 câu, body 2-4 đoạn, có CTA rõ.
 - Dùng {{firstName}}, {{email}}, {{company}} khi hợp lý (không bịa dữ liệu khách).
-- ctaUrl luôn https://marketingautoaz.com trừ khi mô tả nêu link khác.
+- ctaUrl luôn https://aibeego.com trừ khi mô tả nêu link khác.
 - footer 1-2 dòng, không spam.`,
         },
         { role: 'user', content: prompt.trim() },
@@ -2149,7 +2149,7 @@ Quy tắc:
         `Cảm ơn bạn đã quan tâm. Chúng tôi dành một ưu đãi ngắn cho {{firstName}} tại {{company}}.\n\n${prompt.trim()}`,
       ),
       ctaLabel: str('ctaLabel', 'Đặt lịch ngay'),
-      ctaUrl: str('ctaUrl', 'https://marketingautoaz.com'),
+      ctaUrl: str('ctaUrl', 'https://aibeego.com'),
       footer: str('footer', 'Bạn nhận email này vì đã để lại thông tin liên hệ.\n{{company}}'),
     };
       },
@@ -2184,7 +2184,7 @@ Quy tắc:
       provider.name === 'ses'
         ? sesFromEmail()
         : (process.env.SMTP_FROM || '').trim() ||
-          `MarketingAutoAZ <${(process.env.SMTP_USER || 'noreply@marketingautoaz.com').trim()}>`;
+          `AI Beego <${(process.env.SMTP_USER || 'noreply@aibeego.com').trim()}>`;
     try {
       await provider.send({
         to,

@@ -478,7 +478,7 @@ export default function LandingPagesCreatePage() {
               <Label>Tên thương hiệu</Label>
               <Input
                 className="mt-1"
-                placeholder="VD: Marketing Auto AZ"
+                placeholder="VD: AI Beego"
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
                 disabled={busy}

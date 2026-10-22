@@ -55,12 +55,12 @@ function renderMerge(template: string, vars: Record<string, string>): string {
 }
 
 function publicApiBase(): string {
-  const app = (process.env.APP_URL || 'https://marketingautoaz.com').replace(/\/$/, '');
+  const app = (process.env.APP_URL || 'https://aibeego.com').replace(/\/$/, '');
   return `${app}/api/v1/email-marketing/public`;
 }
 
 function unsubscribePageUrl(recipientId: string) {
-  const app = (process.env.APP_URL || 'https://marketingautoaz.com').replace(/\/$/, '');
+  const app = (process.env.APP_URL || 'https://aibeego.com').replace(/\/$/, '');
   return `${app}/email-unsubscribe?rid=${encodeURIComponent(recipientId)}`;
 }
 

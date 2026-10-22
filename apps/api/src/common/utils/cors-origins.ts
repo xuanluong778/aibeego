@@ -13,6 +13,8 @@ export function resolveCorsOrigins(env: NodeJS.ProcessEnv = process.env): string
     env.NEXT_PUBLIC_APP_URL,
     env.WEB_URL,
     env.DOMAIN ? `https://${env.DOMAIN.replace(/^https?:\/\//, '')}` : '',
+    'https://aibeego.com',
+    'https://www.aibeego.com',
     'https://marketingautoaz.com',
     'https://www.marketingautoaz.com',
   ]

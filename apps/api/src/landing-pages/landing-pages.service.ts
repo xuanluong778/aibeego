@@ -456,7 +456,7 @@ export class LandingPagesService implements OnModuleInit {
       archived,
       templates,
       recent,
-      defaultSubdomainHint: '{slug}.lp.dev.marketingautoaz.com',
+      defaultSubdomainHint: '{slug}.lp.aibeego.com',
     };
   }
 
@@ -911,7 +911,7 @@ export class LandingPagesService implements OnModuleInit {
     return {
       items,
       architecture: {
-        defaultSubdomain: '{subdomainSlug}.lp.dev.marketingautoaz.com',
+        defaultSubdomain: '{subdomainSlug}.lp.aibeego.com',
         customDomain: `CNAME → ${target}`,
         statuses: ['PENDING', 'VERIFYING', 'ACTIVE', 'FAILED'],
       },
