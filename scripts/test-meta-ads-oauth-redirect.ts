@@ -20,7 +20,7 @@ function read(rel: string) {
 function testCanonicalConstant() {
   assert.equal(
     MARKETINGAUTOAZ_META_ADS_OAUTH_REDIRECT_URI,
-    'https://marketingautoaz.com/api/v1/ad-performance/facebook/oauth/callback',
+    'https://aibeego.com/api/v1/ad-performance/facebook/oauth/callback',
   );
   assert.ok(!MARKETINGAUTOAZ_META_ADS_OAUTH_REDIRECT_URI.endsWith('/'));
   assert.ok(!MARKETINGAUTOAZ_META_ADS_OAUTH_REDIRECT_URI.includes('auto-post'));
@@ -33,7 +33,7 @@ function testResolveProduction() {
       APP_URL: 'https://marketingautoaz.com',
       API_URL: 'https://marketingautoaz.com',
       META_ADS_REDIRECT_URI:
-        'https://marketingautoaz.com/api/v1/ad-performance/facebook/oauth/callback',
+        'https://aibeego.com/api/v1/ad-performance/facebook/oauth/callback',
     };
     return map[k];
   });
@@ -46,14 +46,14 @@ function testTrailingSlashNormalized() {
     const map: Record<string, string> = {
       APP_URL: 'https://marketingautoaz.com',
       META_ADS_REDIRECT_URI:
-        'https://marketingautoaz.com/api/v1/ad-performance/facebook/oauth/callback/',
+        'https://aibeego.com/api/v1/ad-performance/facebook/oauth/callback/',
     };
     return map[k];
   });
   assert.equal(uri, MARKETINGAUTOAZ_META_ADS_OAUTH_REDIRECT_URI);
   assert.equal(
     normalizeOAuthRedirectUri(
-      'https://marketingautoaz.com/api/v1/ad-performance/facebook/oauth/callback/',
+      'https://aibeego.com/api/v1/ad-performance/facebook/oauth/callback/',
     ),
     MARKETINGAUTOAZ_META_ADS_OAUTH_REDIRECT_URI,
   );
@@ -83,7 +83,7 @@ function testRejectAutoPostCallback() {
         const map: Record<string, string> = {
           APP_URL: 'https://marketingautoaz.com',
           META_ADS_REDIRECT_URI:
-            'https://marketingautoaz.com/api/v1/auto-post/facebook/oauth/callback',
+            'https://aibeego.com/api/v1/auto-post/facebook/oauth/callback',
         };
         return map[k];
       }),

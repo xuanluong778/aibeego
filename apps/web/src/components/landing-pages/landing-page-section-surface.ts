@@ -9,6 +9,7 @@ import type { LandingPageCanvasStyle } from '@marketingspa/shared';
 import type { CSSProperties } from 'react';
 import type { LandingPageBlock } from '@marketingspa/shared';
 import { landingPageDesignChromeStyle } from './landing-page-block-design-style';
+import { sectionSettingsActive } from './landing-page-section-settings';
 
 export type SectionBgFlip = { x?: boolean; y?: boolean };
 
@@ -40,6 +41,26 @@ export function landingPageSectionSurfaceStyle(
     lpBgFlip?: string;
     lpBgMotion?: string;
   };
+  if (sectionSettingsActive(st)) {
+    const chrome = landingPageDesignChromeStyle(st as Record<string, unknown>);
+    const {
+      opacity: _opacity,
+      border: _border,
+      borderRadius: _radius,
+      borderTopLeftRadius: _tl,
+      borderTopRightRadius: _tr,
+      borderBottomRightRadius: _br,
+      borderBottomLeftRadius: _bl,
+      boxShadow: _shadow,
+      backgroundImage: _image,
+      ...rest
+    } = chrome;
+    return {
+      ...rest,
+      background: 'transparent',
+      backgroundImage: 'none',
+    };
+  }
   const flip = parseSectionBgFlip(st);
   const hasImage = Boolean(st.backgroundImage);
   const transform =

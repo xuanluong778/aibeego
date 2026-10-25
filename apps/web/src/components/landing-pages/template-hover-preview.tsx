@@ -9,6 +9,10 @@ type Props = {
   className?: string;
   /** Disable hover scroll (e.g. touch devices). */
   enableHoverScroll?: boolean;
+  /** Fill parent height (e.g. inside iMac screen inset). */
+  fitContainer?: boolean;
+  /** Hide bottom vignette (used when clipped by device frame). */
+  hideBottomFade?: boolean;
 };
 
 /**
@@ -21,6 +25,8 @@ export function TemplateHoverPreview({
   alt,
   className = '',
   enableHoverScroll = true,
+  fitContainer = false,
+  hideBottomFade = false,
 }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -68,8 +74,8 @@ export function TemplateHoverPreview({
   return (
     <div
       ref={frameRef}
-      className={`relative overflow-hidden bg-neutral-200/80 ${className}`}
-      style={{ aspectRatio: '16 / 10' }}
+      className={`relative overflow-hidden bg-neutral-200/80 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${fitContainer ? 'h-full w-full' : ''} ${className}`}
+      style={fitContainer ? { overflow: 'hidden' } : { aspectRatio: '16 / 10', overflow: 'hidden' }}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
@@ -86,10 +92,11 @@ export function TemplateHoverPreview({
         alt={alt}
         width={640}
         height={400}
+        sizes="(max-width: 640px) 100vw, 320px"
         loading="lazy"
         decoding="async"
         draggable={false}
-        className="pointer-events-none absolute left-0 top-0 w-full max-w-none select-none will-change-transform"
+        className="pointer-events-none absolute left-0 top-0 h-auto w-full max-w-none select-none object-cover object-top will-change-transform"
         style={{
           // Intrinsic ratio reserved by parent aspect-ratio — avoids CLS.
           transform: hovering && scrollPx > 0 ? `translate3d(0, -${scrollPx}px, 0)` : 'translate3d(0, 0, 0)',
@@ -102,10 +109,12 @@ export function TemplateHoverPreview({
           if (hovering) measure();
         }}
       />
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/35 to-transparent opacity-80"
-        aria-hidden
-      />
+      {!hideBottomFade ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/35 to-transparent opacity-80"
+          aria-hidden
+        />
+      ) : null}
     </div>
   );
 }

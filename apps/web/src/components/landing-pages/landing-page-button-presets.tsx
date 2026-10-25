@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { beginSidebarPresetDrag } from './landing-page-sidebar-dnd';
+import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag } from './landing-page-sidebar-dnd';
 import { cn } from '@/lib/utils';
 
 /** Button chrome — mirrors LandingPageCanvasStyle fields used by CTA.style. */
@@ -14,6 +14,7 @@ export type LandingPageButtonChromeStyle = {
   width?: string;
   padding?: string;
   background?: string;
+  backgroundImage?: string;
   color?: string;
   border?: string;
   borderRadius?: string;
@@ -21,8 +22,12 @@ export type LandingPageButtonChromeStyle = {
   fontFamily?: string;
   fontSize?: string;
   fontWeight?: string | number;
+  fontStyle?: 'normal' | 'italic';
   letterSpacing?: string;
+  lineHeight?: string | number;
   textAlign?: 'left' | 'center' | 'right' | 'justify';
+  textDecoration?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
 };
 
 export type LandingPageButtonPreset = {
@@ -460,25 +465,33 @@ type PanelProps = {
   onInsertGroup: (preset: LandingPageButtonGroupPreset) => void;
   initialTab?: ButtonPresetTab;
   onTabChange?: (tab: ButtonPresetTab) => void;
+  /** Optional class merge (e.g. right-rail embedded). */
+  className?: string;
 };
 
-function previewBtnStyle(style: LandingPageButtonChromeStyle): CSSProperties {
+/** Live preview chrome — matches what CTA.style applies on canvas. */
+export function previewBtnStyle(style: LandingPageButtonChromeStyle): CSSProperties {
   return {
-    background: style.background,
+    background: style.backgroundImage ? undefined : style.background,
+    backgroundImage: style.backgroundImage,
     color: style.color,
     borderRadius: style.borderRadius,
     padding: style.padding || '8px 14px',
+    fontFamily: style.fontFamily,
     fontWeight: style.fontWeight as CSSProperties['fontWeight'],
+    fontStyle: style.fontStyle,
     fontSize: style.fontSize || '12px',
     letterSpacing: style.letterSpacing,
+    lineHeight: style.lineHeight ?? 1.2,
     boxShadow: style.boxShadow,
     border: style.border || 'none',
+    textDecoration: style.textDecoration,
+    textTransform: style.textTransform,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: style.width,
     textAlign: style.textAlign,
-    lineHeight: 1.2,
     whiteSpace: 'nowrap',
   };
 }
@@ -650,6 +663,7 @@ export function LandingPageButtonPresetsPanel({
   onInsertGroup,
   initialTab = 'buttons',
   onTabChange,
+  className,
 }: PanelProps) {
   const [tab, setTab] = useState<ButtonPresetTab>(initialTab);
 
@@ -674,6 +688,7 @@ export function LandingPageButtonPresetsPanel({
         'w-[min(340px,calc(100vw-4.5rem))]',
         'h-[min(calc(100vh-var(--builder-top-offset,6.75rem)-1rem),780px)]',
         'max-md:fixed max-md:left-3 max-md:right-3 max-md:top-16 max-md:ml-0 max-md:h-[min(80vh,720px)] max-md:w-auto',
+        className,
       )}
       role="dialog"
       aria-label="Mẫu nút bấm"
@@ -730,7 +745,10 @@ export function LandingPageButtonPresetsPanel({
                   data-lp-button-preset={preset.id}
                   data-lp-sidebar-draggable="button"
                   className="flex cursor-grab items-center justify-center rounded-lg px-1 py-2 transition hover:bg-zinc-50 active:cursor-grabbing"
-                  onClick={() => onInsertButton(preset)}
+                  onClick={(e) => {
+                    if (suppressClickAfterSidebarDrag(e)) return;
+                    onInsertButton(preset);
+                  }}
                   onDragStart={(e) =>
                     beginSidebarPresetDrag(e, { kind: 'button', preset }, preset.label)
                   }
@@ -757,7 +775,10 @@ export function LandingPageButtonPresetsPanel({
                   data-lp-button-preset={preset.id}
                   data-lp-sidebar-draggable="button"
                   className="flex cursor-grab items-center justify-center rounded-lg p-1 transition hover:bg-zinc-50 active:cursor-grabbing"
-                  onClick={() => onInsertButton(preset)}
+                  onClick={(e) => {
+                    if (suppressClickAfterSidebarDrag(e)) return;
+                    onInsertButton(preset);
+                  }}
                   onDragStart={(e) =>
                     beginSidebarPresetDrag(e, { kind: 'button', preset }, preset.label)
                   }
@@ -786,7 +807,10 @@ export function LandingPageButtonPresetsPanel({
                     data-lp-button-group={preset.id}
                     data-lp-sidebar-draggable="button-group"
                     className="block w-full cursor-grab rounded-lg border border-zinc-100 px-2 py-2.5 text-left transition hover:border-zinc-200 hover:bg-zinc-50 active:cursor-grabbing"
-                    onClick={() => onInsertGroup(preset)}
+                    onClick={(e) => {
+                      if (suppressClickAfterSidebarDrag(e)) return;
+                      onInsertGroup(preset);
+                    }}
                     onDragStart={(e) =>
                       beginSidebarPresetDrag(
                         e,

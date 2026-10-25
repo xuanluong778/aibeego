@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import { BrandLogo } from '@/components/brand/brand-logo';
 
 export const metadata: Metadata = {
-  title: 'Hướng dẫn xóa dữ liệu Facebook | AI Beego',
+  title: 'Hướng dẫn xóa dữ liệu Facebook | Ai Bee Go',
   description:
-    'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng AI Beego trên Facebook/Meta. Quy trình xóa dữ liệu Fanpage, Messenger và token theo yêu cầu Meta.',
+    'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng Ai Bee Go trên Facebook/Meta. Quy trình xóa dữ liệu Fanpage, Messenger và token theo yêu cầu Meta.',
   alternates: {
     canonical: 'https://aibeego.com/facebook/data-deletion',
   },
@@ -16,11 +16,11 @@ export const metadata: Metadata = {
     follow: true,
   },
   openGraph: {
-    title: 'Hướng dẫn xóa dữ liệu Facebook | AI Beego',
+    title: 'Hướng dẫn xóa dữ liệu Facebook | Ai Bee Go',
     description:
-      'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng AI Beego trên Facebook/Meta.',
+      'Hướng dẫn xóa dữ liệu và thu hồi quyền truy cập ứng dụng Ai Bee Go trên Facebook/Meta.',
     url: 'https://aibeego.com/facebook/data-deletion',
-    siteName: 'AI Beego',
+    siteName: 'Ai Bee Go',
     type: 'website',
     locale: 'vi_VN',
     images: [
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
         url: 'https://aibeego.com/brand/logo.png',
         width: 1024,
         height: 1024,
-        alt: 'AI Beego',
+        alt: 'Ai Bee Go',
       },
     ],
   },
@@ -53,7 +53,7 @@ export default function FacebookDataDeletionPage() {
     <div className="min-h-screen bg-background text-foreground scroll-smooth">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6">
-          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="Ai Bee Go" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/privacy"
@@ -89,7 +89,7 @@ export default function FacebookDataDeletionPage() {
           </h1>
           <p className="mt-4 text-base text-muted-foreground max-w-2xl">
             Trang này mô tả cách bạn (hoặc người dùng cuối) có thể yêu cầu xóa dữ liệu liên quan đến
-            Facebook Fanpage / Messenger mà AI Beego đã lưu khi bạn kết nối ứng dụng. Nội
+            Facebook Fanpage / Messenger mà Ai Bee Go đã lưu khi bạn kết nối ứng dụng. Nội
             dung tuân thủ yêu cầu Data Deletion Instructions của Meta.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
@@ -135,7 +135,7 @@ export default function FacebookDataDeletionPage() {
                 1. Tổng quan
               </h2>
               <p>
-                Khi bạn kết nối Fanpage / Messenger với AI Beego, hệ thống có thể lưu một số
+                Khi bạn kết nối Fanpage / Messenger với Ai Bee Go, hệ thống có thể lưu một số
                 thông tin cần thiết để vận hành chatbot CSKH, nhắn tin và tự động hóa marketing. Bạn
                 có quyền yêu cầu xóa các dữ liệu này bất kỳ lúc nào.
               </p>
@@ -194,7 +194,7 @@ export default function FacebookDataDeletionPage() {
                   .
                 </li>
                 <li>
-                  Tìm ứng dụng <strong>AI Beego</strong> (hoặc tên App Meta tương ứng).
+                  Tìm ứng dụng <strong>Ai Bee Go</strong> (hoặc tên App Meta tương ứng).
                 </li>
                 <li>
                   Chọn <strong>Xóa</strong> / <strong>Gỡ</strong> để thu hồi quyền truy cập.
@@ -220,11 +220,11 @@ export default function FacebookDataDeletionPage() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-3">Tiêu đề gợi ý</p>
                 <p className="text-white text-sm">
-                  [Xóa dữ liệu Facebook] — AI Beego — [Email tài khoản của bạn]
+                  [Xóa dữ liệu Facebook] — Ai Bee Go — [Email tài khoản của bạn]
                 </p>
                 <p className="text-xs text-muted-foreground mt-3">Nội dung cần có</p>
                 <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                  <li>Email / số điện thoại đăng ký trên AI Beego</li>
+                  <li>Email / số điện thoại đăng ký trên Ai Bee Go</li>
                   <li>Page ID hoặc tên Fanpage cần xóa liên kết</li>
                   <li>
                     Xác nhận: “Tôi yêu cầu xóa toàn bộ dữ liệu Facebook liên kết với tài khoản”
@@ -259,7 +259,7 @@ export default function FacebookDataDeletionPage() {
                 </li>
                 <li>
                   Hoặc trên Facebook: <strong>Cài đặt</strong> →{' '}
-                  <strong>Ứng dụng và trang web</strong> → <strong>AI Beego</strong> →{' '}
+                  <strong>Ứng dụng và trang web</strong> → <strong>Ai Bee Go</strong> →{' '}
                   <strong>Gỡ</strong> để thu hồi toàn bộ quyền truy cập.
                 </li>
               </ol>

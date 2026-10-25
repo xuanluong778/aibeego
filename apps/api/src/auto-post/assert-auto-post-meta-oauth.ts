@@ -1,13 +1,13 @@
 /**
- * Fail-fast cấu hình OAuth Auto Post cho MarketingAutoAZ production.
+ * Fail-fast cấu hình OAuth Auto Post cho Ai Bee Go production.
  * Chặn fallback sang SEOAuto / Meta App khác.
  */
 
 export const MARKETINGAUTOAZ_META_APP_ID = '1045516051171576';
-/** Login Configuration ID dự kiến trên App MarketingAutoAZ (Meta Dashboard). */
+/** Login Configuration ID dự kiến trên App Ai Bee Go (Meta Dashboard). */
 export const MARKETINGAUTOAZ_META_LOGIN_CONFIG_ID = '2006772376877449';
 export const MARKETINGAUTOAZ_AUTO_POST_OAUTH_REDIRECT_URI =
-  'https://marketingautoaz.com/api/v1/auto-post/facebook/oauth/callback';
+  'https://aibeego.com/api/v1/auto-post/facebook/oauth/callback';
 
 const FORBIDDEN_APP_IDS = new Set([
   '1328676135903477', // seoauto social
@@ -38,7 +38,7 @@ function isMarketingAutoazProduction(getEnv: (key: string) => string | undefined
 }
 
 /**
- * Redirect URI Auto Post: chỉ dùng URI production MarketingAutoAZ đã whitelist.
+ * Redirect URI Auto Post: chỉ dùng URI production Ai Bee Go đã whitelist.
  * Không fallback seoauto relay / META_FACEBOOK_OAUTH_REDIRECT_URI / Ads redirect.
  */
 export function resolveAutoPostOAuthRedirectUri(
@@ -52,7 +52,7 @@ export function resolveAutoPostOAuthRedirectUri(
   if (isMarketingAutoazProduction(getEnv)) {
     if (!dedicated) {
       throw new Error(
-        'META_AUTO_POST_REDIRECT_URI bắt buộc trên MarketingAutoAZ production ' +
+        'META_AUTO_POST_REDIRECT_URI bắt buộc trên Ai Bee Go production ' +
           `(ví dụ ${MARKETINGAUTOAZ_AUTO_POST_OAUTH_REDIRECT_URI}). ` +
           'Không dùng META_FACEBOOK_OAUTH_REDIRECT_URI / seoauto.vn.',
       );
@@ -103,16 +103,16 @@ export function assertAutoPostMetaOAuthConfig(
   }
 
   if (!appId) {
-    throw new Error('META_APP_ID chưa cấu hình cho MarketingAutoAZ production');
+    throw new Error('META_APP_ID chưa cấu hình cho Ai Bee Go production');
   }
   if (appId !== expectedAppId) {
     throw new Error(
-      `META_APP_ID sai môi trường MarketingAutoAZ. Bắt buộc ${expectedAppId}, hiện tại ${appId}. ` +
+      `META_APP_ID sai môi trường Ai Bee Go. Bắt buộc ${expectedAppId}, hiện tại ${appId}. ` +
         'Không dùng App SEOAuto / chatbotspa.',
     );
   }
   if (FORBIDDEN_APP_IDS.has(appId)) {
-    throw new Error(`META_APP_ID ${appId} bị cấm trên MarketingAutoAZ (SEOAuto/chatbotspa).`);
+    throw new Error(`META_APP_ID ${appId} bị cấm trên Ai Bee Go (SEOAuto/chatbotspa).`);
   }
 
   if (!loginConfigId) {
@@ -122,7 +122,7 @@ export function assertAutoPostMetaOAuthConfig(
   }
   if (loginConfigId !== expectedConfigId) {
     throw new Error(
-      `META_LOGIN_CONFIG_ID phải là Configuration ID của App MarketingAutoAZ (${expectedConfigId}). ` +
+      `META_LOGIN_CONFIG_ID phải là Configuration ID của App Ai Bee Go (${expectedConfigId}). ` +
         `Hiện tại: ${loginConfigId}`,
     );
   }
@@ -135,7 +135,7 @@ export function assertAutoPostMetaOAuthConfig(
   }
   if (FORBIDDEN_REDIRECT_HOSTS.has(host)) {
     throw new Error(
-      `Redirect OAuth không được trỏ ${host}. Dùng callback MarketingAutoAZ: ` +
+      `Redirect OAuth không được trỏ ${host}. Dùng callback Ai Bee Go: ` +
         MARKETINGAUTOAZ_AUTO_POST_OAUTH_REDIRECT_URI,
     );
   }
@@ -168,7 +168,7 @@ export function assertAutoPostMetaOAuthConfig(
     getEnv('META_APP_SECRET')?.trim() || getEnv('FACEBOOK_APP_SECRET')?.trim() || '';
   if (!secret) {
     throw new Error(
-      'META_APP_SECRET bắt buộc và phải thuộc App MarketingAutoAZ ' +
+      'META_APP_SECRET bắt buộc và phải thuộc App Ai Bee Go ' +
         `(${expectedAppId}) — không dùng secret SEOAuto.`,
     );
   }
@@ -204,7 +204,7 @@ export async function assertMetaAppSecretMatchesAppId(input: {
     throw new Error(
       `META_APP_SECRET không khớp META_APP_ID ${input.appId} ` +
         `(Graph: ${body.error?.message ?? `id=${body.id ?? 'n/a'}`}). ` +
-        'Lấy App Secret đúng từ Meta Developer → App MarketingAutoAZ.',
+        'Lấy App Secret đúng từ Meta Developer → App Ai Bee Go.',
     );
   }
 }

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,6 +23,7 @@ import {
   businessProfileToAiBrief,
   createEmptyLandingPageSpec,
   cloneLandingPageSpecWithNewIds,
+  specWithEditableHtmlSections,
   analyzeLandingPageHeuristic,
   applyLandingPageDoctorPatches,
   extractLandingPageUrlSummary,
@@ -55,8 +57,10 @@ import { LeadsService } from '../leads/leads.service';
 import { AutomationEngineService } from '../crm/automation-engine.service';
 import { LandingPageAiService } from './landing-page-ai.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
+import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
 import {
   assertUploadFile,
+  PUBLIC_IMAGE_EXT,
   PUBLIC_MEDIA_EXT,
   PUBLIC_UPLOAD_PREFIX,
   randomStoredFilename,
@@ -80,6 +84,12 @@ import type {
   UpdateLandingPageDto,
   UpsertCustomDomainDto,
 } from './dto/landing-pages.dto';
+import {
+  decideLandingPageAutosave,
+  publishRevisionAllowed,
+  readLandingPageRequestId,
+  readLandingPageRevision,
+} from './landing-page-revision';
 import {
   isValidLandingCustomDomain,
   landingPageCnameTarget,
@@ -193,7 +203,7 @@ export class LandingPagesService implements OnModuleInit {
 
     const existing = await this.prisma.landingPageTemplate.findMany({
       where: { organizationId: null, isSystem: true },
-      select: { id: true, slug: true, thumbnailUrl: true },
+      select: { id: true, slug: true, thumbnailUrl: true, tags: true },
     });
 
     // Deduplicate slug collisions (keep first, delete rest).
@@ -211,12 +221,15 @@ export class LandingPagesService implements OnModuleInit {
     const afterDedupe = duplicateIds.length
       ? await this.prisma.landingPageTemplate.findMany({
           where: { organizationId: null, isSystem: true },
-          select: { id: true, slug: true, thumbnailUrl: true },
+          select: { id: true, slug: true, thumbnailUrl: true, tags: true },
         })
       : existing.filter((r) => !duplicateIds.includes(r.id));
 
+    const packManaged = (tags: string[] | null | undefined) =>
+      (tags || []).includes(TEMPLATE_PACK_MANAGED_TAG);
     const bySlug = new Map(afterDedupe.map((r) => [r.slug, r]));
-    const orphanIds = afterDedupe.filter((r) => !catalogSet.has(r.slug)).map((r) => r.id);
+    const unmanaged = afterDedupe.filter((r) => !packManaged(r.tags));
+    const orphanIds = unmanaged.filter((r) => !catalogSet.has(r.slug)).map((r) => r.id);
     if (orphanIds.length) {
       await this.prisma.landingPageTemplate.deleteMany({ where: { id: { in: orphanIds } } });
       for (const id of orphanIds) {
@@ -226,8 +239,9 @@ export class LandingPagesService implements OnModuleInit {
     }
 
     const allPresent = catalogSlugs.every((s) => bySlug.has(s));
-    const countOk = bySlug.size === catalogSlugs.length;
-    const thumbsOk = [...bySlug.values()].every((r) =>
+    const countOk = unmanaged.length === catalogSlugs.filter((s) => unmanaged.some((r) => r.slug === s)).length
+      && unmanaged.every((r) => catalogSet.has(r.slug));
+    const thumbsOk = unmanaged.every((r) =>
       Boolean(r.thumbnailUrl && r.thumbnailUrl.includes(`${r.slug}-thumb.webp`)),
     );
 
@@ -275,6 +289,7 @@ export class LandingPagesService implements OnModuleInit {
         isSystem: true,
         organizationId: null,
       };
+      if (row && packManaged(row.tags)) continue;
       if (row) {
         await this.prisma.landingPageTemplate.update({
           where: { id: row.id },
@@ -286,6 +301,7 @@ export class LandingPagesService implements OnModuleInit {
           id: created.id,
           slug: created.slug,
           thumbnailUrl: created.thumbnailUrl,
+          tags: created.tags,
         });
       }
     }
@@ -316,6 +332,7 @@ export class LandingPagesService implements OnModuleInit {
       profileAppliedAt: _profileAppliedAt,
       lastAiAt: _lastAiAt,
       clientRevision: _clientRevision,
+      lastAutosaveRequestId: _lastAutosaveRequestId,
       themePreset: _themePreset,
       themeUserLocked: _themeUserLocked,
       gallery: _gallery,
@@ -325,6 +342,7 @@ export class LandingPagesService implements OnModuleInit {
     void _profileAppliedAt;
     void _lastAiAt;
     void _clientRevision;
+    void _lastAutosaveRequestId;
     void _themePreset;
     void _themeUserLocked;
     void _gallery;
@@ -426,11 +444,21 @@ export class LandingPagesService implements OnModuleInit {
       this.prisma.landingPage.count({
         where: { organizationId, status: LandingPageStatus.ARCHIVED },
       }),
-      this.prisma.landingPageTemplate.count({
+        this.prisma.landingPageTemplate.count({
         where: {
-          OR: [
-            { organizationId: null, isSystem: true },
-            { organizationId },
+          AND: [
+            {
+              OR: [
+                { organizationId: null, isSystem: true },
+                { organizationId },
+              ],
+            },
+            {
+              OR: [
+                { publishStatus: 'PUBLISHED' },
+                { NOT: { publishedDefinition: { equals: Prisma.DbNull } } },
+              ],
+            },
           ],
         },
       }),
@@ -460,9 +488,14 @@ export class LandingPagesService implements OnModuleInit {
     };
   }
 
-  async listTemplates(organizationId: string, query: ListLandingPageTemplatesQueryDto) {
+  async listTemplates(
+    organizationId: string,
+    query: ListLandingPageTemplatesQueryDto,
+    user?: AuthUser,
+  ) {
     await this.ensureSystemTemplates();
     const includeSystem = query.includeSystem !== false;
+    const admin = isPlatformAdmin(user);
     const q = (query.q || '').trim().toLowerCase();
     const designFamilyQ = (query.designFamily || '').trim().toLowerCase();
     const conversionGoalQ = (query.conversionGoal || '').trim().toLowerCase();
@@ -470,15 +503,30 @@ export class LandingPagesService implements OnModuleInit {
       where: {
         ...(query.category ? { category: query.category } : {}),
         ...(query.theme ? { theme: THEME_MAP[query.theme] } : {}),
-        OR: [
-          ...(includeSystem ? [{ organizationId: null, isSystem: true }] : []),
-          { organizationId },
+        AND: [
+          {
+            OR: [
+              ...(includeSystem ? [{ organizationId: null, isSystem: true }] : []),
+              { organizationId },
+            ],
+          },
+          ...(admin
+            ? []
+            : [
+                {
+                  OR: [
+                    { publishStatus: 'PUBLISHED' as const },
+                    { NOT: { publishedDefinition: { equals: Prisma.DbNull } } },
+                  ],
+                },
+              ]),
         ],
       },
       orderBy: [{ isSystem: 'desc' }, { category: 'asc' }, { name: 'asc' }],
     });
     const mapped = items.map((t) => {
-      const def = this.parseSpec(t.definition);
+      const visibleRaw = admin ? t.definition : (t.publishedDefinition ?? t.definition);
+      const def = this.parseSpec(visibleRaw);
       const gallery = def.meta?.gallery;
       const recipe = def.meta?.architectureRecipe;
       const designFamily =
@@ -508,14 +556,22 @@ export class LandingPagesService implements OnModuleInit {
         theme: t.theme,
         description: t.description,
         tags: t.tags,
-        thumbnailUrl: t.thumbnailUrl || gallery?.thumbnail || null,
-        previewLongImage: gallery?.previewLongImage || null,
+        thumbnailUrl: def.meta?.htmlConverted
+          ? gallery?.thumbnail || null
+          : t.thumbnailUrl || gallery?.thumbnail || null,
+        previewLongImage: def.meta?.htmlConverted ? null : gallery?.previewLongImage || null,
+        htmlPreviewUrl: def.meta?.htmlConverted ? null : htmlPreviewPath(t.id, visibleRaw, t.updatedAt),
         badges,
         designFamily,
         conversionGoal,
         architectureId,
         isSystem: t.isSystem,
-        // Omit full definition from list — fetch via GET templates/:slug for preview.
+        ...(admin
+          ? {
+              publishStatus: t.publishStatus,
+              hasPublishedVersion: t.publishedDefinition != null,
+            }
+          : {}),
       };
     });
     let filtered = mapped;
@@ -539,8 +595,9 @@ export class LandingPagesService implements OnModuleInit {
     };
   }
 
-  async getTemplate(organizationId: string, idOrSlug: string) {
+  async getTemplate(organizationId: string, idOrSlug: string, user?: AuthUser) {
     await this.ensureSystemTemplates();
+    const admin = isPlatformAdmin(user);
     const row = await this.prisma.landingPageTemplate.findFirst({
       where: {
         OR: [
@@ -552,6 +609,10 @@ export class LandingPagesService implements OnModuleInit {
       },
     });
     if (!row) throw new NotFoundException('Template không tồn tại');
+    if (!admin && row.publishStatus === 'DRAFT' && row.publishedDefinition == null) {
+      throw new NotFoundException('Template không tồn tại');
+    }
+    const visibleRaw = admin ? row.definition : (row.publishedDefinition ?? row.definition);
     return {
       id: row.id,
       slug: row.slug,
@@ -562,7 +623,13 @@ export class LandingPagesService implements OnModuleInit {
       tags: row.tags,
       thumbnailUrl: row.thumbnailUrl,
       isSystem: row.isSystem,
-      definition: this.parseSpec(row.definition),
+      ...(admin
+        ? {
+            publishStatus: row.publishStatus,
+            hasPublishedVersion: row.publishedDefinition != null,
+          }
+        : {}),
+      definition: this.parseSpec(visibleRaw),
     };
   }
 
@@ -591,15 +658,26 @@ export class LandingPagesService implements OnModuleInit {
     return { items: items.map((r) => this.serializePage(r)), total: items.length };
   }
 
+  /** New page from an HTML upload becomes editable sections. The template row is not changed. */
+  private editableCopyFromImportedHtml(spec: LandingPageSpec): LandingPageSpec {
+    const next = specWithEditableHtmlSections(spec);
+    if (!next) return spec;
+    return this.parseSpec(next);
+  }
+
   private async uniqueSlug(organizationId: string, base: string, excludeId?: string) {
-    let slug = slugifyLandingPage(base) || `lp-${Date.now().toString(36)}`;
-    for (let i = 0; i < 40; i++) {
-      const candidate = i === 0 ? slug : `${slug}-${i + 1}`;
+    const slug = slugifyLandingPage(base) || `lp-${Date.now().toString(36)}`;
+    // slug is unique per organization. subdomain_slug is unique across all organizations.
+    const candidates = [
+      slug,
+      ...Array.from({ length: 39 }, (_, i) => `${slug}-${i + 2}`),
+      `${slug}-${randomUUID().slice(0, 8)}`,
+    ];
+    for (const candidate of candidates) {
       const clash = await this.prisma.landingPage.findFirst({
         where: {
-          organizationId,
-          slug: candidate,
-          ...(excludeId ? { NOT: { id: excludeId } } : {}),
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          OR: [{ organizationId, slug: candidate }, { subdomainSlug: candidate }],
         },
         select: { id: true },
       });
@@ -638,33 +716,50 @@ export class LandingPagesService implements OnModuleInit {
           },
         });
         if (!tpl) throw new NotFoundException('Template không tồn tại');
+        const admin = isPlatformAdmin(user);
+        if (!admin && tpl.publishStatus === 'DRAFT' && tpl.publishedDefinition == null) {
+          throw new NotFoundException('Template không tồn tại');
+        }
         templateId = tpl.id;
         theme = tpl.theme;
-        // Clone master definition with fresh block/item IDs — never mutate template.
-        spec = cloneLandingPageSpecWithNewIds(this.parseSpec(tpl.definition));
+        // Clone a copy with fresh ids. User pages never share the template row's JSON.
+        const source = admin ? tpl.definition : (tpl.publishedDefinition ?? tpl.definition);
+        spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.parseSpec(source)));
       }
 
-      const slug = await this.uniqueSlug(user.organizationId, dto.slug || dto.name);
       const seo = spec.seo;
-      const row = await this.prisma.landingPage.create({
-        data: {
-          organizationId: user.organizationId,
-          createdById: user.id,
-          templateId,
-          name: dto.name.trim().slice(0, 120),
-          slug,
-          status: LandingPageStatus.DRAFT,
-          theme,
-          draftSpec: spec as unknown as Prisma.InputJsonValue,
-          seoTitle: seo.title?.slice(0, 200) ?? dto.name.slice(0, 200),
-          seoDescription: seo.metaDescription?.slice(0, 500) ?? null,
-          seoCanonical: seo.canonical ?? null,
-          ogImage: seo.ogImage ?? null,
-          robotsIndex: seo.robotsIndex !== false,
-          subdomainSlug: slug,
-        },
-      });
-      return this.serializePage(row);
+      const insert = (slug: string) =>
+        this.prisma.landingPage.create({
+          data: {
+            organizationId: user.organizationId,
+            createdById: user.id,
+            templateId,
+            name: dto.name.trim().slice(0, 120),
+            slug,
+            status: LandingPageStatus.DRAFT,
+            theme,
+            draftSpec: spec as unknown as Prisma.InputJsonValue,
+            seoTitle: seo.title?.slice(0, 200) ?? dto.name.slice(0, 200),
+            seoDescription: seo.metaDescription?.slice(0, 500) ?? null,
+            seoCanonical: seo.canonical ?? null,
+            ogImage: seo.ogImage ?? null,
+            robotsIndex: seo.robotsIndex !== false,
+            subdomainSlug: slug,
+          },
+        });
+      let slug = await this.uniqueSlug(user.organizationId, dto.slug || dto.name);
+      try {
+        return this.serializePage(await insert(slug));
+      } catch (err) {
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') {
+          throw err;
+        }
+        slug = await this.uniqueSlug(
+          user.organizationId,
+          `${dto.slug || dto.name}-${randomUUID().slice(0, 6)}`,
+        );
+        return this.serializePage(await insert(slug));
+      }
     });
   }
 
@@ -725,87 +820,181 @@ export class LandingPagesService implements OnModuleInit {
     const row = await this.assertPage(user.organizationId, id);
     this.assertMutable(row.status);
 
-    const existingSpec =
-      row.draftSpec && typeof row.draftSpec === 'object'
-        ? (row.draftSpec as Record<string, unknown>)
-        : {};
-    const existingMeta =
-      existingSpec.meta && typeof existingSpec.meta === 'object'
-        ? (existingSpec.meta as Record<string, unknown>)
-        : {};
-    const storedRevision =
-      typeof existingMeta.clientRevision === 'number' && Number.isFinite(existingMeta.clientRevision)
-        ? Math.floor(existingMeta.clientRevision)
-        : 0;
     const incomingRevision =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
         ? Math.floor(dto.clientRevision)
         : null;
+    const baseRevision =
+      typeof dto.baseRevision === 'number' && Number.isFinite(dto.baseRevision)
+        ? Math.floor(dto.baseRevision)
+        : null;
 
-    // Stale / out-of-order client save — reject without overwriting newer content.
-    if (incomingRevision != null && incomingRevision < storedRevision) {
-      return {
-        id: row.id,
-        updatedAt: row.updatedAt,
-        rejected: true as const,
-        reason: 'STALE_REVISION' as const,
-        clientRevision: storedRevision,
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${row.id} FOR UPDATE`;
+      const fresh = await tx.landingPage.findFirst({ where: { id: row.id } });
+      if (!fresh) throw new NotFoundException('Landing page not found');
+      const decision = decideLandingPageAutosave({
+        storedRevision: readLandingPageRevision(fresh.draftSpec),
+        storedRequestId: readLandingPageRequestId(fresh.draftSpec),
+        baseRevision,
+        incomingRevision,
         requestId: dto.requestId ?? null,
-      };
-    }
-
-    const sanitized = sanitizeLandingPageSpec(dto.draftSpec);
-    if (incomingRevision != null) {
+      });
+      if (decision.action === 'reject') {
+        return {
+          id: fresh.id,
+          updatedAt: fresh.updatedAt,
+          rejected: true as const,
+          reason: 'STALE_REVISION' as const,
+          clientRevision: decision.storedRevision,
+          requestId: dto.requestId ?? null,
+        };
+      }
+      if (decision.action === 'idempotent' || decision.action === 'unchanged') {
+        return {
+          id: fresh.id,
+          updatedAt: fresh.updatedAt,
+          rejected: false as const,
+          clientRevision: decision.nextRevision,
+          requestId: dto.requestId ?? null,
+        };
+      }
+      const sanitized = sanitizeLandingPageSpec(dto.draftSpec);
       sanitized.meta = {
         ...(sanitized.meta || {}),
-        clientRevision: Math.max(incomingRevision, storedRevision),
+        clientRevision: decision.nextRevision,
+        ...(dto.requestId ? { lastAutosaveRequestId: dto.requestId.slice(0, 64) } : {}),
       };
-    }
-    const updated = await this.prisma.landingPage.update({
-      where: { id: row.id },
-      data: {
-        draftSpec: sanitized as unknown as Prisma.InputJsonValue,
-        name: dto.name?.trim().slice(0, 120) ?? undefined,
-        seoTitle: sanitized.seo.title?.slice(0, 200),
-        seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
-        seoCanonical: sanitized.seo.canonical ?? undefined,
-        ogImage: sanitized.seo.ogImage ?? undefined,
-        robotsIndex: sanitized.seo.robotsIndex,
-        theme: THEME_MAP[sanitized.theme] ?? row.theme,
-      },
+      const updated = await tx.landingPage.update({
+        where: { id: fresh.id },
+        data: {
+          draftSpec: sanitized as unknown as Prisma.InputJsonValue,
+          name: dto.name?.trim().slice(0, 120) ?? undefined,
+          seoTitle: sanitized.seo.title?.slice(0, 200),
+          seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
+          seoCanonical: sanitized.seo.canonical ?? undefined,
+          ogImage: sanitized.seo.ogImage ?? undefined,
+          robotsIndex: sanitized.seo.robotsIndex,
+          theme: THEME_MAP[sanitized.theme] ?? fresh.theme,
+        },
+      });
+      return {
+        id: updated.id,
+        updatedAt: updated.updatedAt,
+        draftSpec: sanitized,
+        rejected: false as const,
+        clientRevision: decision.nextRevision,
+        requestId: dto.requestId ?? null,
+      };
     });
-    return {
-      id: updated.id,
-      updatedAt: updated.updatedAt,
-      draftSpec: sanitized,
-      rejected: false as const,
-      clientRevision: sanitized.meta?.clientRevision ?? incomingRevision ?? storedRevision,
-      requestId: dto.requestId ?? null,
-    };
+  }
+
+  /**
+   * Put a local unsaved draft back after a network drop or closed tab.
+   * If the server draft moved, snapshot it into version history first.
+   * Never writes publishedSpec.
+   */
+  async recoverDraft(user: AuthUser, id: string, dto: AutosaveLandingPageDto) {
+    const row = await this.assertPage(user.organizationId, id);
+    this.assertMutable(row.status);
+    const storedRevision = readLandingPageRevision(row.draftSpec);
+    const baseRevision =
+      typeof dto.baseRevision === 'number' && Number.isFinite(dto.baseRevision)
+        ? Math.floor(dto.baseRevision)
+        : null;
+    if (baseRevision === storedRevision) {
+      return this.autosave(user, id, dto);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${row.id} FOR UPDATE`;
+      const fresh = await tx.landingPage.findFirst({ where: { id: row.id } });
+      if (!fresh) throw new NotFoundException('Landing page not found');
+      const freshRevision = readLandingPageRevision(fresh.draftSpec);
+      const currentDraft = this.parseSpec(fresh.draftSpec);
+      const incoming = sanitizeLandingPageSpec(dto.draftSpec);
+      const nextRevision = Math.max(freshRevision, readLandingPageRevision(incoming)) + 1;
+      incoming.meta = {
+        ...(incoming.meta || {}),
+        clientRevision: nextRevision,
+        lastAutosaveRequestId: (dto.requestId || `recover-${Date.now()}`).slice(0, 64),
+      };
+      let guardVersion: number | null = null;
+      if (baseRevision !== freshRevision) {
+        const lastVersion = await tx.landingPageVersion.findFirst({
+          where: { landingPageId: fresh.id, organizationId: user.organizationId },
+          orderBy: { version: 'desc' },
+          select: { version: true },
+        });
+        guardVersion = (lastVersion?.version ?? 0) + 1;
+        await tx.landingPageVersion.create({
+          data: {
+            organizationId: user.organizationId,
+            landingPageId: fresh.id,
+            version: guardVersion,
+            snapshot: currentDraft as unknown as Prisma.InputJsonValue,
+            note: `before-local-recovery|base=${baseRevision ?? 'none'}|stored=${freshRevision}`.slice(0, 500),
+            createdById: user.id,
+          },
+        });
+      }
+      const updated = await tx.landingPage.update({
+        where: { id: fresh.id },
+        data: {
+          draftSpec: incoming as unknown as Prisma.InputJsonValue,
+          name: dto.name?.trim().slice(0, 120) ?? undefined,
+        },
+      });
+      return {
+        ...this.serializePage(updated),
+        rejected: false as const,
+        clientRevision: nextRevision,
+        guardVersion,
+        recovered: true as const,
+      };
+    });
   }
 
   async publish(user: AuthUser, id: string, dto: PublishLandingPageDto) {
-    const row = await this.assertPage(user.organizationId, id);
-    this.assertMutable(row.status);
-    const sanitized = sanitizeLandingPageSpec(row.draftSpec);
-    const validation = validateLandingPageSpec(sanitized);
-    if (!validation.ok) {
-      throw new BadRequestException({
-        code: 'INVALID_SPEC',
-        message: validation.errors.join('; '),
-        errors: validation.errors,
+    const gate = await this.assertPage(user.organizationId, id);
+    this.assertMutable(gate.status);
+    const expected =
+      typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
+        ? Math.floor(dto.clientRevision)
+        : null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
+      const row = await tx.landingPage.findFirst({ where: { id: gate.id } });
+      if (!row) throw new NotFoundException('Landing page not found');
+      const storedRevision = readLandingPageRevision(row.draftSpec);
+      const allowed = publishRevisionAllowed(storedRevision, expected);
+      if (allowed !== 'ok') {
+        throw new ConflictException({
+          code: allowed === 'not_saved' ? 'REVISION_NOT_SAVED' : 'STALE_REVISION',
+          message:
+            allowed === 'not_saved'
+              ? 'Bản nháp chưa lưu xong — lưu lại rồi publish'
+              : 'Có bản mới hơn — tải bản mới nhất rồi publish',
+          clientRevision: storedRevision,
+        });
+      }
+      const sanitized = sanitizeLandingPageSpec(row.draftSpec);
+      const validation = validateLandingPageSpec(sanitized);
+      if (!validation.ok) {
+        throw new BadRequestException({
+          code: 'INVALID_SPEC',
+          message: validation.errors.join('; '),
+          errors: validation.errors,
+        });
+      }
+      const lastVersion = await tx.landingPageVersion.findFirst({
+        where: { landingPageId: row.id },
+        orderBy: { version: 'desc' },
+        select: { version: true },
       });
-    }
-
-    const lastVersion = await this.prisma.landingPageVersion.findFirst({
-      where: { landingPageId: row.id },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    const nextVersion = (lastVersion?.version ?? 0) + 1;
-
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.landingPage.update({
+      const nextVersion = (lastVersion?.version ?? 0) + 1;
+      const saved = await tx.landingPage.update({
         where: { id: row.id },
         data: {
           status: LandingPageStatus.PUBLISHED,
@@ -819,8 +1008,8 @@ export class LandingPagesService implements OnModuleInit {
           robotsIndex: sanitized.seo.robotsIndex !== false,
           theme: THEME_MAP[sanitized.theme] ?? row.theme,
         },
-      }),
-      this.prisma.landingPageVersion.create({
+      });
+      await tx.landingPageVersion.create({
         data: {
           organizationId: user.organizationId,
           landingPageId: row.id,
@@ -829,8 +1018,9 @@ export class LandingPagesService implements OnModuleInit {
           note: dto.note?.slice(0, 500) ?? `Publish v${nextVersion}`,
           createdById: user.id,
         },
-      }),
-    ]);
+      });
+      return saved;
+    });
 
     return this.serializePage(updated);
   }
@@ -1671,38 +1861,27 @@ export class LandingPagesService implements OnModuleInit {
     }
 
     const restoredSpec = this.parseSpec(target.snapshot);
-    const currentDraft = this.parseSpec(row.draftSpec);
+    const restoredSnapshotRevision = readLandingPageRevision(restoredSpec);
 
-    // Bump clientRevision above both current draft and snapshot so in-flight /
-    // other-tab autosaves with older stamps get STALE_REVISION (Phase 1 conflict
-    // flow) instead of silently overwriting the restored draft.
-    const existingDraftRevision =
-      typeof currentDraft.meta?.clientRevision === 'number' &&
-      Number.isFinite(currentDraft.meta.clientRevision)
-        ? Math.floor(currentDraft.meta.clientRevision)
-        : 0;
-    const restoredSnapshotRevision =
-      typeof restoredSpec.meta?.clientRevision === 'number' &&
-      Number.isFinite(restoredSpec.meta.clientRevision)
-        ? Math.floor(restoredSpec.meta.clientRevision)
-        : 0;
-    const nextClientRevision = Math.max(existingDraftRevision, restoredSnapshotRevision) + 1;
-    restoredSpec.meta = {
-      ...(restoredSpec.meta || {}),
-      clientRevision: nextClientRevision,
-    };
-
-    const lastVersion = await this.prisma.landingPageVersion.findFirst({
-      where: { landingPageId: row.id, organizationId: user.organizationId },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    });
-    const guardVersion = (lastVersion?.version ?? 0) + 1;
-    const note =
-      (dto?.note || `before-restore-v${version}|from=${guardVersion}`).slice(0, 500);
-
-    const [, updated] = await this.prisma.$transaction([
-      this.prisma.landingPageVersion.create({
+    const { updated, guardVersion, nextClientRevision } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${row.id} FOR UPDATE`;
+      const fresh = await tx.landingPage.findFirst({ where: { id: row.id } });
+      if (!fresh) throw new NotFoundException('Landing page not found');
+      const currentDraft = this.parseSpec(fresh.draftSpec);
+      const nextClientRevision = Math.max(readLandingPageRevision(currentDraft), restoredSnapshotRevision) + 1;
+      restoredSpec.meta = {
+        ...(restoredSpec.meta || {}),
+        clientRevision: nextClientRevision,
+      };
+      delete restoredSpec.meta.lastAutosaveRequestId;
+      const lastVersion = await tx.landingPageVersion.findFirst({
+        where: { landingPageId: row.id, organizationId: user.organizationId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      const guardVersion = (lastVersion?.version ?? 0) + 1;
+      const note = (dto?.note || `before-restore-v${version}|from=${guardVersion}`).slice(0, 500);
+      await tx.landingPageVersion.create({
         data: {
           organizationId: user.organizationId,
           landingPageId: row.id,
@@ -1711,18 +1890,18 @@ export class LandingPagesService implements OnModuleInit {
           note,
           createdById: user.id,
         },
-      }),
-      this.prisma.landingPage.update({
+      });
+      const updated = await tx.landingPage.update({
         where: { id: row.id },
         data: {
           draftSpec: restoredSpec as unknown as Prisma.InputJsonValue,
           seoTitle: restoredSpec.seo.title.slice(0, 200),
           seoDescription: restoredSpec.seo.metaDescription.slice(0, 500),
-          // Explicitly do NOT touch: publishedSpec, customDomain, subdomainSlug,
-          // status, tracking fields, robotsIndex beyond seo title/desc for draft preview.
+          // publishedSpec, domain, status, and tracking stay as they are.
         },
-      }),
-    ]);
+      });
+      return { updated, guardVersion, nextClientRevision };
+    });
 
     this.logger.log(
       JSON.stringify({
@@ -2273,8 +2452,9 @@ export class LandingPagesService implements OnModuleInit {
         .slice(0, 2000);
     }
 
-    const email = fields.email || fields.Email || undefined;
-    const phone = fields.phone || fields.Phone || fields.tel || undefined;
+    const email = fields.email || fields.Email || fields.mail || fields.email_address || undefined;
+    const phone =
+      fields.phone || fields.Phone || fields.tel || fields.mobile || fields.sdt || fields.dien_thoai || undefined;
     const name = (fields.name || fields.fullName || fields.Name || 'Landing lead').slice(0, 200);
     const company = fields.company || fields.Company || '';
     const need = fields.need || fields.nhu_cau || fields.requirement || '';
@@ -2283,6 +2463,14 @@ export class LandingPagesService implements OnModuleInit {
     if (!phone && !email) {
       throw new BadRequestException('Cần ít nhất Số điện thoại hoặc Email');
     }
+
+    const dedupeId = `${(phone || '').replace(/\D/g, '')}|${(email || '').toLowerCase()}`;
+    this.rateLimit.assertWithinLimit(
+      `lp:lead:once:${page.id}:${dedupeId}`,
+      1,
+      12_000,
+      'Thông tin vừa được gửi. Vui lòng đợi một lát trước khi gửi lại.',
+    );
 
     const source = await this.ensureLeadSource(page.organizationId);
     const publishedSpec = this.parseSpec(page.publishedSpec);
@@ -2526,6 +2714,44 @@ export class LandingPagesService implements OnModuleInit {
     };
   }
 
+  /** Image or short background video for a section. Public URL, same folder as images. */
+  async uploadPublicBackground(
+    user: AuthUser,
+    pageId: string,
+    file: { originalname?: string; mimetype?: string; size?: number; buffer?: Buffer } | undefined,
+  ) {
+    await this.assertPage(user.organizationId, pageId);
+    const classified = assertUploadFile('lp_background', file);
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Thiếu file upload');
+    }
+    const { filename, ext } = randomStoredFilename(classified.originalName);
+    if (!PUBLIC_MEDIA_EXT.has(ext)) {
+      throw new BadRequestException('Chỉ hỗ trợ JPG, PNG, WebP, GIF, MP4, WebM');
+    }
+    const relDir = join(
+      PUBLIC_UPLOAD_PREFIX.replace(/\/$/, ''),
+      'landing-pages',
+      user.organizationId,
+      pageId,
+    );
+    const absDir = join(process.cwd(), 'uploads', relDir);
+    if (!existsSync(absDir)) mkdirSync(absDir, { recursive: true });
+    const absPath = join(absDir, filename);
+    if (existsSync(absPath)) {
+      throw new BadRequestException('Xung đột tên file — thử lại');
+    }
+    writeFileSync(absPath, file.buffer);
+    const url = `/uploads/${relDir.replace(/\\/g, '/')}/${filename}`;
+    return {
+      ok: true,
+      url,
+      mimeType: classified.mime,
+      sizeBytes: classified.size,
+      originalName: classified.originalName,
+    };
+  }
+
   /**
    * List images already uploaded for this org under landing-pages/ (same store as uploadPublicImage).
    * scope=page → current page folder only; scope=org (default) → all pages in the org.
@@ -2572,7 +2798,7 @@ export class LandingPagesService implements OnModuleInit {
         }
         if (!st.isFile()) continue;
         const ext = extname(name).toLowerCase();
-        if (!PUBLIC_MEDIA_EXT.has(ext)) continue;
+        if (!PUBLIC_IMAGE_EXT.has(ext)) continue;
         const url = `/uploads/${PUBLIC_UPLOAD_PREFIX.replace(/\/$/, '')}/landing-pages/${user.organizationId}/${ownerPageId}/${name}`;
         const display = basename(name);
         if (q && !display.toLowerCase().includes(q) && !url.toLowerCase().includes(q)) continue;
@@ -2610,4 +2836,15 @@ export class LandingPagesService implements OnModuleInit {
     items.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return { items, total: items.length, scope };
   }
+}
+
+function htmlPreviewPath(id: string, raw: unknown, updatedAt: Date): string | null {
+  const meta =
+    raw && typeof raw === 'object' && 'meta' in raw
+      ? (raw as { meta?: { htmlSource?: unknown } }).meta
+      : null;
+  const html = typeof meta?.htmlSource === 'string' ? meta.htmlSource.trim() : '';
+  if (!html) return null;
+  const v = updatedAt instanceof Date ? updatedAt.getTime() : Date.now();
+  return `/landing-pages/public/template-html/${id}?v=${v}`;
 }

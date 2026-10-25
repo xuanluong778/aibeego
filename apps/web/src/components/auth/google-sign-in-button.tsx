@@ -31,6 +31,8 @@ declare global {
   }
 }
 
+let initializedClientId: string | null = null;
+
 function loadGsiScript(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
   if (window.google?.accounts?.id) return Promise.resolve();
@@ -89,6 +91,8 @@ export function GoogleSignInButton({
     setError(null);
     onCredentialRef.current(idToken);
   }, [t]);
+  const handleCredentialRef = useRef(handleCredential);
+  handleCredentialRef.current = handleCredential;
 
   useEffect(() => {
     if (!clientId) {
@@ -106,14 +110,17 @@ export function GoogleSignInButton({
 
         hostRef.current.innerHTML = '';
 
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: handleCredential,
-          auto_select: false,
-          cancel_on_tap_outside: true,
-          context: 'signin',
-          ux_mode: 'popup',
-        });
+        if (initializedClientId !== clientId) {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: (response: CredentialResponse) => handleCredentialRef.current(response),
+            auto_select: false,
+            cancel_on_tap_outside: true,
+            context: 'signin',
+            ux_mode: 'popup',
+          });
+          initializedClientId = clientId;
+        }
 
         const width = Math.max(hostRef.current.offsetWidth || 320, 240);
 
@@ -153,7 +160,7 @@ export function GoogleSignInButton({
         /* ignore */
       }
     };
-  }, [clientId, disabled, handleCredential, label]);
+  }, [clientId, disabled, label]);
 
   return (
     <div className="relative w-full space-y-2">

@@ -8,7 +8,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { LandingPageInlineTextStyle } from './landing-page-canvas-ux';
-import { beginSidebarPresetDrag } from './landing-page-sidebar-dnd';
+import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag } from './landing-page-sidebar-dnd';
 import { cn } from '@/lib/utils';
 
 export type LandingPageTitlePreset = {
@@ -400,6 +400,8 @@ type PanelProps = {
   /** Optional initial tab when opening the panel. */
   initialTab?: TextPresetTab;
   onTabChange?: (tab: TextPresetTab) => void;
+  /** Optional class merge (e.g. right-rail embedded). */
+  className?: string;
 };
 
 function previewStyle(style: LandingPageInlineTextStyle, maxPx = 16): CSSProperties {
@@ -454,6 +456,7 @@ export function LandingPageTextPresetsPanel({
   onInsertList,
   initialTab = 'title',
   onTabChange,
+  className,
 }: PanelProps) {
   const [tab, setTab] = useState<TextPresetTab>(initialTab);
 
@@ -479,6 +482,7 @@ export function LandingPageTextPresetsPanel({
         'w-[min(320px,calc(100vw-4.5rem))]',
         'h-[min(calc(100vh-var(--builder-top-offset,6.75rem)-1rem),780px)]',
         'max-md:fixed max-md:left-3 max-md:right-3 max-md:top-16 max-md:ml-0 max-md:h-[min(80vh,720px)] max-md:w-auto',
+        className,
       )}
       role="dialog"
       aria-label="Mẫu văn bản"
@@ -534,7 +538,10 @@ export function LandingPageTextPresetsPanel({
                     data-lp-title-preset={preset.id}
                     data-lp-sidebar-draggable="title"
                     className="block w-full cursor-grab rounded-lg px-2 py-2.5 text-left transition hover:bg-zinc-50 active:cursor-grabbing"
-                    onClick={() => onInsertTitle(preset)}
+                    onClick={(e) => {
+                      if (suppressClickAfterSidebarDrag(e)) return;
+                      onInsertTitle(preset);
+                    }}
                     onDragStart={(e) =>
                       beginSidebarPresetDrag(e, { kind: 'title', preset }, preset.label)
                     }
@@ -568,7 +575,10 @@ export function LandingPageTextPresetsPanel({
                     data-lp-paragraph-preset={preset.id}
                     data-lp-sidebar-draggable="paragraph"
                     className="block w-full cursor-grab rounded-lg px-2 py-2.5 text-left transition hover:bg-zinc-50 active:cursor-grabbing"
-                    onClick={() => onInsertParagraph?.(preset)}
+                    onClick={(e) => {
+                      if (suppressClickAfterSidebarDrag(e)) return;
+                      onInsertParagraph?.(preset);
+                    }}
                     onDragStart={(e) =>
                       beginSidebarPresetDrag(
                         e,
@@ -605,7 +615,10 @@ export function LandingPageTextPresetsPanel({
                     data-lp-list-preset={preset.id}
                     data-lp-sidebar-draggable="list"
                     className="block w-full cursor-grab rounded-lg px-2 py-2.5 text-left transition hover:bg-zinc-50 active:cursor-grabbing"
-                    onClick={() => onInsertList?.(preset)}
+                    onClick={(e) => {
+                      if (suppressClickAfterSidebarDrag(e)) return;
+                      onInsertList?.(preset);
+                    }}
                     onDragStart={(e) =>
                       beginSidebarPresetDrag(e, { kind: 'list', preset }, 'Danh sách')
                     }

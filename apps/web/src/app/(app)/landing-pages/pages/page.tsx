@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/components/shared/page-header';
 import { apiClient } from '@/lib/api-client';
+import { revalidatePublicLandingPage } from '@/components/landing-pages/revalidate-public-landing-page';
 import { useT } from '@/i18n/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -64,8 +65,13 @@ function LandingPagesListInner() {
   }, [reload]);
 
   async function act(id: string, action: 'duplicate' | 'archive' | 'unpublish') {
+    const row = items.find((item) => item.id === id);
     await apiClient(`/landing-pages/${id}/${action}`, { method: 'POST', body: '{}' });
     await reload();
+    if (action === 'unpublish' && row?.slug) {
+      const fresh = await revalidatePublicLandingPage(row.slug);
+      if (!fresh) setError('Đã gỡ publish. Cache trang công khai chưa làm mới — tải lại sau ít phút');
+    }
   }
 
   function setFilter(next: StatusFilter) {

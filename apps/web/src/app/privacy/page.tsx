@@ -10,9 +10,9 @@ const CONTACT_PHONE = '0934 077 360';
 const CONTACT_ADDRESS = '134/93 Lý Chính Thắng, Phường Xuân Hòa, Thành phố Hồ Chí Minh, Việt Nam';
 
 export const metadata: Metadata = {
-  title: 'Chính sách bảo mật | AI Beego',
+  title: 'Chính sách bảo mật | Ai Bee Go',
   description:
-    'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Cam kết an toàn và minh bạch dữ liệu.',
+    'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống Ai Bee Go - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI. Cam kết an toàn và minh bạch dữ liệu.',
   alternates: {
     canonical: `${SITE_URL}/privacy`,
   },
@@ -21,15 +21,15 @@ export const metadata: Metadata = {
     follow: true,
   },
   openGraph: {
-    title: 'Chính sách bảo mật | AI Beego',
+    title: 'Chính sách bảo mật | Ai Bee Go',
     description:
-      'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống AI Beego - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
+      'Chính sách bảo mật thông tin khách hàng và dữ liệu liên kết trên hệ thống Ai Bee Go - Vận hành bởi CÔNG TY TNHH THẾ GIỚI DIGI.',
     url: `${SITE_URL}/privacy`,
-    siteName: 'AI Beego',
+    siteName: 'Ai Bee Go',
     type: 'website',
     locale: 'vi_VN',
     images: [
-      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'AI Beego' },
+      { url: `${SITE_URL}/brand/logo.png`, width: 1024, height: 1024, alt: 'Ai Bee Go' },
     ],
   },
 };
@@ -53,7 +53,7 @@ export default function PrivacyPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-between py-4 px-4 sm:px-6">
-          <BrandLogo size={32} wordmark="AI Beego" wordmarkClassName="text-xl" />
+          <BrandLogo size={32} wordmark="Ai Bee Go" wordmarkClassName="text-xl" />
           <div className="flex items-center gap-4">
             <Link
               href="/"
@@ -129,7 +129,7 @@ export default function PrivacyPage() {
                 1. Dữ liệu chúng tôi thu thập
               </h2>
               <p>
-                Để cung cấp dịch vụ quản lý và tự động hóa marketing tốt nhất, AI Beego thu
+                Để cung cấp dịch vụ quản lý và tự động hóa marketing tốt nhất, Ai Bee Go thu
                 thập các loại dữ liệu sau đây:
               </p>
               <ul className="list-disc pl-5 space-y-2">
@@ -233,7 +233,7 @@ export default function PrivacyPage() {
                 4. Tích hợp và truyền nhận dữ liệu với nền tảng bên thứ ba
               </h2>
               <p>
-                AI Beego cung cấp các cổng kết nối đến các nền tảng lớn để tự động hóa quy
+                Ai Bee Go cung cấp các cổng kết nối đến các nền tảng lớn để tự động hóa quy
                 trình làm việc. Bằng việc chủ động cấu hình kết nối, bạn cho phép chúng tôi truyền
                 nhận dữ liệu với:
               </p>
@@ -338,7 +338,7 @@ export default function PrivacyPage() {
                 7. Quyền của người dùng đối với dữ liệu cá nhân
               </h2>
               <p>
-                Khách hàng của AI Beego được bảo đảm đầy đủ các quyền lợi đối với thông tin
+                Khách hàng của Ai Bee Go được bảo đảm đầy đủ các quyền lợi đối với thông tin
                 cá nhân của mình:
               </p>
               <ul className="list-disc pl-5 space-y-2">

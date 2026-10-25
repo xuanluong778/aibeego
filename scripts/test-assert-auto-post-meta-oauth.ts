@@ -1,5 +1,5 @@
 /**
- * Unit checks for MarketingAutoAZ Auto Post Meta OAuth fail-fast.
+ * Unit checks for Ai Bee Go Auto Post Meta OAuth fail-fast.
  * Run: pnpm --filter @marketingspa/database exec tsx ../../scripts/test-assert-auto-post-meta-oauth.ts
  */
 import assert from 'node:assert/strict';
@@ -18,8 +18,8 @@ function env(map: Record<string, string | undefined>) {
 function main() {
   const base = {
     NODE_ENV: 'production',
-    APP_URL: 'https://marketingautoaz.com',
-    API_URL: 'https://marketingautoaz.com',
+    APP_URL: 'https://aibeego.com',
+    API_URL: 'https://aibeego.com',
     META_APP_ID: MARKETINGAUTOAZ_META_APP_ID,
     META_APP_SECRET: 'test_secret_not_used_in_static_assert_xxxxxxxxxxxx',
     META_LOGIN_CONFIG_ID: MARKETINGAUTOAZ_META_LOGIN_CONFIG_ID,

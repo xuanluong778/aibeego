@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 /** Production callback — single source of truth for authorize + token exchange. */
 export const MARKETINGAUTOAZ_GOOGLE_ADS_OAUTH_REDIRECT_URI =
-  'https://marketingautoaz.com/api/v1/ad-performance/google/oauth/callback';
+  'https://aibeego.com/api/v1/ad-performance/google/oauth/callback';
 
 export function resolveGoogleAdsRedirectUri(
   get: (key: string) => string | undefined,
@@ -23,7 +23,7 @@ export function resolveGoogleAdsRedirectUri(
   const appUrl = (get('APP_URL') ?? '').replace(/\/+$/, '');
   if (
     process.env.NODE_ENV === 'production' &&
-    appUrl.includes('marketingautoaz.com') &&
+    (appUrl.includes('aibeego.com') || appUrl.includes('marketingautoaz.com')) &&
     uri !== MARKETINGAUTOAZ_GOOGLE_ADS_OAUTH_REDIRECT_URI
   ) {
     throw new BadRequestException(

@@ -1,6 +1,6 @@
 import { lookupCname, normalizeSenderDomain, isValidSenderDomain } from '../email-marketing/email-domain-dns.util';
 
-/** Default CNAME target for MarketingAutoAZ landing pages (Dev). Override via env. */
+/** Default CNAME target for Ai Bee Go landing pages. Override via LANDING_PAGE_CNAME_TARGET. */
 export function landingPageCnameTarget(): string {
   const fromEnv = process.env.LANDING_PAGE_CNAME_TARGET?.trim().toLowerCase();
   return (fromEnv || 'lp-edge.aibeego.com').replace(/\.$/, '');

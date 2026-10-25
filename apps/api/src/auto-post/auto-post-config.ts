@@ -63,7 +63,7 @@ export function isAutoPostOAuthState(state: string | undefined): boolean {
 }
 
 /**
- * MarketingAutoAZ OAuth state (base64url): 5 segments = Auto Post, 6 = Ads.
+ * Ai Bee Go OAuth state (base64url): 5 segments = Auto Post, 6 = Ads.
  * Relay partner state là JWT (có dấu chấm) — không trùng format này.
  */
 export function isMarketingAutoazOAuthState(state: string | undefined): boolean {
@@ -79,7 +79,7 @@ export function isMarketingAutoazOAuthState(state: string | undefined): boolean 
 
 /**
  * Redirect URI Auto Post Fanpage OAuth.
- * Production MarketingAutoAZ: chỉ META_AUTO_POST_REDIRECT_URI (không relay seoauto).
+ * Production Ai Bee Go: chỉ META_AUTO_POST_REDIRECT_URI (không relay seoauto).
  * @deprecated Prefer resolveAutoPostOAuthRedirectUri from assert-auto-post-meta-oauth.
  */
 export function resolveMetaOAuthRedirectUri(

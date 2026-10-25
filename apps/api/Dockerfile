@@ -12,6 +12,13 @@ RUN pnpm --filter @marketingspa/shared build
 RUN pnpm --filter @marketingspa/database build
 RUN pnpm --filter @marketingspa/api build
 RUN pnpm deploy --filter @marketingspa/api --prod /prod/api
+# pnpm deploy reinstalls @prisma/client and drops the generated engine.
+RUN set -e; \
+    src="$(find node_modules/.pnpm -path '*/node_modules/.prisma/client/index.js' | head -1)"; \
+    dest="$(find /prod/api/node_modules/.pnpm -type d -path '*/node_modules/.prisma/client' | head -1)"; \
+    test -n "$src"; test -n "$dest"; \
+    rm -rf "$dest"; \
+    cp -a "$(dirname "$src")" "$dest"
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl libc6-compat

@@ -17,7 +17,7 @@ type BrandLogoProps = {
 export function BrandLogo({
   size = 40,
   href = '/',
-  wordmark = 'AI Beego',
+  wordmark = 'Ai Bee Go',
   wordmarkClassName,
   className,
   priority = false,
@@ -26,7 +26,7 @@ export function BrandLogo({
   const mark =
     showWordmark && wordmark !== false ? (
       <span className={cn('font-bold tracking-tight text-white', wordmarkClassName)}>
-        {wordmark || 'AI Beego'}
+        {wordmark || 'Ai Bee Go'}
       </span>
     ) : null;
 
@@ -34,7 +34,7 @@ export function BrandLogo({
     <span className={cn('inline-flex items-center gap-2', className)}>
       <Image
         src="/brand/logo.png"
-        alt="AI Beego"
+        alt="Ai Bee Go"
         width={size}
         height={size}
         priority={priority}

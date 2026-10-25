@@ -266,7 +266,7 @@ export const LP_PREMIUM_FOUNDATION_CSS = `
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: min(68vh, 560px);
+  min-height: min(52vh, 440px);
 }
 
 /* —— Process / testimonials grids —— */

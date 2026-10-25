@@ -2184,7 +2184,7 @@ Quy tắc:
       provider.name === 'ses'
         ? sesFromEmail()
         : (process.env.SMTP_FROM || '').trim() ||
-          `AI Beego <${(process.env.SMTP_USER || 'noreply@aibeego.com').trim()}>`;
+          `Ai Bee Go <${(process.env.SMTP_USER || 'noreply@aibeego.com').trim()}>`;
     try {
       await provider.send({
         to,

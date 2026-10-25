@@ -3,15 +3,18 @@ import {
   Controller,
   Get,
   BadRequestException,
+  Header,
   Param,
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../common/guards/auth.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -19,7 +22,10 @@ import { RequirePermissions } from '../common/decorators/require-permissions.dec
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { createUploadMulterOptions } from '../common/uploads/upload-policy';
+import { PlatformAdminGuard } from '../common/guards/platform-admin.guard';
 import { LandingPagesService } from './landing-pages.service';
+import { LandingPageTemplatePackService } from './landing-page-template-pack.service';
+import { TEMPLATE_PACK_MAX_ZIP_BYTES } from './template-pack';
 import {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
@@ -38,10 +44,18 @@ import {
   UpsertCustomDomainDto,
 } from './dto/landing-pages.dto';
 
+const templateZipUpload = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: TEMPLATE_PACK_MAX_ZIP_BYTES, files: 1 },
+});
+
 @Controller('landing-pages')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionsGuard)
 export class LandingPagesController {
-  constructor(private readonly service: LandingPagesService) {}
+  constructor(
+    private readonly service: LandingPagesService,
+    private readonly templatePacks: LandingPageTemplatePackService,
+  ) {}
 
   @Get('overview')
   @RequirePermissions('lead.read')
@@ -97,13 +111,75 @@ export class LandingPagesController {
     @CurrentUser() user: AuthUser,
     @Query() query: ListLandingPageTemplatesQueryDto,
   ) {
-    return this.service.listTemplates(user.organizationId, query);
+    return this.service.listTemplates(user.organizationId, query, user);
+  }
+
+  @Post('templates/packs')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.write')
+  @UseInterceptors(templateZipUpload)
+  importTemplatePack(@CurrentUser() user: AuthUser, @UploadedFile() file: { originalname?: string; buffer?: Buffer; size?: number }) {
+    return this.templatePacks.importNew(user, file);
+  }
+
+  @Get('templates/:idOrSlug/pack')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.read')
+  @Header('Cache-Control', 'no-store')
+  async exportTemplatePack(
+    @CurrentUser() user: AuthUser,
+    @Param('idOrSlug') idOrSlug: string,
+  ): Promise<StreamableFile> {
+    const pack = await this.templatePacks.exportPack(user, idOrSlug);
+    return new StreamableFile(pack.body, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${pack.filename}"`,
+    });
+  }
+
+  @Post('templates/:idOrSlug/pack')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.write')
+  @UseInterceptors(templateZipUpload)
+  importTemplatePackUpdate(
+    @CurrentUser() user: AuthUser,
+    @Param('idOrSlug') idOrSlug: string,
+    @UploadedFile() file: { originalname?: string; buffer?: Buffer; size?: number },
+  ) {
+    return this.templatePacks.importUpdate(user, idOrSlug, file);
+  }
+
+  @Post('templates/:idOrSlug/publish')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.write')
+  publishTemplatePack(@CurrentUser() user: AuthUser, @Param('idOrSlug') idOrSlug: string) {
+    return this.templatePacks.publish(user, idOrSlug);
+  }
+
+  @Get('templates/:idOrSlug/versions')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.read')
+  templatePackVersions(@CurrentUser() user: AuthUser, @Param('idOrSlug') idOrSlug: string) {
+    return this.templatePacks.listVersions(user, idOrSlug);
+  }
+
+  @Post('templates/:idOrSlug/versions/:version/restore')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.write')
+  restoreTemplatePack(
+    @CurrentUser() user: AuthUser,
+    @Param('idOrSlug') idOrSlug: string,
+    @Param('version') version: string,
+  ) {
+    const v = Number(version);
+    if (!Number.isInteger(v) || v < 1) throw new BadRequestException('Version không hợp lệ');
+    return this.templatePacks.restore(user, idOrSlug, v);
   }
 
   @Get('templates/:idOrSlug')
   @RequirePermissions('lead.read')
   getTemplate(@CurrentUser() user: AuthUser, @Param('idOrSlug') idOrSlug: string) {
-    return this.service.getTemplate(user.organizationId, idOrSlug);
+    return this.service.getTemplate(user.organizationId, idOrSlug, user);
   }
 
   @Get()
@@ -229,6 +305,16 @@ export class LandingPagesController {
     return this.service.revokePreviewToken(user, id);
   }
 
+  @Post(':id/recover-draft')
+  @RequirePermissions('lead.write')
+  recoverDraft(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AutosaveLandingPageDto,
+  ) {
+    return this.service.recoverDraft(user, id, dto);
+  }
+
   @Post(':id/autosave')
   @RequirePermissions('lead.write')
   autosave(
@@ -248,6 +334,17 @@ export class LandingPagesController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.service.uploadPublicImage(user, id, file);
+  }
+
+  @Post(':id/upload-background')
+  @RequirePermissions('lead.write')
+  @UseInterceptors(FileInterceptor('file', createUploadMulterOptions('lp_background')))
+  uploadBackground(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.uploadPublicBackground(user, id, file);
   }
 
   @Get(':id/media')

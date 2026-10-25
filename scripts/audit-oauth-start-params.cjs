@@ -86,7 +86,7 @@ async function main() {
   const expected = {
     client_id: '1045516051171576',
     config_id: '2006772376877449',
-    redirect_uri: 'https://marketingautoaz.com/api/v1/auto-post/facebook/oauth/callback',
+    redirect_uri: 'https://aibeego.com/api/v1/auto-post/facebook/oauth/callback',
   };
   out.checks = {
     client_id_ok: out.client_id === expected.client_id,

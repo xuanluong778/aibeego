@@ -1806,30 +1806,59 @@ model FunnelRuntimeLog {
   @@map("funnel_runtime_logs")
 }
 
+enum LandingPageTemplatePublishStatus {
+  DRAFT
+  PUBLISHED
+}
+
 /// Landing Page Auto — system or org-cloned block templates (Phase 1).
 model LandingPageTemplate {
-  id             String           @id @default(uuid())
-  organizationId String?          @map("organization_id")
-  slug           String
-  name           String
-  category       String
-  theme          LandingPageTheme @default(MODERN)
-  description    String           @default("") @db.Text
-  tags           String[]         @default([])
-  thumbnailUrl   String?          @map("thumbnail_url") @db.VarChar(2000)
-  definition     Json
-  isSystem       Boolean          @default(false) @map("is_system")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
+  id                   String                           @id @default(uuid())
+  organizationId       String?                          @map("organization_id")
+  slug                 String
+  name                 String
+  category             String
+  theme                LandingPageTheme                 @default(MODERN)
+  description          String                           @default("") @db.Text
+  tags                 String[]                         @default([])
+  thumbnailUrl         String?                          @map("thumbnail_url") @db.VarChar(2000)
+  definition           Json
+  /// Last spec users may clone. Null until the first publish of a pack upload.
+  publishedDefinition  Json?                            @map("published_definition")
+  publishStatus        LandingPageTemplatePublishStatus @default(PUBLISHED) @map("publish_status")
+  /// Unguessable key so draft asset URLs are not public.
+  assetKey             String?                          @map("asset_key") @db.VarChar(64)
+  isSystem             Boolean                          @default(false) @map("is_system")
+  createdAt            DateTime                         @default(now()) @map("created_at")
+  updatedAt            DateTime                         @updatedAt @map("updated_at")
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization?                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   pages        LandingPage[]
+  versions     LandingPageTemplateVersion[]
 
   @@index([organizationId, updatedAt])
   @@index([slug])
   @@index([isSystem, slug])
   @@index([isSystem, category])
+  @@index([publishStatus])
   @@map("landing_page_templates")
+}
+
+/// Snapshot of a template definition before a pack upload or restore. Does not touch user pages.
+model LandingPageTemplateVersion {
+  id          String   @id @default(uuid())
+  templateId  String   @map("template_id")
+  version     Int
+  snapshot    Json
+  note        String?  @db.VarChar(500)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  template LandingPageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@index([templateId, createdAt])
+  @@map("landing_page_template_versions")
 }
 
 /// Landing Page Auto — draft/published page with block JSON spec.

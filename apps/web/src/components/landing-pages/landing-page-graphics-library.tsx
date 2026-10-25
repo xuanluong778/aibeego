@@ -41,7 +41,7 @@ import {
   type LandingPageFormGroupId,
   type LandingPageFormPreset,
 } from './landing-page-form-presets';
-import { beginSidebarPresetDrag } from './landing-page-sidebar-dnd';
+import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag } from './landing-page-sidebar-dnd';
 import { cn } from '@/lib/utils';
 
 export type LandingPageGraphicsCategoryId =
@@ -739,6 +739,7 @@ export function LandingPageGraphicsLibraryPanel({
   initialCategory = null,
   iconsOnly = false,
   panelTitle,
+  className,
 }: {
   onClose: () => void;
   onInsertBox: (preset: LandingPageBoxPreset) => void;
@@ -750,6 +751,8 @@ export function LandingPageGraphicsLibraryPanel({
   /** Skip top category grid; stay inside graphics icon groups. */
   iconsOnly?: boolean;
   panelTitle?: string;
+  /** Optional class merge (e.g. right-rail embedded). */
+  className?: string;
 }) {
   const [categoryId, setCategoryId] = useState<LandingPageGraphicsCategoryId | null>(
     initialCategory || (iconsOnly ? 'graphics' : null),
@@ -830,7 +833,10 @@ export function LandingPageGraphicsLibraryPanel({
             : 'rounded-xl bg-zinc-50/90 px-2 py-3',
         )}
         title={`${asset.label} — kéo thả hoặc click để chèn`}
-        onClick={() => activateAsset(asset)}
+        onClick={(e) => {
+          if (suppressClickAfterSidebarDrag(e)) return;
+          activateAsset(asset);
+        }}
         onDragStart={(e) => {
           if (asset.kind === 'box') {
             beginSidebarPresetDrag(e, { kind: 'box', preset: asset.preset }, asset.label);
@@ -896,7 +902,10 @@ export function LandingPageGraphicsLibraryPanel({
       data-lp-box-presets-panel
       data-lp-icons-only={iconsOnly ? '1' : undefined}
       data-lp-graphics-view={categoryId ? (shapeGroupId ? 'shape-group' : 'assets') : 'categories'}
-      className="absolute left-full top-0 z-40 ml-2 flex h-[min(82vh,680px)] w-[min(360px,calc(100vw-5rem))] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl"
+      className={cn(
+        'absolute left-full top-0 z-40 ml-2 flex h-[min(82vh,680px)] w-[min(360px,calc(100vw-5rem))] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl',
+        className,
+      )}
     >
       <div className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2.5">
         {category && (!iconsOnly || shapeGroupId) ? (

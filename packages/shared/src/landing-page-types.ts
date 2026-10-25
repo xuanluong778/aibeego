@@ -3,6 +3,8 @@
  * Additive module; independent from Funnel / Facebook App Review surfaces.
  */
 
+import type { LandingPageTextBoxChrome } from './landing-page-text-box';
+
 export const LANDING_PAGE_THEMES = [
   'MODERN',
   'PREMIUM',
@@ -156,6 +158,8 @@ export type LandingPageThemeTokens = {
   lineHeightHeading?: number;
   lineHeightBody?: number;
   imageTreatment?: 'editorial' | 'product-flat' | 'illustration' | 'photo-real';
+  iconSurface?: string;
+  iconColor?: string;
 };
 
 export type LandingPageBlockBase = {
@@ -395,6 +399,23 @@ export type LandingPageSpec = {
   meta?: {
     /** Stamped catalog generation id — drives ensureSystemTemplates DB sync. */
     catalogVersion?: string;
+    /**
+     * Original uploaded HTML, kept for version history and re-export.
+     * Visual sections live in htmlSections when the page was imported.
+     */
+    htmlSource?: string;
+    /** One isolated section per editable block. Scripts are not included. */
+    htmlSections?: Array<{ blockId: string; html: string; label?: string }>;
+    /** Shown in the builder when part of an upload could not be kept. */
+    htmlImportNotes?: string[];
+    /** HTML was turned into editable blocks. Scripts were not executed. */
+    htmlConverted?: boolean;
+    /** CSS from the upload, selectors scoped to the landing page. */
+    scopedCss?: string;
+    /** Number of script tags removed during import. */
+    isolatedScriptCount?: number;
+    /** Google Fonts stylesheet URL only. */
+    fontHref?: string;
     fieldSources?: Record<string, 'profile' | 'ai' | 'user'>;
     profileAppliedAt?: string | null;
     lastAiAt?: string | null;
@@ -453,6 +474,8 @@ export type LandingPageSpec = {
      * Server rejects autosaves with a lower revision than stored.
      */
     clientRevision?: number;
+    /** Last autosave request that landed. Retries with the same id do not overwrite. */
+    lastAutosaveRequestId?: string;
     /**
      * Canvas inline text styles keyed by `${blockId}::${field}`.
      * Additive plain CSS props only (never HTML) — preserved across sanitize/autosave.
@@ -480,6 +503,8 @@ export type LandingPageSpec = {
         width?: number;
         /** Text box height (px) — corner resize. */
         height?: number;
+        /** Wrapper chrome (fill, padding, border, radius, shadow, media, visibility). */
+        box?: LandingPageTextBoxChrome;
       }
     >;
     /**
@@ -503,6 +528,7 @@ export type LandingPageSpec = {
             textAlign?: 'left' | 'center' | 'right' | 'justify';
             color?: string;
             fontFamily?: string;
+            box?: LandingPageTextBoxChrome;
           }
         >
       >

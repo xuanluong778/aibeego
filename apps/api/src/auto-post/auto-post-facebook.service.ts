@@ -136,7 +136,7 @@ export class AutoPostFacebookService {
     }
 
     this.ensureMetaConfig();
-    // Fail-fast: App ID / config_id / redirect domain MarketingAutoAZ (không SEOAuto)
+    // Fail-fast: App ID / config_id / redirect domain Ai Bee Go (không SEOAuto)
     try {
       this.meta.assertProductionOAuthConfig();
     } catch (e) {
@@ -406,7 +406,7 @@ export class AutoPostFacebookService {
           `Hiện có: ${grantedScopes.join(', ') || 'public_profile'}. ` +
           `Thiếu: ${missingPageScopes.join(', ')}. ` +
           (diag.declined.length ? `Đã từ chối: ${diag.declined.join(', ')}. ` : '') +
-          `Cập nhật Login Configuration ${configId} trên Meta Developer (thêm pages_show_list, pages_read_engagement, pages_manage_posts) rồi bấm Kết nối lại Facebook trên MarketingAutoAZ.`;
+          `Cập nhật Login Configuration ${configId} trên Meta Developer (thêm pages_show_list, pages_read_engagement, pages_manage_posts) rồi bấm Kết nối lại Facebook trên Ai Bee Go.`;
         const hint = humanizeAutoPostFacebookError(hintTechnical) ?? hintTechnical;
         await this.prisma.autoPostFacebookOAuthPendingConnection.deleteMany({
           where: { userId, organizationId },
@@ -716,7 +716,7 @@ export class AutoPostFacebookService {
       return finish(
         buildOAuthPagesListResult({
           status: 'NO_PENDING_OAUTH',
-          message: 'Chưa có phiên OAuth — bấm Kết nối Facebook OAuth trên MarketingAutoAZ.',
+          message: 'Chưa có phiên OAuth — bấm Kết nối Facebook OAuth trên Ai Bee Go.',
         }),
       );
     }

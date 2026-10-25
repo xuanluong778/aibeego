@@ -2,8 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LandingPageBlock } from '@marketingspa/shared';
-import type { LandingPageCanvasElementKey, LandingPageInlineTextStyle } from './landing-page-canvas-ux';
+import {
+  LP_HEADING_LEVEL_PRESETS,
+  LP_TEXT_COLOR_PRESETS,
+  LP_TEXT_FONT_OPTIONS,
+  LP_TEXT_SCALE_FONT_MAX,
+  LP_TEXT_SCALE_FONT_MIN,
+  isButtonLikeTextField,
+  loadLpTextMyColors,
+  readCanvasInlineTextColorHex,
+  rememberLpTextMyColor,
+  type LandingPageCanvasElementKey,
+  type LandingPageInlineTextStyle,
+} from './landing-page-canvas-ux';
 import { resolveInspectorContext } from './landing-page-inspector-context';
+import { LandingPageItemBoxPanel } from './landing-page-item-box-panel';
+import { LandingPageTextQuickPanel } from './landing-page-text-quick-panel';
 import {
   composeDesignTransformCss,
   parseBorderParts,
@@ -210,9 +224,14 @@ function BackgroundPanel({
 
 function TypographyPanel({
   textStyle,
+  textField,
+  canvasBlockId,
   onPatchTextStyle,
 }: {
   textStyle?: LandingPageInlineTextStyle | null;
+  /** Inline field key — enables H1–H6 when not button-like. */
+  textField?: string | null;
+  canvasBlockId?: string | null;
   onPatchTextStyle?: (patch: Partial<LandingPageInlineTextStyle>) => void;
 }) {
   const unit = textStyle?.fontSizeUnit === 'rem' ? 'rem' : 'px';
@@ -224,40 +243,220 @@ function TypographyPanel({
       ? textStyle.lineHeight
       : parsePx(textStyle?.lineHeight, 1.4) || 1.4;
   const deco = String(textStyle?.textDecoration || '');
-  const bold = textStyle?.fontWeight === 'bold' || textStyle?.fontWeight === 700;
+  const bold =
+    textStyle?.fontWeight === 'bold' || textStyle?.fontWeight === 700 || textStyle?.fontWeight === 800;
   const italic = textStyle?.fontStyle === 'italic';
+  const showHeadingLevels = Boolean(textField && !isButtonLikeTextField(textField));
+  const headingLevel = textStyle?.headingLevel ?? 0;
+  const [liveFontSize, setLiveFontSize] = useState<number | null>(null);
+  const [myColors, setMyColors] = useState<string[]>(() =>
+    typeof window !== 'undefined' ? loadLpTextMyColors() : LP_TEXT_COLOR_PRESETS.slice(0, 12),
+  );
+  const sizePx = liveFontSize ?? fontSizePx;
+  const storedColorHex =
+    textStyle?.color && /^#[0-9a-fA-F]{6}$/i.test(textStyle.color)
+      ? textStyle.color.toLowerCase()
+      : textStyle?.color && /^#[0-9a-fA-F]{8}$/i.test(textStyle.color)
+        ? `#${textStyle.color.slice(1, 7).toLowerCase()}`
+        : null;
+  const [sampledColorHex, setSampledColorHex] = useState<string | null>(null);
+  const colorHex = storedColorHex ?? sampledColorHex ?? '#475569';
+
+  useEffect(() => {
+    if (!canvasBlockId || !textField || storedColorHex) {
+      setSampledColorHex(null);
+      return;
+    }
+    let cancelled = false;
+    const sample = () => {
+      if (cancelled) return;
+      setSampledColorHex(readCanvasInlineTextColorHex(canvasBlockId, textField));
+    };
+    sample();
+    const raf = requestAnimationFrame(sample);
+    const timer = window.setTimeout(sample, 100);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [canvasBlockId, textField, storedColorHex]);
+
+  useEffect(() => {
+    if (showHeadingLevels) {
+      void import('./landing-page-title-presets').then((m) => m.ensureLandingPageTitleFonts());
+    }
+  }, [showHeadingLevels, textStyle?.fontFamily]);
+
+  useEffect(() => {
+    const onLive = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ fontSize?: number }>).detail;
+      if (typeof detail?.fontSize === 'number' && detail.fontSize > 0) {
+        setLiveFontSize(detail.fontSize);
+      }
+    };
+    const onEnd = () => {
+      requestAnimationFrame(() => setLiveFontSize(null));
+    };
+    window.addEventListener('lp-text-box-live-type', onLive);
+    window.addEventListener('lp-heading-box-resize-end', onEnd);
+    return () => {
+      window.removeEventListener('lp-text-box-live-type', onLive);
+      window.removeEventListener('lp-heading-box-resize-end', onEnd);
+    };
+  }, [textField]);
+
+  const patchColor = (hex: string) => {
+    onPatchTextStyle?.({
+      color: hex,
+      backgroundImage: undefined,
+      backgroundClip: undefined,
+      webkitTextFillColor: undefined,
+    });
+    rememberLpTextMyColor(hex);
+    setMyColors(loadLpTextMyColors());
+  };
+
+  const bumpSize = (delta: number) => {
+    const next = Math.min(
+      LP_TEXT_SCALE_FONT_MAX,
+      Math.max(LP_TEXT_SCALE_FONT_MIN, Math.round(sizePx + delta)),
+    );
+    onPatchTextStyle?.({ fontSize: next, fontSizeUnit: 'px' });
+  };
 
   return (
     <InspectorAccordion title="Thiết lập chữ" data-lp="typography" defaultOpen>
+      {showHeadingLevels ? (
+        <>
+          <InspectorFieldLabel>Cấp heading</InspectorFieldLabel>
+          <div className="flex flex-wrap gap-1" data-lp-design-heading-level>
+            {([1, 2, 3, 4, 5, 6] as const).map((level) => {
+              const preset = LP_HEADING_LEVEL_PRESETS[level];
+              const active = headingLevel === level;
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  className={`h-8 min-w-8 rounded border px-2 text-xs font-semibold ${
+                    active
+                      ? 'border-emerald-400/50 bg-emerald-500/20 text-white'
+                      : 'border-white/10 text-white/70 hover:bg-white/5'
+                  }`}
+                  title={`H${level}`}
+                  onClick={() =>
+                    onPatchTextStyle?.({
+                      headingLevel: level,
+                      fontSize: preset.fontSize,
+                      fontWeight: preset.fontWeight,
+                    })
+                  }
+                >
+                  H{level}
+                </button>
+              );
+            })}
+            {headingLevel ? (
+              <button
+                type="button"
+                className="h-8 rounded border border-white/10 px-2 text-[10px] text-white/60 hover:bg-white/5"
+                onClick={() => onPatchTextStyle?.({ headingLevel: undefined })}
+              >
+                P
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+
       <InspectorFieldLabel>Font family</InspectorFieldLabel>
       <select
         className="lp-dark-select w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-xs text-white"
-        value={textStyle?.fontFamily || ''}
+        value={
+          textStyle?.fontFamily &&
+          LP_TEXT_FONT_OPTIONS.some((f) => f.value === textStyle.fontFamily)
+            ? textStyle.fontFamily
+            : textStyle?.fontFamily || ''
+        }
         onChange={(e) =>
           onPatchTextStyle?.({ fontFamily: e.target.value || undefined })
         }
         data-lp-design-font-family
       >
-        {FONT_OPTIONS.map((o) => (
+        <option value="">Mặc định</option>
+        {LP_TEXT_FONT_OPTIONS.map((o) => (
           <option key={o.label} value={o.value}>
             {o.label}
           </option>
         ))}
+        {textStyle?.fontFamily &&
+        !LP_TEXT_FONT_OPTIONS.some((f) => f.value === textStyle.fontFamily) ? (
+          <option value={textStyle.fontFamily}>Custom</option>
+        ) : null}
       </select>
+
+      <div className="flex flex-wrap items-end gap-1.5">
+        <button
+          type="button"
+          className="h-8 min-w-8 rounded border border-white/10 text-xs hover:bg-white/5"
+          title="Giảm cỡ chữ"
+          data-lp-design-font-minus
+          onClick={() => bumpSize(-1)}
+        >
+          A−
+        </button>
+        <button
+          type="button"
+          className="h-8 min-w-8 rounded border border-white/10 text-xs hover:bg-white/5"
+          title="Tăng cỡ chữ"
+          data-lp-design-font-plus
+          onClick={() => bumpSize(1)}
+        >
+          A+
+        </button>
+        <label className="flex flex-1 min-w-[4rem] flex-col text-[11px]">
+          <span className="mb-1 opacity-60">Cỡ ({unit})</span>
+          <input
+            type="number"
+            className="rounded-md border border-white/10 bg-zinc-900 px-2 py-1 text-xs text-white"
+            data-lp-design-font-size-input
+            min={LP_TEXT_SCALE_FONT_MIN}
+            max={LP_TEXT_SCALE_FONT_MAX}
+            value={unit === 'rem' ? displaySize : sizePx}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isFinite(n)) return;
+              if (unit === 'rem') {
+                onPatchTextStyle?.({ fontSize: Math.round(n * 16), fontSizeUnit: 'rem' });
+              } else {
+                onPatchTextStyle?.({
+                  fontSize: Math.min(LP_TEXT_SCALE_FONT_MAX, Math.max(LP_TEXT_SCALE_FONT_MIN, n)),
+                  fontSizeUnit: 'px',
+                });
+              }
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        </label>
+      </div>
 
       <div className="grid grid-cols-[1fr_72px] gap-2">
         <InspectorSliderNumber
-          label="Cỡ chữ"
-          value={unit === 'rem' ? displaySize * 100 : displaySize}
-          min={unit === 'rem' ? 50 : 10}
-          max={unit === 'rem' ? 450 : 96}
+          label="Cỡ chữ (slider)"
+          value={unit === 'rem' ? displaySize * 100 : sizePx}
+          min={unit === 'rem' ? 50 : LP_TEXT_SCALE_FONT_MIN}
+          max={unit === 'rem' ? 450 : LP_TEXT_SCALE_FONT_MAX}
           step={unit === 'rem' ? 5 : 1}
           unit={unit === 'rem' ? '%' : 'px'}
           onChange={(n) => {
             if (unit === 'rem') {
               onPatchTextStyle?.({ fontSize: Math.round((n / 100) * 16), fontSizeUnit: 'rem' });
             } else {
-              onPatchTextStyle?.({ fontSize: n, fontSizeUnit: 'px' });
+              onPatchTextStyle?.({
+                fontSize: Math.min(LP_TEXT_SCALE_FONT_MAX, Math.max(LP_TEXT_SCALE_FONT_MIN, n)),
+                fontSizeUnit: 'px',
+              });
             }
           }}
         />
@@ -311,7 +510,7 @@ function TypographyPanel({
         ))}
       </div>
 
-      <InspectorFieldLabel>Text transform</InspectorFieldLabel>
+      <InspectorFieldLabel>Kiểu chữ</InspectorFieldLabel>
       <InspectorSegmented
         data-lp="text-transform"
         value={(textStyle?.textTransform || 'none') as 'none' | 'uppercase' | 'capitalize' | 'lowercase'}
@@ -339,17 +538,45 @@ function TypographyPanel({
         onChange={(textAlign) => onPatchTextStyle?.({ textAlign })}
       />
 
-      <div className="flex items-center gap-2">
-        <InspectorFieldLabel>Màu chữ</InspectorFieldLabel>
+      <InspectorFieldLabel>Màu chữ</InspectorFieldLabel>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="color"
-          className="ml-auto h-8 w-10 cursor-pointer rounded border border-white/10 bg-transparent"
-          value={
-            textStyle?.color && /^#[0-9a-fA-F]{6}$/.test(textStyle.color) ? textStyle.color : '#ffffff'
-          }
-          onChange={(e) => onPatchTextStyle?.({ color: e.target.value })}
+          className="h-8 w-10 cursor-pointer rounded border border-white/10 bg-transparent"
+          value={colorHex}
+          onChange={(e) => patchColor(e.target.value)}
           data-lp-design-text-color
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         />
+        <input
+          type="text"
+          className="min-w-0 flex-1 rounded border border-white/10 bg-zinc-900 px-2 py-1 font-mono text-[11px] text-white"
+          value={colorHex}
+          spellCheck={false}
+          data-lp-design-text-color-hex
+          onChange={(e) => {
+            const v = e.target.value.trim();
+            if (/^#[0-9a-fA-F]{6}$/.test(v)) patchColor(v);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
+      </div>
+      <div className="flex flex-wrap gap-1" data-lp-design-color-swatches>
+        {[...new Set([...myColors, ...LP_TEXT_COLOR_PRESETS])].slice(0, 20).map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            className={`h-6 w-6 rounded border ${
+              c.toLowerCase() === colorHex.toLowerCase() ? 'border-emerald-400' : 'border-white/20'
+            }`}
+            style={{ background: c }}
+            data-lp-design-color-swatch={c}
+            onClick={() => patchColor(c)}
+          />
+        ))}
       </div>
 
       <InspectorSliderNumber
@@ -371,6 +598,72 @@ function TypographyPanel({
         onChange={(n) => onPatchTextStyle?.({ lineHeight: n / 100 })}
       />
       <p className="text-[10px] leading-snug opacity-40">Nội dung: double-click trên canvas.</p>
+    </InspectorAccordion>
+  );
+}
+
+function TextBoxSizePanel({
+  textStyle,
+  onPatchTextStyle,
+}: {
+  textStyle?: LandingPageInlineTextStyle | null;
+  onPatchTextStyle?: (patch: Partial<LandingPageInlineTextStyle>) => void;
+}) {
+  const width = typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : 320;
+  return (
+    <InspectorAccordion title="Khung chữ" data-lp="text-box-size" defaultOpen>
+      <InspectorSliderNumber
+        label="Chiều rộng (px)"
+        value={width}
+        min={80}
+        max={1200}
+        onChange={(n) => onPatchTextStyle?.({ width: n })}
+      />
+      <p className="text-[10px] opacity-40">
+        Chỉ đổi inline width — không ghi đè free x/y section. Kéo handle trên canvas để resize trực tiếp.
+      </p>
+    </InspectorAccordion>
+  );
+}
+
+function SpacingPanel({
+  style,
+  patchStyle,
+}: {
+  style: Record<string, unknown>;
+  patchStyle: (p: Record<string, unknown>) => void;
+}) {
+  const pad = parsePx(style.padding, parsePx(style.paddingTop, 0));
+  const padX = parsePx(style.paddingLeft, pad);
+  const padY = parsePx(style.paddingTop, pad);
+  return (
+    <InspectorAccordion title="Padding" data-lp="spacing" defaultOpen={false}>
+      <InspectorSliderNumber
+        label="Padding dọc"
+        value={padY}
+        min={0}
+        max={120}
+        onChange={(n) =>
+          patchStyle({
+            paddingTop: `${n}px`,
+            paddingBottom: `${n}px`,
+            padding: undefined,
+          })
+        }
+      />
+      <InspectorSliderNumber
+        label="Padding ngang"
+        value={padX}
+        min={0}
+        max={120}
+        onChange={(n) =>
+          patchStyle({
+            paddingLeft: `${n}px`,
+            paddingRight: `${n}px`,
+            padding: undefined,
+          })
+        }
+      />
     </InspectorAccordion>
   );
 }
@@ -518,7 +811,7 @@ function BorderRadiusPanel({
           });
         }}
       />
-      <InspectorFieldLabel>Border style</InspectorFieldLabel>
+      <InspectorFieldLabel>Kiểu viền</InspectorFieldLabel>
       <select
         className="lp-dark-select w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-xs text-white"
         value={border.style}
@@ -655,7 +948,7 @@ function ShadowPanel({
           <InspectorSliderNumber label="Blur" value={shadow.blur} min={0} max={80} onChange={(n) => setShadow({ ...shadow, blur: n })} />
           <InspectorSliderNumber label="Spread" value={shadow.spread} min={-20} max={40} onChange={(n) => setShadow({ ...shadow, spread: n })} />
           <div className="flex items-center gap-2">
-            <InspectorFieldLabel>Color</InspectorFieldLabel>
+            <InspectorFieldLabel>Màu bóng</InspectorFieldLabel>
             <input
               type="color"
               className="ml-auto h-8 w-10 cursor-pointer rounded border border-white/10 bg-transparent"
@@ -693,7 +986,7 @@ function FilterPanel({
 
   return (
     <InspectorAccordion title="Filter" data-lp="filter" defaultOpen={false}>
-      <InspectorFieldLabel>Blend Mode</InspectorFieldLabel>
+      <InspectorFieldLabel>Chế độ hòa trộn</InspectorFieldLabel>
       <select
         className="lp-dark-select w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-xs text-white"
         value={blend}
@@ -725,32 +1018,70 @@ function TransformPanel({
   style,
   patchStyle,
   onUpdateBlock,
+  resolvedFreeLayout,
+  onPatchFreeLayout,
 }: {
   selected: LandingPageBlock;
   style: Record<string, unknown>;
   patchStyle: (p: Record<string, unknown>) => void;
   onUpdateBlock: (id: string, patch: Partial<LandingPageBlock>) => void;
+  resolvedFreeLayout?: LandingPageBlock['freeLayout'] | null;
+  onPatchFreeLayout?: (layout: NonNullable<LandingPageBlock['freeLayout']>) => void;
 }) {
   const extras = readDesignTransform(style);
-  const free = selected.freeLayout;
-  const isFree = selected.positionMode === 'free' && free;
+  const free = resolvedFreeLayout ?? selected.freeLayout;
+  const isFree = selected.positionMode === 'free' && free && onPatchFreeLayout;
   const rotate = isFree ? free!.rotate ?? 0 : extras.rotate;
   const tx = isFree ? free!.x : extras.translateX;
   const ty = isFree ? free!.y : extras.translateY;
+  const liveRaf = useRef<number | null>(null);
+  const liveStyleRef = useRef({ ...style });
+
+  useEffect(() => {
+    liveStyleRef.current = { ...style };
+  }, [style]);
+
+  function applyLiveTransformDom(nextStyle: Record<string, unknown>) {
+    const css = composeDesignTransformCss(nextStyle);
+    const opacity = typeof nextStyle.opacity === 'number' ? String(nextStyle.opacity) : '';
+    const apply = () => {
+      liveRaf.current = null;
+      const host = document.querySelector(
+        `[data-lp-block-id="${CSS.escape(selected.id)}"]`,
+      ) as HTMLElement | null;
+      if (!host) return;
+      // Prefer the visual surface that already carries design chrome.
+      const surface =
+        (host.querySelector('[data-lp-section-surface="1"]') as HTMLElement | null) || host;
+      if (css) surface.style.transform = css;
+      else surface.style.removeProperty('transform');
+      if (opacity) surface.style.opacity = opacity;
+    };
+    if (liveRaf.current != null) return;
+    liveRaf.current = requestAnimationFrame(apply);
+  }
+
+  function patchLive(patch: Record<string, unknown>) {
+    const next = { ...liveStyleRef.current, ...patch };
+    for (const [k, v] of Object.entries(next)) {
+      if (v === undefined || v === '' || v === null) delete next[k];
+    }
+    liveStyleRef.current = next;
+    applyLiveTransformDom(next);
+  }
+
+  function applyFreeShellRotate(deg: number) {
+    const host = document.querySelector(
+      `[data-lp-block-id="${CSS.escape(selected.id)}"]`,
+    ) as HTMLElement | null;
+    if (!host) return;
+    const n = Math.round(deg * 10) / 10;
+    host.style.transform = n ? `rotate(${n}deg)` : '';
+  }
 
   function patchFree(partial: Partial<NonNullable<LandingPageBlock['freeLayout']>>) {
     const base = free || { x: 0, y: 0 };
-    onUpdateBlock(selected.id, {
-      positionMode: 'free',
-      freeLayout: { ...base, ...partial },
-      // Clear positional mirrors so section chrome does not double-transform with free shell.
-      style: {
-        ...style,
-        lpRotate: undefined,
-        lpTranslateX: undefined,
-        lpTranslateY: undefined,
-      },
-    } as Partial<LandingPageBlock>);
+    onPatchFreeLayout?.({ ...base, ...partial });
   }
 
   return (
@@ -761,6 +1092,7 @@ function TransformPanel({
         min={0}
         max={100}
         unit="%"
+        onLiveChange={(n) => patchLive({ opacity: n / 100 })}
         onChange={(n) => patchStyle({ opacity: n / 100 })}
       />
       <InspectorSliderNumber
@@ -769,9 +1101,18 @@ function TransformPanel({
         min={-180}
         max={180}
         unit="°"
+        onLiveChange={(n) => {
+          if (isFree) {
+            applyFreeShellRotate(n);
+            return;
+          }
+          patchLive({ lpRotate: n, transform: undefined });
+        }}
         onChange={(n) => {
-          if (isFree) patchFree({ rotate: n });
-          else patchStyle({ lpRotate: n, transform: undefined });
+          if (isFree) {
+            applyFreeShellRotate(n);
+            patchFree({ rotate: n === 0 ? undefined : n });
+          } else patchStyle({ lpRotate: n, transform: undefined });
         }}
       />
       <InspectorSliderNumber
@@ -779,6 +1120,10 @@ function TransformPanel({
         value={tx}
         min={-400}
         max={400}
+        onLiveChange={(n) => {
+          if (isFree) return;
+          patchLive({ lpTranslateX: n });
+        }}
         onChange={(n) => {
           if (isFree) patchFree({ x: n });
           else patchStyle({ lpTranslateX: n });
@@ -789,6 +1134,10 @@ function TransformPanel({
         value={ty}
         min={-400}
         max={400}
+        onLiveChange={(n) => {
+          if (isFree) return;
+          patchLive({ lpTranslateY: n });
+        }}
         onChange={(n) => {
           if (isFree) patchFree({ y: n });
           else patchStyle({ lpTranslateY: n });
@@ -812,6 +1161,10 @@ function TransformPanel({
           min={10}
           max={300}
           unit="%"
+          onLiveChange={(n) => {
+            const s = n / 100;
+            patchLive({ lpScale: s, lpScaleX: s, lpScaleY: s, lpScaleLinked: true });
+          }}
           onChange={(n) => {
             const s = n / 100;
             patchStyle({ lpScale: s, lpScaleX: s, lpScaleY: s, lpScaleLinked: true });
@@ -825,7 +1178,12 @@ function TransformPanel({
             min={10}
             max={300}
             unit="%"
-            onChange={(n) => patchStyle({ lpScaleX: n / 100, lpScaleLinked: false, lpScale: undefined })}
+            onLiveChange={(n) =>
+              patchLive({ lpScaleX: n / 100, lpScaleLinked: false, lpScale: undefined })
+            }
+            onChange={(n) =>
+              patchStyle({ lpScaleX: n / 100, lpScaleLinked: false, lpScale: undefined })
+            }
           />
           <InspectorSliderNumber
             label="Scale Y"
@@ -833,7 +1191,12 @@ function TransformPanel({
             min={10}
             max={300}
             unit="%"
-            onChange={(n) => patchStyle({ lpScaleY: n / 100, lpScaleLinked: false, lpScale: undefined })}
+            onLiveChange={(n) =>
+              patchLive({ lpScaleY: n / 100, lpScaleLinked: false, lpScale: undefined })
+            }
+            onChange={(n) =>
+              patchStyle({ lpScaleY: n / 100, lpScaleLinked: false, lpScale: undefined })
+            }
           />
         </>
       )}
@@ -843,6 +1206,7 @@ function TransformPanel({
         min={-45}
         max={45}
         unit="°"
+        onLiveChange={(n) => patchLive({ lpSkewX: n })}
         onChange={(n) => patchStyle({ lpSkewX: n })}
       />
       <InspectorSliderNumber
@@ -851,6 +1215,7 @@ function TransformPanel({
         min={-45}
         max={45}
         unit="°"
+        onLiveChange={(n) => patchLive({ lpSkewY: n })}
         onChange={(n) => patchStyle({ lpSkewY: n })}
       />
       <p className="text-[10px] opacity-40">
@@ -986,23 +1351,39 @@ export function LandingPageInspectorDesignTab({
   selected,
   selectedElement,
   textStyle,
+  textField,
   themePrimary,
   onUpdateBlock,
   onPatchTextStyle,
   onThemePrimary,
   onPickBackgroundImage,
+  onPickTextBoxMedia,
+  hidePageTheme,
+  hideElementCustomCss,
+  viewport,
+  resolvedFreeLayout,
+  onPatchFreeLayout,
 }: {
   selected: LandingPageBlock | null;
   selectedElement?: LandingPageCanvasElementKey;
   textStyle?: LandingPageInlineTextStyle | null;
+  textField?: string | null;
   themePrimary: string;
   onUpdateBlock: (id: string, patch: Partial<LandingPageBlock>) => void;
   onPatchTextStyle?: (patch: Partial<LandingPageInlineTextStyle>) => void;
   onThemePrimary: (color: string) => void;
   onPickBackgroundImage: () => void;
+  onPickTextBoxMedia?: () => void;
+  /** Global theme lives on rail «Thiết kế tổng thể». */
+  hidePageTheme?: boolean;
+  /** Custom class/CSS lives on tab Nâng cao. */
+  hideElementCustomCss?: boolean;
+  viewport?: 'desktop' | 'tablet' | 'mobile';
+  resolvedFreeLayout?: LandingPageBlock['freeLayout'] | null;
+  onPatchFreeLayout?: (layout: NonNullable<LandingPageBlock['freeLayout']>) => void;
 }) {
   const [bgModeOverride, setBgModeOverride] = useState<BgMode | null>(null);
-  const ctx = resolveInspectorContext(selected, selectedElement);
+  const ctx = resolveInspectorContext(selected, selectedElement, textField);
 
   const style = useMemo(
     () => ({ ...((selected?.style || {}) as Record<string, unknown>) }),
@@ -1053,37 +1434,79 @@ export function LandingPageInspectorDesignTab({
     </div>
   );
 
-  const showTypography = ctx.kind === 'text' || ctx.kind === 'button';
-  const showBackground = ctx.kind === 'section' || ctx.kind === 'button' || ctx.kind === 'video' || ctx.kind === 'countdown';
-  const showSize = ctx.kind !== 'form';
-  const showBorderShadow = ctx.kind !== 'form';
-  const showFilterTransform = ctx.kind !== 'form';
+  const isCard = ctx.kind === 'card';
+  const showTypography = ctx.kind === 'text';
+  const showTextBoxSize = ctx.kind === 'text' && Boolean(textField);
+  const showBackground =
+    !isCard && (ctx.kind === 'section' || ctx.kind === 'video' || ctx.kind === 'countdown');
+  const showSpacing =
+    !isCard && (ctx.kind === 'section' || ctx.kind === 'image' || ctx.kind === 'video');
+  const showBorderShadow =
+    !isCard &&
+    ctx.kind !== 'form' &&
+    ctx.kind !== 'button' &&
+    ctx.kind !== 'icon' &&
+    ctx.kind !== 'text';
+  const showFilterTransform =
+    !isCard && ctx.kind !== 'form' && ctx.kind !== 'button' && ctx.kind !== 'icon';
+  const showBlockSize =
+    !isCard &&
+    (ctx.kind === 'section' ||
+      ctx.kind === 'image' ||
+      ctx.kind === 'video' ||
+      ctx.kind === 'countdown');
+
+  if (ctx.kind === 'icon') {
+    return (
+      <div className="space-y-2" data-lp-inspector-design data-lp-context="icon" data-lp-icon-via-dedicated="1">
+        <InspectorEmptyHint>
+          Chỉnh icon bằng Inspector <strong>ICON</strong> (chọn icon, kích thước, màu, nền, viền,
+          bo góc, padding, căn, đổ bóng).
+        </InspectorEmptyHint>
+      </div>
+    );
+  }
+
+  if (ctx.kind === 'button') {
+    return (
+      <div className="space-y-2" data-lp-inspector-design data-lp-context="button" data-lp-old-button-ui="removed">
+        <InspectorEmptyHint>
+          Chỉnh nút bằng Inspector <strong>NÚT</strong> mới (CTA, thiết kế, nâng cao, hiển thị).
+        </InspectorEmptyHint>
+      </div>
+    );
+  }
 
   if (ctx.kind === 'form') {
     return (
       <div className="space-y-2.5" data-lp-inspector-design data-lp-context="form" data-lp-design-tab="1">
         {header}
         <InspectorEmptyHint>
-          Form: CRM ở tab <strong>Nội dung</strong>. Theme / CSS bên dưới.
+          Form: CRM ở tab <strong>Nội dung</strong>. Theme trang: rail <strong>Thiết kế tổng thể</strong>.
+          CSS tuỳ chỉnh: tab <strong>Nâng cao</strong>.
         </InspectorEmptyHint>
-        <InspectorAccordion title="Theme trang" data-lp="theme" defaultOpen={false}>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              className="h-9 w-12 cursor-pointer rounded border border-white/10 bg-transparent"
-              value={themePrimary}
-              onChange={(e) => onThemePrimary(e.target.value)}
-            />
-          </div>
-        </InspectorAccordion>
-        <CustomCssPanel
-          blockId={selected.id}
-          selectedElement={selectedElement}
-          style={style}
-          onPatchStyle={(nextStyle) => {
-            onUpdateBlock(selected.id, { style: nextStyle } as Partial<LandingPageBlock>);
-          }}
-        />
+        {!hidePageTheme ? (
+          <InspectorAccordion title="Theme trang" data-lp="theme" defaultOpen={false}>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                className="h-9 w-12 cursor-pointer rounded border border-white/10 bg-transparent"
+                value={themePrimary}
+                onChange={(e) => onThemePrimary(e.target.value)}
+              />
+            </div>
+          </InspectorAccordion>
+        ) : null}
+        {!hideElementCustomCss ? (
+          <CustomCssPanel
+            blockId={selected.id}
+            selectedElement={selectedElement}
+            style={style}
+            onPatchStyle={(nextStyle) => {
+              onUpdateBlock(selected.id, { style: nextStyle } as Partial<LandingPageBlock>);
+            }}
+          />
+        ) : null}
       </div>
     );
   }
@@ -1096,8 +1519,38 @@ export function LandingPageInspectorDesignTab({
       data-lp-context={ctx.dataAttr}
     >
       {header}
+      {isCard && typeof selectedElement === 'string' && selectedElement.startsWith('item:') ? (
+        <LandingPageItemBoxPanel
+          block={selected}
+          itemId={selectedElement.slice('item:'.length)}
+          onUpdateBlock={onUpdateBlock}
+          onPickMedia={onPickTextBoxMedia}
+        />
+      ) : null}
       {showTypography ? (
-        <TypographyPanel textStyle={textStyle} onPatchTextStyle={onPatchTextStyle} />
+        <TypographyPanel
+          textStyle={textStyle}
+          textField={textField}
+          canvasBlockId={selected.id}
+          onPatchTextStyle={onPatchTextStyle}
+        />
+      ) : null}
+      {showTextBoxSize ? (
+        <TextBoxSizePanel textStyle={textStyle} onPatchTextStyle={onPatchTextStyle} />
+      ) : null}
+      {ctx.kind === 'text' && textField && selected ? (
+        <LandingPageTextQuickPanel
+          embedded
+          open
+          block={selected}
+          field={textField}
+          textStyle={textStyle}
+          onLive={() => undefined}
+          onCommit={() => undefined}
+          onPatchBox={(box) => onPatchTextStyle?.({ box })}
+          onPickMedia={() => onPickTextBoxMedia?.()}
+          onClose={() => undefined}
+        />
       ) : null}
       {showBackground ? (
         <BackgroundPanel
@@ -1110,7 +1563,8 @@ export function LandingPageInspectorDesignTab({
           onPickBackgroundImage={onPickBackgroundImage}
         />
       ) : null}
-      {showSize ? (
+      {showSpacing ? <SpacingPanel style={style} patchStyle={patchStyle} /> : null}
+      {showBlockSize ? (
         <SizePanel
           style={style}
           width={width}
@@ -1138,16 +1592,25 @@ export function LandingPageInspectorDesignTab({
           style={style}
           patchStyle={patchStyle}
           onUpdateBlock={onUpdateBlock}
+          resolvedFreeLayout={resolvedFreeLayout}
+          onPatchFreeLayout={onPatchFreeLayout}
         />
       ) : null}
-      <CustomCssPanel
-        blockId={selected.id}
-        selectedElement={selectedElement}
-        style={style}
-        onPatchStyle={(nextStyle) => {
-          onUpdateBlock(selected.id, { style: nextStyle } as Partial<LandingPageBlock>);
-        }}
-      />
+      {viewport && viewport !== 'desktop' && selected.positionMode === 'free' ? (
+        <p className="text-[10px] opacity-45">
+          Transform free-layout đang chỉnh cho <strong>{viewport}</strong>.
+        </p>
+      ) : null}
+      {!hideElementCustomCss ? (
+        <CustomCssPanel
+          blockId={selected.id}
+          selectedElement={selectedElement}
+          style={style}
+          onPatchStyle={(nextStyle) => {
+            onUpdateBlock(selected.id, { style: nextStyle } as Partial<LandingPageBlock>);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1169,7 +1632,10 @@ export function inspectorTextFieldKey(
   if (selectedElement === 'subheadline') return 'subheadline';
   if (selectedElement === 'body') return 'body';
   if (selectedElement === 'cta') return 'ctaLabel';
-  if (selectedElement.startsWith('item:')) return `itemTitle:${selectedElement.slice(5)}`;
+  // Hero trust check icons are box chrome (item:trust-icon-N) — not itemTitle text fields.
+  if (selectedElement.startsWith('item:trust-icon-')) return null;
+  // Bare item:id is the large card. Nested text must pass its own field.
+  if (selectedElement.startsWith('item:')) return null;
   if (selectedElement.startsWith('grid:')) return null;
   if (selectedElement.startsWith('countdown:')) return null;
   return null;

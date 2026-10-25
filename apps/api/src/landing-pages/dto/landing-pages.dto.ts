@@ -161,6 +161,12 @@ export class AutosaveLandingPageDto {
   @IsNumber()
   clientRevision?: number;
 
+  /** Revision this tab last loaded or saved. Must match the stored draft. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  baseRevision?: number;
+
   /** Idempotency / trace id from builder (optional). */
   @IsOptional()
   @IsString()
@@ -173,6 +179,12 @@ export class PublishLandingPageDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** Draft revision that just autosaved. Publish refuses a different stored revision. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  clientRevision?: number;
 }
 
 export class UpsertCustomDomainDto {

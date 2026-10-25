@@ -77,7 +77,7 @@ function PaymentSuccessDialog({
             Thanh toán thành công!
           </DialogTitle>
           <DialogDescription className="text-center text-base text-foreground/80">
-            Cảm ơn {name} đã tin tưởng và đồng hành cùng Marketing Auto.
+            Cảm ơn {name} đã tin tưởng và đồng hành cùng Ai Bee Go.
             <br />
             Gói của bạn đã được kích hoạt tự động.
           </DialogDescription>
@@ -419,7 +419,7 @@ function TrialCard({
       <section className="rounded-2xl border border-red-400/50 bg-[#0A3D31] p-6 text-white shadow-md">
         <h2 className="text-lg font-semibold text-red-300">Dùng thử đã kết thúc</h2>
         <p className="mt-2 text-sm text-white/90">
-          Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng AI Beego.
+          Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng Ai Bee Go.
         </p>
         {trial?.trialEndsAt && (
           <p className="mt-2 text-xs text-white/65">
@@ -552,12 +552,12 @@ function PricingPageInner() {
   return (
     <div className="mx-auto max-w-5xl space-y-10 pb-12">
       <header className="space-y-3 text-center">
-        <p className="text-sm font-medium tracking-wide text-teal-700">Marketing Auto Pro</p>
+        <p className="text-sm font-medium tracking-wide text-teal-700">Ai Bee Go Pro</p>
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('pricing.title')}</h1>
         <p className="mx-auto max-w-2xl text-muted-foreground">{t('pricing.subtitle')}</p>
         {reason === 'trial_expired' && (
           <p className="mx-auto max-w-2xl rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
-            Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng AI Beego.
+            Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng Ai Bee Go.
           </p>
         )}
         {reason === 'subscription_required' && (

@@ -855,7 +855,7 @@ async function main() {
       assertFileContains('apps/api/src/auto-post/assert-auto-post-meta-oauth.ts', [
         '1045516051171576',
         '2006772376877449',
-        'https://marketingautoaz.com/api/v1/auto-post/facebook/oauth/callback',
+        'https://aibeego.com/api/v1/auto-post/facebook/oauth/callback',
       ]);
       assertFileContains('apps/api/src/auto-post/auto-post-meta-pages.util.ts', [
         'pages_show_list',

@@ -258,7 +258,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
         <Sparkles className="h-5 w-5 shrink-0 text-white" />
         {!collapsed ? (
           <span className="whitespace-nowrap text-base font-bold leading-tight text-white">
-            AI Beego
+            Ai Bee Go
           </span>
         ) : null}
       </div>

@@ -187,6 +187,204 @@ export function sanitizeFreeLayout(raw: unknown): LandingPageFreeLayout | undefi
 
 export const CANVAS_FREE_RESERVE_PADDING = 48;
 export const CANVAS_FREE_RESERVE_MIN = 120;
+/** Padding below furthest content when auto-growing a section to fit children. */
+export const SECTION_CONTENT_FIT_PADDING = 24;
+
+/**
+ * Spec-only estimate: furthest bottom among elementFreeLayouts for a block.
+ * Offset-mode `y` is translate — this is a lower-bound heuristic for sanitize
+ * without DOM; live builder uses measureSectionContentHeightCss instead.
+ */
+export function estimateSectionContentBottomFromElementLayouts(
+  blockId: string,
+  elementFreeLayouts: Record<string, LandingPageFreeLayout> | null | undefined,
+  padding = SECTION_CONTENT_FIT_PADDING,
+): number {
+  if (!elementFreeLayouts) return 0;
+  const prefix = `${blockId}::`;
+  let maxBottom = 0;
+  for (const [key, layout] of Object.entries(elementFreeLayouts)) {
+    if (!key.startsWith(prefix) || !layout) continue;
+    const y = Number(layout.y);
+    const h = Number(layout.height);
+    const bottom =
+      (Number.isFinite(y) ? Math.max(0, y) : 0) +
+      (Number.isFinite(h) && h > 0 ? h : 48);
+    if (bottom > maxBottom) maxBottom = bottom;
+  }
+  if (maxBottom <= 0) return 0;
+  return Math.round(maxBottom + padding);
+}
+
+/** Max persisted flow-section minHeight — above this is almost always a bad free-drag inflate. */
+export const MAX_FLOW_SECTION_MIN_HEIGHT_PX = 2400;
+
+/**
+ * Top→bottom pack of free (non text-layer) sections so stacked chrome never overlaps.
+ * Pure — preserves intentional floating text-layer x/y. Used after height expands
+ * that would otherwise grow a section in place and leave the next free sibling on top.
+ */
+export function packFreeSectionsVertical<T extends FreeSectionReflowBlock>(
+  blocks: ReadonlyArray<T>,
+  viewport: 'desktop' | 'tablet' | 'mobile' = 'desktop',
+  gap = 0,
+): T[] {
+  type Row = { index: number; id: string; layout: LandingPageFreeLayout };
+  const rows: Row[] = [];
+  blocks.forEach((b, index) => {
+    if (isFloatingTextLayerBlock(b)) return;
+    const free = resolveFreeLayoutForViewport(
+      b.positionMode,
+      b.freeLayout,
+      b.responsiveFreeLayout,
+      viewport,
+    );
+    if (!free) return;
+    rows.push({
+      index,
+      id: b.id,
+      layout: ensureSectionFreeLayoutHeight({
+        ...free,
+        y: Math.max(0, Math.round(free.y ?? 0)),
+        height: Math.max(
+          CANVAS_FREE_RESERVE_MIN,
+          Math.round(free.height ?? free.reserveHeight ?? CANVAS_FREE_RESERVE_MIN),
+        ),
+      }),
+    });
+  });
+  if (rows.length < 2) return blocks as T[];
+
+  rows.sort((a, b) => {
+    const dy = (a.layout.y ?? 0) - (b.layout.y ?? 0);
+    if (dy !== 0) return dy;
+    return a.id.localeCompare(b.id);
+  });
+  let cursor = 0;
+  let packedChanged = false;
+  for (const row of rows) {
+    const h = Math.round(row.layout.height ?? CANVAS_FREE_RESERVE_MIN);
+    const prevY = Math.round(row.layout.y ?? 0);
+    let y = prevY;
+    if (y < cursor) {
+      y = cursor;
+      packedChanged = true;
+    }
+    row.layout = ensureSectionFreeLayoutHeight({ ...row.layout, y, height: h });
+    cursor = y + h + gap;
+  }
+  if (!packedChanged) return blocks as T[];
+
+  const byIndex = new Map(rows.map((r) => [r.index, r.layout]));
+  return blocks.map((b, i) => {
+    const layout = byIndex.get(i);
+    if (!layout) return b;
+    if (viewport === 'desktop') {
+      return { ...b, positionMode: 'free' as const, freeLayout: layout };
+    }
+    return {
+      ...b,
+      positionMode: 'free' as const,
+      freeLayout: b.freeLayout || layout,
+      responsiveFreeLayout: {
+        ...(b.responsiveFreeLayout || {}),
+        [viewport]: layout,
+      },
+    };
+  });
+}
+
+/**
+ * Grow free / flow section heights so they cover elementFreeLayouts bottoms.
+ * Pure — used by sanitize + after element free commits when DOM is unavailable.
+ * After any free-section height grow, packs siblings so taller chrome cannot sit
+ * on top of the next free section (in-place grow without pack was the overlap bug).
+ * Also heals inflated flow minHeight left by page-wide free-surface snap bugs.
+ */
+export function expandBlocksToFitElementLayouts<
+  T extends {
+    id: string;
+    type?: string;
+    items?: unknown[] | null;
+    positionMode?: LandingPagePositionMode;
+    freeLayout?: LandingPageFreeLayout;
+    responsiveFreeLayout?: LandingPageResponsiveFreeLayout;
+    style?: Record<string, unknown> | object | null;
+  },
+>(
+  blocks: ReadonlyArray<T>,
+  elementFreeLayouts: Record<string, LandingPageFreeLayout> | null | undefined,
+  viewport: 'desktop' | 'tablet' | 'mobile' = 'desktop',
+): T[] {
+  if (!blocks.length) return blocks as T[];
+  let changed = false;
+  let freeHeightGrew = false;
+  const next = blocks.map((b) => {
+    const needed = estimateSectionContentBottomFromElementLayouts(
+      b.id,
+      elementFreeLayouts,
+    );
+    const free = resolveFreeLayoutForViewport(
+      b.positionMode,
+      b.freeLayout,
+      b.responsiveFreeLayout,
+      viewport,
+    );
+    if (free) {
+      if (needed <= 0) return b;
+      const cur = Math.round(free.height ?? free.reserveHeight ?? 0);
+      if (needed <= cur + 1) return b;
+      changed = true;
+      freeHeightGrew = true;
+      const layout = ensureSectionFreeLayoutHeight({ ...free, height: needed });
+      if (viewport === 'desktop') {
+        return { ...b, positionMode: 'free' as const, freeLayout: layout };
+      }
+      return {
+        ...b,
+        positionMode: 'free' as const,
+        freeLayout: b.freeLayout || layout,
+        responsiveFreeLayout: {
+          ...(b.responsiveFreeLayout || {}),
+          [viewport]: layout,
+        },
+      };
+    }
+    // Flow section — persist minHeight so publish keeps space for translated/absolute kids.
+    const style = { ...((b.style || {}) as Record<string, unknown>) };
+    const curMin = Number.parseFloat(String(style.minHeight || '0')) || 0;
+    if (curMin > MAX_FLOW_SECTION_MIN_HEIGHT_PX) {
+      // Heal mega-sections from page-wide snap: keep EFL-driven need, drop the rest.
+      const healed = Math.min(
+        MAX_FLOW_SECTION_MIN_HEIGHT_PX,
+        Math.max(needed, 0),
+      );
+      changed = true;
+      if (healed <= 0) {
+        const { minHeight: _drop, ...rest } = style;
+        void _drop;
+        return { ...b, style: Object.keys(rest).length ? rest : undefined };
+      }
+      return {
+        ...b,
+        style: { ...style, minHeight: `${healed}px` },
+      };
+    }
+    if (needed <= 0) return b;
+    if (needed <= curMin + 1) return b;
+    changed = true;
+    return {
+      ...b,
+      style: { ...style, minHeight: `${Math.min(needed, MAX_FLOW_SECTION_MIN_HEIGHT_PX)}px` },
+    };
+  });
+  if (!changed) return blocks as T[];
+  // Growing a free section in place without packing leaves the next free sibling
+  // at its old y → painted overlap. Always pack after free height grows.
+  return freeHeightGrew
+    ? packFreeSectionsVertical(next as T[], viewport)
+    : next;
+}
 
 export type FreeReserveBlockRef = {
   positionMode?: LandingPagePositionMode;
@@ -261,10 +459,26 @@ export function ensureSectionFreeLayoutHeight(
 
 export type FreeSectionReflowBlock = {
   id: string;
+  type?: string;
+  items?: unknown[] | null;
   positionMode?: LandingPagePositionMode;
   freeLayout?: LandingPageFreeLayout;
   responsiveFreeLayout?: LandingPageResponsiveFreeLayout;
 };
+
+/**
+ * Empty Benefits/Features used as free Heading/Paragraph layers.
+ * These float at absolute canvas coords and MUST NOT enter section packing —
+ * pack forced shared/stacked Y and made headings jump/overlap on insert+drag.
+ */
+export function isFloatingTextLayerBlock(block: {
+  type?: string;
+  items?: unknown[] | null;
+}): boolean {
+  if (block.type !== 'Benefits' && block.type !== 'Features') return false;
+  const items = Array.isArray(block.items) ? block.items : [];
+  return items.length === 0;
+}
 
 /**
  * After a free section grows/shrinks/moves, push siblings that would overlap so
@@ -272,6 +486,8 @@ export type FreeSectionReflowBlock = {
  *
  * Rules:
  * - Only touches free sections on the given viewport.
+ * - Floating text-layer blocks (Heading/Paragraph) are excluded — their x/y are
+ *   authoring coordinates and must stay exactly as committed.
  * - Sections with y >= previous bottom of the changed block shift by Δheight
  *   (and by Δy if the changed block itself moved).
  * - Remaining overlaps (e.g. dragged into another) are resolved top→bottom pack.
@@ -284,6 +500,31 @@ export function reflowFreeSectionsAfterChange<T extends FreeSectionReflowBlock>(
   viewport: 'desktop' | 'tablet' | 'mobile' = 'desktop',
   gap = 0,
 ): T[] {
+  const changed = blocks.find((b) => b.id === changedId);
+  // Text-layer move/resize: write that block only — never pack/cascade siblings.
+  if (changed && isFloatingTextLayerBlock(changed)) {
+    const layout = {
+      ...nextLayout,
+      x: Math.max(0, Math.round(nextLayout.x ?? 0)),
+      y: Math.max(0, Math.round(nextLayout.y ?? 0)),
+    };
+    return blocks.map((b) => {
+      if (b.id !== changedId) return b;
+      if (viewport === 'desktop') {
+        return { ...b, positionMode: 'free' as const, freeLayout: layout };
+      }
+      return {
+        ...b,
+        positionMode: 'free' as const,
+        freeLayout: b.freeLayout || layout,
+        responsiveFreeLayout: {
+          ...(b.responsiveFreeLayout || {}),
+          [viewport]: layout,
+        },
+      };
+    });
+  }
+
   const nextH = Math.max(
     CANVAS_FREE_RESERVE_MIN,
     Math.round(nextLayout.height ?? nextLayout.reserveHeight ?? CANVAS_FREE_RESERVE_MIN),
@@ -303,6 +544,8 @@ export function reflowFreeSectionsAfterChange<T extends FreeSectionReflowBlock>(
   type Row = { index: number; id: string; layout: LandingPageFreeLayout };
   const rows: Row[] = [];
   blocks.forEach((b, index) => {
+    // Floating text layers keep authoring x/y — never ride pack cursor.
+    if (isFloatingTextLayerBlock(b)) return;
     const free = resolveFreeLayoutForViewport(
       b.positionMode,
       b.freeLayout,
@@ -338,23 +581,11 @@ export function reflowFreeSectionsAfterChange<T extends FreeSectionReflowBlock>(
   });
 
   // Resolve any residual overlaps top→bottom (stable by previous y, then id).
-  rows.sort((a, b) => {
-    const dy = (a.layout.y ?? 0) - (b.layout.y ?? 0);
-    if (dy !== 0) return dy;
-    return a.id.localeCompare(b.id);
-  });
-  let cursor = 0;
-  for (const row of rows) {
-    const h = Math.round(row.layout.height ?? CANVAS_FREE_RESERVE_MIN);
-    let y = Math.round(row.layout.y ?? 0);
-    if (y < cursor) y = cursor;
-    row.layout = ensureSectionFreeLayoutHeight({ ...row.layout, y, height: h });
-    cursor = y + h + gap;
-  }
-
-  const byIndex = new Map(rows.map((r) => [r.index, r.layout]));
-  return blocks.map((b, i) => {
-    const layout = byIndex.get(i);
+  const withDelta = blocks.map((b, i) => {
+    const layout = (() => {
+      const row = rows.find((r) => r.index === i);
+      return row?.layout;
+    })();
     if (!layout) return b;
     if (viewport === 'desktop') {
       return { ...b, positionMode: 'free' as const, freeLayout: layout };
@@ -368,7 +599,8 @@ export function reflowFreeSectionsAfterChange<T extends FreeSectionReflowBlock>(
         [viewport]: layout,
       },
     };
-  });
+  }) as T[];
+  return packFreeSectionsVertical(withDelta, viewport, gap);
 }
 
 export function normalizeRotate(deg: number): number {

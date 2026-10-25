@@ -68,7 +68,7 @@ export function LeadFormCrmInspector({
             patch({ pipelineId: e.target.value || undefined, stageId: undefined })
           }
         >
-          <option value="">Mặc định org</option>
+          <option value="">Mặc định tổ chức</option>
           {pipelines.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -92,7 +92,7 @@ export function LeadFormCrmInspector({
         </select>
       </label>
       <label className="block text-[11px] opacity-70">
-        Owner (NV phụ trách)
+        Người phụ trách
         <select
           className="lp-dark-select mt-0.5 w-full rounded border border-white/10 bg-zinc-900 px-2 py-1.5 text-sm"
           value={crm.assignedToId ?? ''}

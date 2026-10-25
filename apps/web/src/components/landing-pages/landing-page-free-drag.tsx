@@ -12,6 +12,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,7 @@ import {
   type FreeSpacingLabel,
   CANVAS_FREE_RESERVE_MIN,
   CANVAS_FREE_RESERVE_PADDING,
+  SECTION_CONTENT_FIT_PADDING,
   type LandingPageFreeLayout,
 } from '@marketingspa/shared';
 
@@ -260,38 +262,82 @@ export type FreeDragCommitPayload = {
   viewport: 'desktop' | 'tablet' | 'mobile';
 };
 
+/**
+ * Free-position drag may ONLY start from an explicit move handle.
+ * Body / text / padding clicks must never arm free-drag (select + inline-edit only).
+ */
 export function isFreeDragBlockedTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el?.closest) return true;
-  if (el.closest('[data-lp-inline-editing="1"]')) return true;
-  if (el.closest('[data-lp-text-toolbar]')) return true;
-  if (el.closest('[data-lp-text-more-menu]')) return true;
-  if (el.closest('[data-lp-text-color-panel]')) return true;
-  if (el.closest('[data-lp-floating-toolbar]')) return true;
-  if (el.closest('[data-lp-item-handle]')) return true;
-  if (el.closest('[data-lp-section-handle]')) return true;
-  if (el.closest('[data-lp-resize-handle],[data-lp-rotate-handle]')) return true;
-  if (
-    el.closest(
-      '[data-lp-inline-field],[data-lp-box-hit],[data-lp-form-hit],[data-lp-button-hit],[data-lp-cta-body]',
-    )
-  ) {
-    return true;
+  if (el.closest('[data-lp-free-drag-handle]')) return false;
+  return true;
+}
+
+type LpFreeDragHost = HTMLElement & {
+  __lpBeginFreeDrag?: (e: ReactPointerEvent | PointerEvent) => void;
+};
+
+/** free-id → beginDrag (survives shell ref timing; used by vertical Move toolbar). */
+const freeDragBeginByFreeId = new Map<string, (e: ReactPointerEvent | PointerEvent) => void>();
+
+function registerFreeDragBegin(
+  el: HTMLElement | null | undefined,
+  begin: ((e: ReactPointerEvent | PointerEvent) => void) | null,
+) {
+  if (!el) return;
+  const host = el as LpFreeDragHost;
+  const freeId = el.getAttribute('data-lp-free-id');
+  if (begin) {
+    host.__lpBeginFreeDrag = begin;
+    if (freeId) freeDragBeginByFreeId.set(freeId, begin);
+    return;
   }
-  if (el.closest('input, textarea, select, [contenteditable="true"]')) return true;
-  if (el.closest('a[href], button, [role="button"]')) {
-    // Allow drag from chrome move handle / button-like blocks.
-    if (el.closest('[data-lp-free-drag-handle]')) return false;
-    if (el.closest('[data-lp-button-block],[data-lp-button-group-block],[data-lp-box-block],[data-lp-transformable]')) {
-      return false;
+  if (host.__lpBeginFreeDrag) delete host.__lpBeginFreeDrag;
+  if (freeId && freeDragBeginByFreeId.get(freeId) && !host.__lpBeginFreeDrag) {
+    // Only drop map entry when this host cleared its own handler.
+    freeDragBeginByFreeId.delete(freeId);
+  }
+}
+
+/** Start free-drag on a shell that registered via useFreeDragBox (Move toolbar icon). */
+export function beginFreeDragFromShell(
+  shell: HTMLElement | null | undefined,
+  e: ReactPointerEvent | PointerEvent,
+): boolean {
+  if (!shell) return false;
+  let node: HTMLElement | null = shell;
+  while (node) {
+    const begin =
+      (node as LpFreeDragHost).__lpBeginFreeDrag ||
+      (node.getAttribute('data-lp-free-id')
+        ? freeDragBeginByFreeId.get(node.getAttribute('data-lp-free-id')!)
+        : undefined);
+    if (begin) {
+      begin(e);
+      return true;
     }
-    // Shell itself is role=button — don't treat as blocked interactive.
-    if (el.closest('[data-lp-section-chrome="1"]') && !el.closest('[data-lp-floating-toolbar]')) {
-      return false;
+    node = node.parentElement;
+  }
+  const freeId = shell.getAttribute('data-lp-free-id');
+  if (freeId) {
+    const begin = freeDragBeginByFreeId.get(freeId);
+    if (begin) {
+      begin(e);
+      return true;
     }
-    return true;
   }
   return false;
+}
+
+export function beginFreeDragByFreeId(
+  freeId: string | null | undefined,
+  e: ReactPointerEvent | PointerEvent,
+): boolean {
+  if (!freeId) return false;
+  const begin = freeDragBeginByFreeId.get(freeId);
+  if (!begin) return false;
+  begin(e);
+  return true;
 }
 
 export function readRect(el: HTMLElement, origin: DOMRect, scale = 1): FreeRect {
@@ -319,13 +365,64 @@ function surfaceLayoutSize(surfaceEl: HTMLElement, scale: number): { width: numb
 }
 
 /**
+ * Convert a viewport pointer into unscaled canvas-root CSS coordinates.
+ * Formula: local = (client - canvasRoot.getBoundingClientRect()) / pointerScale
+ * pointerScale accounts for canvas zoom / device-frame transforms only.
+ */
+export function clientPointToCanvasLocal(
+  clientX: number,
+  clientY: number,
+  fromEl?: HTMLElement | null,
+): { x: number; y: number; scale: number } {
+  const root =
+    (fromEl?.closest('[data-lp-canvas-root]') as HTMLElement | null) ||
+    (typeof document !== 'undefined'
+      ? (document.querySelector('[data-lp-canvas-root]') as HTMLElement | null)
+      : null);
+  if (!root) return { x: Math.round(clientX), y: Math.round(clientY), scale: 1 };
+  const scale = readCanvasPointerScale(root);
+  const rect = root.getBoundingClientRect();
+  const s = scale > 0.05 && Number.isFinite(scale) ? scale : 1;
+  return {
+    x: Math.round((clientX - rect.left) / s),
+    y: Math.round((clientY - rect.top) / s),
+    scale: s,
+  };
+}
+
+/**
+ * Convert a viewport pointer into LOCAL coordinates of a free surface / section.
+ * Formula: local = (client - surface.getBoundingClientRect()) / pointerScale
+ */
+export function clientPointToSurfaceLocal(
+  clientX: number,
+  clientY: number,
+  surfaceEl: HTMLElement,
+): { x: number; y: number; scale: number } {
+  const scale = readCanvasPointerScale(surfaceEl);
+  const rect = surfaceEl.getBoundingClientRect();
+  const s = scale > 0.05 && Number.isFinite(scale) ? scale : 1;
+  return {
+    x: Math.round((clientX - rect.left) / s),
+    y: Math.round((clientY - rect.top) / s),
+    scale: s,
+  };
+}
+
+/**
  * Positioning parent for free coords.
- * Items must use the nearest `[data-lp-free-surface]` (card grid), NOT the page canvas —
- * otherwise left/top are huge canvas offsets and the box vanishes outside the section.
+ * Items must use the nearest `[data-lp-free-surface]` (card grid / title block),
+ * then the owning section chrome — NEVER the page canvas/article.
+ * Canvas fallback made left/top huge page offsets, snapped headings to other
+ * sections, and inflated section minHeight until drop targets overlapped.
  */
 export function resolveFreeSurface(el: HTMLElement): HTMLElement {
   const surface = el.closest('[data-lp-free-surface]') as HTMLElement | null;
   if (surface) return surface;
+  const section = el.closest(
+    '[data-lp-section-chrome="1"],[data-lp-block-id]',
+  ) as HTMLElement | null;
+  if (section) return section;
   const canvas =
     (el.closest('[data-lp-canvas-root]') as HTMLElement | null) ||
     (el.closest('article') as HTMLElement | null);
@@ -497,6 +594,15 @@ export function cancelAllFreeDrags() {
   freeDragCancelers.clear();
 }
 
+/** Notify floating chrome (vertical toolbar) to re-anchor during live free transforms. */
+export function emitFreeDragFrame() {
+  try {
+    window.dispatchEvent(new CustomEvent('lp-free-drag-frame'));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Drop legacy per-slot reserves (pre canvas-level minHeight). */
 function clearLegacySlotFlowReserves(root?: HTMLElement | null) {
   const canvas = root ?? (document.querySelector('[data-lp-canvas-root]') as HTMLElement | null);
@@ -525,6 +631,106 @@ export function readCanvasPointerScale(fromEl: HTMLElement | null): number {
 }
 
 /**
+ * Union height of ALL painted content inside a section shell (CSS px, ÷ zoom).
+ * Parent getBoundingClientRect / offsetHeight miss children moved by
+ * transform:translate or position:absolute — those paint outside the box and
+ * cause the next section to overlap. This walks descendants instead.
+ */
+export function measureSectionContentHeightCss(
+  shell: HTMLElement,
+  pointerScale?: number,
+): number {
+  const scale =
+    pointerScale && pointerScale > 0.05
+      ? pointerScale
+      : readCanvasPointerScale(shell);
+  const shellRect = shell.getBoundingClientRect();
+  // Do NOT floor with shell.offsetHeight — that includes a previously inflated
+  // minHeight and permanently locks mega-sections that overlap drop targets.
+  let maxBottom = 0;
+
+  const skipClosest =
+    '[data-lp-floating-toolbar],[data-lp-transform-chrome],[data-lp-text-toolbar],[data-lp-canvas-zoom-controls],[data-lp-section-handle],[data-lp-resize-handle],[data-lp-rotate-handle],[data-lp-item-handle]';
+
+  const nodes = shell.querySelectorAll(
+    '[data-lp-element-id],[data-lp-inline-field],[data-lp-free-child],[data-lp-content-image],[data-lp-form-hit],[data-lp-box-hit],img,video,iframe,form,button,a,li,h1,h2,h3,h4,p,ul,ol',
+  );
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i] as HTMLElement;
+    if (!shell.contains(el)) continue;
+    if (el.closest(skipClosest)) continue;
+    // Nested section chrome (shouldn't happen) — skip foreign shells.
+    const nest = el.closest('[data-lp-section-chrome="1"]');
+    if (nest && nest !== shell) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 && r.height <= 0) continue;
+    const localBottom = (r.bottom - shellRect.top) / scale;
+    if (localBottom > maxBottom) maxBottom = localBottom;
+  }
+  if (maxBottom <= 0) {
+    const slot = shell.querySelector('[data-lp-section-content]') as HTMLElement | null;
+    maxBottom = Math.max(1, slot?.scrollHeight || shell.scrollHeight || 80);
+  }
+  return Math.max(1, Math.ceil(maxBottom));
+}
+
+/**
+ * Visible content union in client coordinates — deep descendants only
+ * (headline/cards/images). Do NOT union direct shell children: free-layout
+ * stretches the content wrapper to the (possibly inflated) section height,
+ * which made heal/toggle think painted content was hundreds of px taller than
+ * the real cards/text and left empty chrome overlapping the next section.
+ */
+export function measureVisibleContentRect(
+  shell: HTMLElement,
+): { left: number; top: number; width: number; height: number } {
+  const scale = readCanvasPointerScale(shell);
+  const shellRect = shell.getBoundingClientRect();
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  let maxRight = -Infinity;
+  let maxBottom = -Infinity;
+  let found = false;
+
+  const skipClosest =
+    '[data-lp-floating-toolbar],[data-lp-transform-chrome],[data-lp-text-toolbar],[data-lp-canvas-zoom-controls],[data-lp-section-handle],[data-lp-resize-handle],[data-lp-rotate-handle]';
+
+  const consider = (el: HTMLElement) => {
+    if (el.closest(skipClosest)) return;
+    const nest = el.closest('[data-lp-section-chrome="1"]');
+    if (nest && nest !== shell) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    found = true;
+    minLeft = Math.min(minLeft, r.left);
+    minTop = Math.min(minTop, r.top);
+    maxRight = Math.max(maxRight, r.right);
+    maxBottom = Math.max(maxBottom, r.bottom);
+  };
+
+  shell
+    .querySelectorAll(
+      '[data-lp-element-id],[data-lp-inline-field],[data-lp-free-child],[data-lp-content-image],[data-lp-form-hit],[data-lp-card-item],[data-lp-box-hit],h1,h2,h3,h4,p,li,img,video',
+    )
+    .forEach((n) => consider(n as HTMLElement));
+
+  if (!found) {
+    return {
+      left: shellRect.left,
+      top: shellRect.top,
+      width: shellRect.width / scale,
+      height: Math.min(shellRect.height / scale, 400),
+    };
+  }
+  return {
+    left: minLeft,
+    top: minTop,
+    width: (maxRight - minLeft) / scale,
+    height: (maxBottom - minTop) / scale,
+  };
+}
+
+/**
  * One canvas-level reserve: minHeight = max(bottom of free section shells) + padding.
  * Uses live DOM bounds converted into CSS layout space (÷ pointer scale) so zoom
  * never under/over-reserves after commit handoff.
@@ -546,8 +752,10 @@ export function syncCanvasFreeReserve(
       '[data-lp-section-chrome="1"][data-lp-position-mode="free"]',
     )
     .forEach((shell) => {
-      const rect = shell.getBoundingClientRect();
-      maxBottom = Math.max(maxBottom, (rect.bottom - rootTop) / scale);
+      // Include transformed/absolute children that paint past the shell box.
+      const contentH = measureSectionContentHeightCss(shell, scale);
+      const topLocal = (shell.getBoundingClientRect().top - rootTop) / scale;
+      maxBottom = Math.max(maxBottom, topLocal + contentH);
     });
   if (maxBottom <= 0) {
     root.style.minHeight = '';
@@ -557,6 +765,27 @@ export function syncCanvasFreeReserve(
   const h = Math.max(CANVAS_FREE_RESERVE_MIN, Math.round(maxBottom + padding));
   root.style.minHeight = `${h}px`;
   root.setAttribute('data-lp-free-reserve-h', String(h));
+}
+
+/**
+ * During child free-drag (offset), expand the parent section shell live so the
+ * next section never paints under overflowing content mid-gesture.
+ */
+function applyParentSectionLiveFit(fromEl: HTMLElement | null) {
+  if (!fromEl) return;
+  const section = fromEl.closest('[data-lp-section-chrome="1"]') as HTMLElement | null;
+  if (!section) return;
+  const scale = readCanvasPointerScale(section);
+  const needed =
+    measureSectionContentHeightCss(section, scale) + SECTION_CONTENT_FIT_PADDING;
+  // Cap live growth — page-wide snap used to push this into thousands of px.
+  const capped = Math.min(needed, 2400);
+  if (section.getAttribute('data-lp-position-mode') === 'free') {
+    section.style.height = `${capped}px`;
+    section.style.minHeight = `${capped}px`;
+  } else {
+    section.style.minHeight = `${capped}px`;
+  }
 }
 
 /**
@@ -618,7 +847,11 @@ export function useFreeDragBox({
       el.style.top = '';
       el.style.margin = '';
       if (!layoutRef.current?.width) el.style.width = '';
-      if (!layoutRef.current?.height) el.style.height = '';
+      // Text hug / no locked height: always clear imperative height after gesture.
+      if (el.getAttribute('data-lp-text-hug') === '1' || !layoutRef.current?.height) {
+        el.style.height = '';
+        el.style.minHeight = '';
+      }
       el.style.zIndex = '';
     }
   }, []);
@@ -664,28 +897,41 @@ export function useFreeDragBox({
       setDragging(false);
       setLiveAngle(null);
       publishGuidesRef.current?.(EMPTY_GUIDES);
+      emitFreeDragFrame();
       if (!commit) return;
       // Keep document-flow spacer in sync with the visual box so sections don't overlap.
       let flowH = Math.round(s.lastH);
       const flowW = Math.round(s.lastW);
-      // Absolute sections: grow height to fit live content so we don't need a second
-      // grow-only history entry after drop (overlap + double undo).
+      // Absolute sections: grow height to fit live content (incl. absolute/transform
+      // children). scrollHeight/offsetHeight miss overflow and leave the next
+      // section painted underneath — use the same content-union measure as fit.
       if (s.mode !== 'offset' && s.el) {
-        const contentH = Math.ceil(s.el.scrollHeight || s.el.offsetHeight || 0);
+        const scale = readCanvasPointerScale(s.el);
+        const contentH =
+          measureSectionContentHeightCss(s.el, scale) + SECTION_CONTENT_FIT_PADDING;
         if (contentH > flowH) flowH = contentH;
       }
+      const textHug = s.el?.getAttribute('data-lp-text-hug') === '1';
       // Move/rotate: size was locked at session start (getBoundingClientRect / prior layout).
       // Resize: lastW/lastH were mutated by handles only.
+      // Text hug: omit height — selection must follow content, not a locked frame.
       onCommitRef.current({
         positionMode: 'free',
-        freeLayout: {
-          x: s.lastX,
-          y: s.lastY,
-          width: flowW,
-          height: flowH,
-          rotate: normalizeRotate(s.lastRotate),
-          reserveHeight: flowH,
-        },
+        freeLayout: textHug
+          ? {
+              x: s.lastX,
+              y: s.lastY,
+              width: flowW,
+              rotate: normalizeRotate(s.lastRotate),
+            }
+          : {
+              x: s.lastX,
+              y: s.lastY,
+              width: flowW,
+              height: flowH,
+              rotate: normalizeRotate(s.lastRotate),
+              reserveHeight: flowH,
+            },
         viewport: viewportRef.current,
       });
       // Canvas minHeight after commit is owned solely by computeCanvasFreeReserveHeight
@@ -709,8 +955,9 @@ export function useFreeDragBox({
     };
   }, [finish]);
 
-  // Grow-only content sync (sections only): use offsetHeight (CSS px) — never
-  // getBoundingClientRect under device zoom (that returns screen px and fights layout).
+  // Grow-only content sync (sections only): measure painted content (incl.
+  // transform/absolute children) — offsetHeight alone misses overflow and lets
+  // the next section paint underneath.
   useEffect(() => {
     if (mode === 'offset') return;
     if (dragging) return;
@@ -719,7 +966,9 @@ export function useFreeDragBox({
     if (!el) return;
     const raf = requestAnimationFrame(() => {
       if (sessionRef.current || pendingRef.current) return;
-      const needed = Math.ceil(el.offsetHeight || 0);
+      const scale = readCanvasPointerScale(el);
+      const needed =
+        measureSectionContentHeightCss(el, scale) + SECTION_CONTENT_FIT_PADDING;
       const committed = Math.round(layout.height || 0);
       if (needed > committed + 2) {
         onCommitRef.current({
@@ -777,6 +1026,7 @@ export function useFreeDragBox({
         setLiveAngle(next);
         publishGuidesRef.current?.(EMPTY_GUIDES);
         if (sess.mode !== 'offset') syncCanvasFreeReserve(sess.el);
+        emitFreeDragFrame();
         return;
       }
 
@@ -847,6 +1097,7 @@ export function useFreeDragBox({
           sess.el.style.minHeight = `${sess.lastH}px`;
           sess.el.style.maxWidth = 'none';
           sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
+          applyParentSectionLiveFit(sess.el);
         } else {
           sess.el.style.left = `${sess.lastX}px`;
           sess.el.style.top = `${sess.lastY}px`;
@@ -858,6 +1109,7 @@ export function useFreeDragBox({
           syncCanvasFreeReserve(sess.el);
         }
         publishGuidesRef.current?.(EMPTY_GUIDES);
+        emitFreeDragFrame();
         return;
       }
 
@@ -879,6 +1131,20 @@ export function useFreeDragBox({
         ...sess.canvasBox,
         height: Math.max(sess.canvasBox.height, movingTop + sess.height + 240, sess.height + 560),
       };
+
+      // Text layers: 1:1 pointer tracking — snap to foreign guides caused jumps.
+      if (isOffset && sess.el.getAttribute('data-lp-text-hug') === '1') {
+        sess.lastX = Math.round(proposedX);
+        sess.lastY = Math.round(proposedY);
+        sess.lastW = sess.width;
+        sess.lastH = sess.height;
+        sess.lastRotate = sess.rotate;
+        sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
+        applyParentSectionLiveFit(sess.el);
+        publishGuidesRef.current?.(EMPTY_GUIDES);
+        emitFreeDragFrame();
+        return;
+      }
 
       const snap = computeFreeSnap({
         moving: {
@@ -904,6 +1170,7 @@ export function useFreeDragBox({
         sess.lastH = sess.height;
         sess.lastRotate = sess.rotate;
         sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
+        applyParentSectionLiveFit(sess.el);
       } else {
         sess.lastX = snap.x;
         sess.lastY = snap.y;
@@ -923,6 +1190,7 @@ export function useFreeDragBox({
         spacings: snap.spacings,
         canvasSize: { width: sess.canvasBox.width, height: sess.canvasBox.height },
       });
+      emitFreeDragFrame();
     });
   }, []);
 
@@ -1012,12 +1280,22 @@ export function useFreeDragBox({
       clientX: number,
       clientY: number,
       shiftKey: boolean,
-      opts?: { preserveBoxSize?: boolean },
+      opts?: { preserveBoxSize?: boolean; allowWhileEditing?: boolean },
     ) => {
       if (!enabledRef.current) return;
       const el = shellRef.current;
       if (!el) return;
-      if (el.querySelector('[data-lp-inline-editing="1"]')) return;
+      // Move handle may start drag while text was editing — blur first, then allow.
+      if (el.querySelector('[data-lp-inline-editing="1"]')) {
+        if (!opts?.allowWhileEditing) return;
+        el.querySelectorAll('[data-lp-inline-editing="1"]').forEach((node) => {
+          try {
+            (node as HTMLElement).blur();
+          } catch {
+            /* ignore */
+          }
+        });
+      }
 
       const surfaceEl = resolveFreeSurface(el);
       if (getComputedStyle(surfaceEl).position === 'static') {
@@ -1033,7 +1311,9 @@ export function useFreeDragBox({
       const preserveBoxSize = opts?.preserveBoxSize === true;
 
       const siblingEls = Array.from(
-        surfaceEl.querySelectorAll<HTMLElement>('[data-lp-free-box="1"]'),
+        surfaceEl.querySelectorAll<HTMLElement>(
+          useOffset ? '[data-lp-free-child="1"]' : '[data-lp-free-box="1"]',
+        ),
       ).filter((node) => node !== el && !node.contains(el) && !el.contains(node));
       const siblings = siblingEls.map((node) => readRect(node, surfaceRect, canvasScale));
 
@@ -1055,20 +1335,38 @@ export function useFreeDragBox({
             '[data-lp-button-block],[data-lp-box-block],[data-lp-button-hit],[data-lp-box-hit]',
           ),
       );
+      const isFormShell = Boolean(
+        el.querySelector('[data-lp-form-hit],[data-lp-form-block],[data-lp-form-card]'),
+      );
+      const isCompactShell = isButtonShell || isFormShell;
 
-      // Flow → free (no prior layout): for button/icon shells only, hug the visible control
-      // via its own getBoundingClientRect — never union-of-text-nodes (collapses Features cards).
-      if (!useOffset && !currentLayout && isButtonShell) {
+      // Compact shells (button / LeadForm): hug the visible control so free-drag
+      // has horizontal room. Legacy full-bleed freeLayout.width === surface width
+      // locked maxX=0 and made forms only move vertically.
+      if (!useOffset && isCompactShell) {
         const hitEl = el.querySelector<HTMLElement>(
-          '[data-lp-button-hit],[data-lp-box-hit],[data-lp-button-block],[data-lp-box-block]',
+          '[data-lp-form-hit],[data-lp-form-block],[data-lp-form-card],[data-lp-button-hit],[data-lp-box-hit],[data-lp-button-block],[data-lp-box-block]',
         );
         if (hitEl) {
           const hit = readRect(hitEl, surfaceRect, canvasScale);
           if (hit.width >= 8 && hit.height >= 8) {
-            dragW = Math.min(surfaceCss.width, Math.max(40, Math.round(hit.width)));
-            dragH = Math.max(28, Math.round(hit.height));
-            box.left = hit.left;
-            box.top = hit.top;
+            const hugW = Math.min(surfaceCss.width, Math.max(40, Math.round(hit.width)));
+            const hugH = Math.max(28, Math.round(hit.height));
+            const layoutW =
+              currentLayout?.width && currentLayout.width > 0 ? currentLayout.width : box.width;
+            const fullBleed = layoutW >= surfaceCss.width - 12;
+            // Always hug forms; hug buttons on first free or when stuck full-bleed.
+            if (isFormShell || !currentLayout || fullBleed) {
+              dragW = hugW;
+              if (!currentLayout?.height || fullBleed || isFormShell) {
+                dragH = hugH;
+              }
+              // Align shell origin to the painted card (centered form inside padded section).
+              if (!currentLayout || fullBleed || isFormShell) {
+                box.left = hit.left;
+                box.top = hit.top;
+              }
+            }
           }
         }
       }
@@ -1083,14 +1381,20 @@ export function useFreeDragBox({
         el.style.position = '';
         el.style.left = '';
         el.style.top = '';
-        // Lock measured size so children do not reflow while dragging.
+        // Lock measured width so children do not reflow while dragging.
         el.style.width = `${dragW}px`;
-        el.style.height = `${dragH}px`;
-        el.style.minHeight = `${dragH}px`;
         el.style.maxWidth = 'none';
         el.style.boxSizing = 'border-box';
         el.style.margin = '';
         el.style.zIndex = '30';
+        // Text hug: never lock height during drag — box must follow glyphs.
+        if (el.getAttribute('data-lp-text-hug') === '1') {
+          el.style.height = 'auto';
+          el.style.minHeight = '0';
+        } else {
+          el.style.height = `${dragH}px`;
+          el.style.minHeight = `${dragH}px`;
+        }
       } else {
         // Absolute free: preserveBoxSize is the only path (move/rotate/resize all pass it).
         // Legacy shrink-on-move removed — resize handles own size changes.
@@ -1098,9 +1402,11 @@ export function useFreeDragBox({
 
         originX = currentLayout?.x ?? Math.max(0, box.left);
         originY = currentLayout?.y ?? Math.max(0, box.top);
-        if (isButtonShell && !currentLayout) {
-          originX = Math.max(0, box.left);
-          originY = Math.max(0, box.top);
+        // After hugging a centered LeadForm/button card, pin origin to the card
+        // so the absolute shell matches what the user sees (not full-bleed left=0).
+        if (isFormShell || (isButtonShell && !currentLayout)) {
+          originX = Math.max(0, Math.round(box.left));
+          originY = Math.max(0, Math.round(box.top));
         }
 
         // Room to move on both axes — expand virtual canvas beyond short article height.
@@ -1196,6 +1502,7 @@ export function useFreeDragBox({
         /* ignore */
       }
       setDragging(true);
+      emitFreeDragFrame();
     },
     [],
   );
@@ -1211,7 +1518,12 @@ export function useFreeDragBox({
       if (!force && isFreeDragBlockedTarget(e.target)) return;
       const el = shellRef.current;
       if (!el) return;
-      if (el.querySelector('[data-lp-inline-editing="1"]')) return;
+      if (
+        !force &&
+        el.querySelector('[data-lp-inline-editing="1"]')
+      ) {
+        return;
+      }
       if ((e.target as HTMLElement | null)?.closest?.('[data-lp-resize-handle],[data-lp-rotate-handle]')) {
         return;
       }
@@ -1223,7 +1535,10 @@ export function useFreeDragBox({
       if (opts?.immediate) {
         attachWindow(e.pointerId);
         // Move must never shrink — lock live getBoundingClientRect size.
-        startSession(e.pointerId, e.clientX, e.clientY, e.shiftKey, { preserveBoxSize: true });
+        startSession(e.pointerId, e.clientX, e.clientY, e.shiftKey, {
+          preserveBoxSize: true,
+          allowWhileEditing: force,
+        });
         return;
       }
       // Arm: wait for small move so click-to-select still works.
@@ -1237,6 +1552,24 @@ export function useFreeDragBox({
     },
     [attachWindow, startSession],
   );
+
+  // Expose imperative begin for vertical Move toolbar (not body pointer events).
+  useLayoutEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    const beginFromHandle = (e: ReactPointerEvent | PointerEvent) => {
+      beginDrag(e as ReactPointerEvent, { force: true, immediate: true });
+    };
+    registerFreeDragBegin(el, beginFromHandle);
+    return () => {
+      const host = el as LpFreeDragHost;
+      const freeId = el.getAttribute('data-lp-free-id');
+      if (host.__lpBeginFreeDrag === beginFromHandle) delete host.__lpBeginFreeDrag;
+      if (freeId && freeDragBeginByFreeId.get(freeId) === beginFromHandle) {
+        freeDragBeginByFreeId.delete(freeId);
+      }
+    };
+  });
 
   const beginResize = useCallback(
     (handle: FreeResizeHandle, e: ReactPointerEvent) => {
@@ -1320,10 +1653,27 @@ export function useFreeDragBox({
     return () => window.removeEventListener('keydown', onKey);
   }, [enabled, selected, layout, onCommit, viewport]);
 
+  // Recompute every render (no useMemo): when dragging, read sessionRef.last*
+  // so a parent re-render mid-gesture reapplies the LIVE box instead of wiping
+  // transform/left/top (see freeLayoutStyle). Between React renders, pointer
+  // handlers still own the DOM imperatively.
+  const live: FreeLayoutLiveGeometry | null =
+    dragging && sessionRef.current
+      ? {
+          x: sessionRef.current.lastX,
+          y: sessionRef.current.lastY,
+          width: sessionRef.current.lastW,
+          height: sessionRef.current.lastH,
+          rotate: sessionRef.current.lastRotate,
+        }
+      : null;
+  const shellStyle = freeLayoutStyle(layout, dragging, mode, live);
+
   return {
     shellRef,
     dragging,
     liveAngle,
+    shellStyle,
     beginDrag,
     beginResize,
     beginRotate,
@@ -1437,40 +1787,48 @@ export function isPlausibleFreeLayout(
   return true;
 }
 
+export type FreeLayoutLiveGeometry = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotate: number;
+};
+
+/**
+ * Build CSS for a free shell.
+ * When `dragging`, pass `live` from the active session so React re-renders
+ * (setDragging / parent updates) do NOT wipe el.style.transform|left|top to
+ * identity — that 1-frame clear is what made the orange toolbar jump.
+ */
 export function freeLayoutStyle(
   layout: LandingPageFreeLayout | null,
   dragging: boolean,
   mode: 'absolute' | 'offset' = 'absolute',
+  live?: FreeLayoutLiveGeometry | null,
 ): CSSProperties | undefined {
   if (!layout || !isPlausibleFreeLayout(layout, mode)) return undefined;
-  const rot = normalizeRotate(layout.rotate ?? 0);
-  // During an active gesture the live DOM owns left/top/width/height/transform.
-  // Returning committed geometry here would fight pointer updates on React re-render
-  // (setDragging) and cause jump/jitter under zoom.
-  if (dragging) {
-    if (mode === 'offset') {
-      return {
-        position: 'relative',
-        zIndex: 30,
-        boxSizing: 'border-box',
-        maxWidth: 'none',
-      };
-    }
-    return {
-      position: 'absolute',
-      zIndex: 50,
-      margin: 0,
-      boxSizing: 'border-box',
-      overflow: 'visible',
-      maxWidth: 'none',
-    };
-  }
+  const src = live && dragging
+    ? {
+        x: live.x,
+        y: live.y,
+        width: live.width > 0 ? live.width : layout.width,
+        height: live.height > 0 ? live.height : layout.height,
+        rotate: live.rotate,
+        reserveHeight: layout.reserveHeight,
+      }
+    : layout;
+  const rot = normalizeRotate(src.rotate ?? 0);
+  // During drag: ALWAYS keep geometry keys in the React style object.
+  // Omitting them lets React clear prior transform/left/top → visible jump.
+  // Pointer handlers still write the same properties imperatively each frame;
+  // re-renders read `live` (session last*) so they do not snap back to origin.
   if (mode === 'offset') {
     return {
       position: 'relative',
-      transform: `translate3d(${layout.x}px, ${layout.y}px, 0)${rot ? ` rotate(${rot}deg)` : ''}`,
-      zIndex: 5,
-      ...(layout.width ? { width: layout.width, maxWidth: 'none' } : null),
+      transform: `translate3d(${src.x}px, ${src.y}px, 0)${rot ? ` rotate(${rot}deg)` : ''}`,
+      zIndex: dragging ? 30 : 5,
+      ...(src.width ? { width: src.width, maxWidth: 'none' } : null),
       // minHeight:0 + overflow:hidden together, not just `height` alone: this
       // element is a CSS grid/flex item (the cards grid — data-lp-cards-grid).
       // Grid/flex items get an implicit "automatic minimum size" equal to their
@@ -1479,29 +1837,35 @@ export function freeLayoutStyle(
       // back up to fit the (icon+title+paragraph) content by the grid algorithm
       // itself, before the box model even got a chance to clip anything. This is
       // why dragging a card's resize handle shorter visually did nothing.
-      ...(layout.height
-        ? { height: layout.height, minHeight: 0, overflow: 'hidden' as const }
+      ...(src.height
+        ? {
+            height: src.height,
+            minHeight: dragging ? src.height : 0,
+            overflow: 'hidden' as const,
+          }
         : null),
       boxSizing: 'border-box',
+      ...(dragging ? { maxWidth: 'none' as const } : null),
     };
   }
   return {
     position: 'absolute',
-    left: layout.x,
-    top: layout.y,
-    ...(layout.width ? { width: layout.width, maxWidth: 'none' } : null),
+    left: src.x,
+    top: src.y,
+    ...(src.width ? { width: src.width, maxWidth: 'none' } : null),
     // Hard height for free sections so reserved canvas space matches painted box.
     // Content that outgrows triggers grow-only commit → reflow siblings.
-    ...(layout.height
-      ? { height: layout.height, minHeight: layout.height, boxSizing: 'border-box' as const }
+    ...(src.height
+      ? { height: src.height, minHeight: src.height, boxSizing: 'border-box' as const }
       : {
-          minHeight: Math.max(1, Math.round(layout.reserveHeight || 120)),
+          minHeight: Math.max(1, Math.round(src.reserveHeight || 120)),
           boxSizing: 'border-box' as const,
         }),
     transform: rot ? `rotate(${rot}deg)` : undefined,
-    zIndex: 5,
+    zIndex: dragging ? 50 : 5,
     margin: 0,
     overflow: 'visible',
+    ...(dragging ? { maxWidth: 'none' as const } : null),
   };
 }
 

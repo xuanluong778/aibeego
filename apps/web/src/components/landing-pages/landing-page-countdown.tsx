@@ -52,10 +52,8 @@ function CountdownCellChrome({
     handlers.selection?.blockId === blockId && handlers.selection.element === element;
   const {
     freeDrag,
-    freeEnabled,
     bindShellRef,
     shellStyle,
-    armDrag,
     consumePointerUpForDrag,
     showTransformChrome,
   } = useCanvasElementFreeDrag({
@@ -77,9 +75,7 @@ function CountdownCellChrome({
       data-lp-free-mode="offset"
       data-lp-bounding-box={selected ? '1' : '0'}
       style={{ ...shellStyle, ...style }}
-      className={`${className || ''} ${
-        selected && freeEnabled ? 'cursor-grab active:cursor-grabbing' : ''
-      } outline-offset-2 ${
+      className={`${className || ''} cursor-pointer outline-offset-2 ${
         selected
           ? 'z-[1] outline outline-2 outline-[#F97316]/85 data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
           : '[@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/40'
@@ -89,8 +85,8 @@ function CountdownCellChrome({
           return;
         }
         if (e.button !== 0) return;
+        // Body never arms free-drag — Move toolbar icon only.
         pointerRef.current = { x: e.clientX, y: e.clientY, moved: false };
-        armDrag(e);
       }}
       onPointerMove={(e) => {
         const p = pointerRef.current;

@@ -122,7 +122,7 @@ async function bootstrap() {
     }
   }
 
-  // Fail-fast OAuth Auto Post: App ID / config_id / redirect MarketingAutoAZ
+  // Fail-fast OAuth Auto Post: App ID / config_id / redirect Ai Bee Go
   const { assertAutoPostMetaOAuthConfig } = await import(
     './auto-post/assert-auto-post-meta-oauth'
   );

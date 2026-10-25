@@ -3,7 +3,7 @@ import { getPageTitle } from '@/config/navigation';
 
 /** Map canonical Vietnamese nav labels to i18n keys. */
 export const NAV_LABEL_KEYS: Record<string, string> = {
-  'Marketing Auto AZ': 'common.brandName',
+  'Ai Bee Go': 'common.brandName',
   'Tổng quan': 'nav.overview',
   'Marketing Autopilot': 'nav.marketingAutopilot',
   'CRM & Khách hàng': 'nav.crmCustomers',

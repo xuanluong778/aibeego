@@ -8,13 +8,13 @@ const path = require('path');
 const { prisma } = require('../packages/database/dist');
 
 const root = path.join(__dirname, '..');
-const API = (process.env.API_URL || process.env.APP_URL || 'https://marketingautoaz.com').replace(
+const API = (process.env.API_URL || process.env.APP_URL || 'https://aibeego.com').replace(
   /\/$/,
   '',
 );
 const JWT_SECRET = process.env.JWT_SECRET;
 const CANONICAL =
-  'https://marketingautoaz.com/api/v1/ad-performance/google/oauth/callback';
+  'https://aibeego.com/api/v1/ad-performance/google/oauth/callback';
 
 const verdict = {
   GOOGLE_OAUTH_REDIRECT_URI: CANONICAL,

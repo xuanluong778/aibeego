@@ -22,6 +22,12 @@ const BEZEL = {
   tablet: 14,
 } as const;
 
+/** Allow phone/tablet chrome to grow into spare canvas width (editor only). */
+const DEVICE_SCALE_MAX = {
+  mobile: 1.65,
+  tablet: 1.25,
+} as const;
+
 type Props = {
   device: LandingPageDeviceKind;
   children: ReactNode;
@@ -31,12 +37,22 @@ type Props = {
 /**
  * Builder-only device chrome (iPhone Pro–style mobile / slim tablet).
  * Must never wrap public/publish render paths.
+ *
+ * Fit-scale uses transform:scale + a layout spacer. Scale/contentHeight updates
+ * are coalesced on rAF and skip setState when values are unchanged to avoid
+ * render loops with ResizeObserver.
  */
 export function LandingPageDeviceFrame({ device, children, className }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const slotRef = useRef<HTMLDivElement | null>(null);
+  const scaleRef = useRef(1);
+  const contentHeightRef = useRef<number>(LP_DEVICE_SCREEN[device].height);
+  const applyingRef = useRef(false);
   const [scale, setScale] = useState(1);
-  const [contentHeight, setContentHeight] = useState(LP_DEVICE_SCREEN[device].height);
+  const [contentHeight, setContentHeight] = useState<number>(LP_DEVICE_SCREEN[device].height);
+  const rafRef = useRef<number | null>(null);
 
   const screen = LP_DEVICE_SCREEN[device];
   const bezel = BEZEL[device];
@@ -47,44 +63,100 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
   const screenHeight = Math.max(screen.height, contentHeight);
   const shellHeight = screenHeight + bezel * 2;
 
-  const recomputeScale = useCallback(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const availW = Math.max(0, host.clientWidth - 8);
-    if (availW < 40) {
-      setScale(1);
-      return;
-    }
-    // Width-only scale — vertical scroll lives on the outer canvas, not inside the device.
-    const next = Math.min(1, availW / frameW);
-    setScale(Number.isFinite(next) && next > 0.2 ? next : 1);
-  }, [frameW]);
+  const applyDomScale = useCallback(
+    (nextScale: number, nextContentH: number) => {
+      const shell = shellRef.current;
+      const slot = slotRef.current;
+      if (!shell || !slot) return;
+      applyingRef.current = true;
+      const sh = Math.max(screen.height, nextContentH) + bezel * 2;
+      // Layout spacer = visual size after scale (avoids empty scroll gaps).
+      slot.style.width = `${Math.ceil(frameW * nextScale)}px`;
+      slot.style.height = `${Math.ceil(sh * nextScale)}px`;
+      shell.style.width = `${frameW}px`;
+      shell.style.minHeight = `${frameH}px`;
+      shell.style.height = `${sh}px`;
+      shell.style.marginLeft = 'auto';
+      shell.style.marginRight = 'auto';
+      shell.style.transformOrigin = 'top center';
+      shell.style.transform = nextScale !== 1 ? `scale(${nextScale})` : '';
+      shell.setAttribute('data-lp-device-scale', String(nextScale));
+      requestAnimationFrame(() => {
+        applyingRef.current = false;
+      });
+    },
+    [bezel, frameH, frameW, screen.height],
+  );
+
+  const scheduleRecompute = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (applyingRef.current) return;
+      const host = hostRef.current;
+      const content = contentRef.current;
+      if (!host) return;
+
+      // Host stays full width of the (stable) zoom layer — scale from that,
+      // never from the scaled slot width (that shrinks host → pulse loop).
+      const availW = Math.max(0, host.clientWidth - 8);
+      let nextScale = 1;
+      if (availW >= 40) {
+        const capped = Math.min(DEVICE_SCALE_MAX[device], availW / frameW);
+        nextScale = Number.isFinite(capped) && capped > 0.2 ? capped : 1;
+      }
+      // Hysteresis: ignore sub-pixel scale jitter.
+      if (Math.abs(nextScale - scaleRef.current) < 0.004) {
+        nextScale = scaleRef.current;
+      }
+
+      // Unscaled layout height — NEVER getBoundingClientRect (returns scaled visual px
+      // and can feedback-loop with transform scale).
+      let nextH = screen.height;
+      if (content) {
+        nextH = Math.max(screen.height, Math.ceil(content.offsetHeight || 0));
+      }
+
+      const scaleChanged = Math.abs(nextScale - scaleRef.current) > 0.001;
+      const heightChanged = nextH !== contentHeightRef.current;
+      if (!scaleChanged && !heightChanged) return;
+
+      scaleRef.current = nextScale;
+      contentHeightRef.current = nextH;
+      applyDomScale(nextScale, nextH);
+      if (scaleChanged) setScale(nextScale);
+      if (heightChanged) setContentHeight(nextH);
+    });
+  }, [applyDomScale, device, frameW, screen.height]);
 
   useEffect(() => {
-    recomputeScale();
+    scaleRef.current = 1;
+    contentHeightRef.current = LP_DEVICE_SCREEN[device].height;
+    setScale(1);
+    setContentHeight(LP_DEVICE_SCREEN[device].height);
+    scheduleRecompute();
+  }, [device, scheduleRecompute]);
+
+  useEffect(() => {
+    scheduleRecompute();
     const host = hostRef.current;
+    const content = contentRef.current;
     if (!host || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => recomputeScale());
+    const ro = new ResizeObserver(() => {
+      if (applyingRef.current) return;
+      scheduleRecompute();
+    });
+    // Only observe the stable host width — not content height churn from
+    // our own scale writes (content RO + setState was feeding zoom pulse).
     ro.observe(host);
-    window.addEventListener('resize', recomputeScale);
+    if (content) ro.observe(content);
+    window.addEventListener('resize', scheduleRecompute);
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', recomputeScale);
+      window.removeEventListener('resize', scheduleRecompute);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [recomputeScale]);
-
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const sync = () => {
-      const next = Math.max(screen.height, Math.ceil(el.getBoundingClientRect().height));
-      setContentHeight((prev) => (prev === next ? prev : next));
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [screen.height, children]);
+  }, [scheduleRecompute, device]);
 
   const shellStyle: CSSProperties = {
     width: frameW,
@@ -110,8 +182,14 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
       data-lp-device-frame-host="1"
       data-lp-device={device}
     >
-      <div style={layoutStyle} className="relative mx-auto shrink-0" data-lp-device-scale-slot="1">
+      <div
+        ref={slotRef}
+        style={layoutStyle}
+        className="relative mx-auto shrink-0"
+        data-lp-device-scale-slot="1"
+      >
         <div
+          ref={shellRef}
           className="relative mx-auto bg-[#1c1c1e] shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
           style={shellStyle}
           data-lp-device-frame="1"
@@ -119,12 +197,10 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
           data-lp-device-scale={String(scale)}
           aria-label={device === 'mobile' ? 'Mobile phone preview' : 'Tablet preview'}
         >
-          {/* Thin metallic rim */}
           <div
             className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/15"
             aria-hidden
           />
-          {/* Side buttons (mobile only, decorative) */}
           {device === 'mobile' ? (
             <>
               <span
@@ -147,7 +223,7 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
           ) : null}
 
           <div
-            className="absolute overflow-visible bg-white"
+            className="absolute overflow-x-hidden overflow-y-visible bg-white"
             style={{
               top: bezel,
               left: bezel,
@@ -160,7 +236,6 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
             data-lp-device-screen-w={screen.width}
             data-lp-device-screen-h={screenHeight}
           >
-            {/* Dynamic Island / notch — sits above scroll content */}
             {device === 'mobile' ? (
               <div
                 className="pointer-events-none absolute left-1/2 top-2.5 z-20 h-[28px] w-[110px] -translate-x-1/2 rounded-full bg-black shadow-sm"
@@ -176,14 +251,14 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
             )}
 
             <div
-              className="h-auto w-full overflow-x-hidden overflow-y-visible"
+              className="mx-auto h-auto w-full max-w-full overflow-x-hidden overflow-y-visible"
               data-lp-device-no-inner-scroll="1"
             >
               <div
                 ref={contentRef}
-                className="min-h-full w-full max-w-full overflow-x-hidden"
+                className="mx-auto min-h-full w-full max-w-full overflow-x-hidden"
                 data-lp-device-content="1"
-                style={{ width: screen.width, minHeight: screen.height }}
+                style={{ width: screen.width, minHeight: screen.height, marginLeft: 'auto', marginRight: 'auto' }}
               >
                 {children}
               </div>

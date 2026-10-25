@@ -34,6 +34,8 @@ type Props = {
   onRedo: () => void;
   onSave: () => void;
   onPublish: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 };
 
 function Tip({ label, children }: { label: string; children: ReactNode }) {
@@ -72,7 +74,7 @@ function IconBtn({
         disabled={disabled}
         onClick={onClick}
         className={
-          'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-white/90 transition ' +
+          'inline-flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-[10px] text-white/90 transition [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ' +
           'hover:bg-white/10 disabled:pointer-events-none disabled:opacity-40 ' +
           (active ? 'bg-white/15 text-white ring-1 ring-emerald-300/50' : '')
         }
@@ -101,6 +103,8 @@ export function LandingPageBuilderToolbar({
   onRedo,
   onSave,
   onPublish,
+  canUndo = true,
+  canRedo = true,
 }: Props) {
   const centerInCanvas = alignToCanvas && !hideBack && !previewOn && inspectorDocked;
 
@@ -122,7 +126,8 @@ export function LandingPageBuilderToolbar({
       onWheelCapture={blockToolbarWheel}
       className={
         // sticky + shrink-0: even if an ancestor leaks scroll, toolbar stays under header chrome
-        'sticky top-0 z-40 flex h-11 w-full min-w-0 shrink-0 items-center justify-center overflow-y-hidden overscroll-y-none border-b border-white/10 bg-[#0A3D30] px-1.5 sm:px-2 ' +
+        'sticky top-0 flex h-11 w-full min-w-0 shrink-0 touch-pan-x items-center justify-center overflow-y-hidden overscroll-y-none border-b border-white/10 bg-[#0A3D30] px-1.5 sm:px-2 ' +
+        (previewOn ? 'z-[200] ' : 'z-40 ') +
         // Match builder grid: canvas | gap-2 | inspector 240px → shift center to canvas mid
         (centerInCanvas ? 'lg:pr-[calc(240px+0.5rem)]' : '')
       }
@@ -205,10 +210,10 @@ export function LandingPageBuilderToolbar({
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <IconBtn label="Undo" onClick={onUndo}>
+          <IconBtn label="Undo" disabled={!canUndo} onClick={onUndo}>
             <Undo2 className="h-4 w-4" strokeWidth={1.75} />
           </IconBtn>
-          <IconBtn label="Redo" onClick={onRedo}>
+          <IconBtn label="Redo" disabled={!canRedo} onClick={onRedo}>
             <Redo2 className="h-4 w-4" strokeWidth={1.75} />
           </IconBtn>
           <IconBtn label="Lưu" disabled={saving} onClick={onSave}>

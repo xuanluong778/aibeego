@@ -77,7 +77,7 @@ export class ZaloConnectionsService {
   }
 
   /**
-   * Gửi text/image/file từ AI Beego → user Zalo.
+   * Gửi text/image/file từ Ai Bee Go → user Zalo.
    * Tự refresh token; không log token/secret.
    */
   async sendMessage(organizationId: string, id: string, dto: SendZaloMessageDto) {

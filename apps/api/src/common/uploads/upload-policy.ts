@@ -15,7 +15,8 @@ export type UploadProfile =
   | 'work'
   | 'diagram'
   | 'kb_text'
-  | 'video_transcription';
+  | 'video_transcription'
+  | 'lp_background';
 
 type Rule = {
   maxBytes: number;
@@ -98,6 +99,7 @@ const PROFILE_EXTS: Record<UploadProfile, string[]> = {
   diagram: ['.txt', '.png', '.jpg', '.jpeg', '.webp', '.pdf'],
   kb_text: ['.txt', '.pdf', '.md', '.csv'],
   video_transcription: ['.mp4', '.webm', '.mov', '.mp3', '.wav'],
+  lp_background: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.webm'],
 };
 
 // Allow .md for kb via temporary rule
@@ -115,6 +117,7 @@ const PROFILE_MAX: Record<UploadProfile, number> = {
     50 * 1024 * 1024,
     Number(process.env.VIDEO_TRANSCRIPTION_MAX_FILE_BYTES) || 500 * 1024 * 1024,
   ),
+  lp_background: 25 * 1024 * 1024,
 };
 
 /** Public-safe media prefix under uploads/ (no JWT; images only). */
@@ -122,7 +125,8 @@ export const PUBLIC_UPLOAD_PREFIX = 'public/';
 
 export const SERVE_ALLOWED_EXT = new Set(Object.keys(EXT_RULES));
 export const SERVE_BLOCKED_EXT = BLOCKED_EXT;
-export const PUBLIC_MEDIA_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+export const PUBLIC_MEDIA_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.webm']);
+export const PUBLIC_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
 
 export function sanitizeOriginalName(name: string): string {
   const base = String(name || 'file')

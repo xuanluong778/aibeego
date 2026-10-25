@@ -70,7 +70,7 @@ export class AutoPostMetaService {
     return resolveAutoPostOAuthRedirectUri((k) => this.env(k));
   }
 
-  /** Fail-fast App ID / config_id / redirect MarketingAutoAZ trước khi build OAuth URL. */
+  /** Fail-fast App ID / config_id / redirect Ai Bee Go trước khi build OAuth URL. */
   assertProductionOAuthConfig(): {
     appId: string;
     loginConfigId: string;

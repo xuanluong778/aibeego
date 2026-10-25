@@ -37,7 +37,7 @@ async function ensurePlatformOrg() {
   if (org) return org;
   org = await prisma.organization.create({
     data: {
-      name: 'MarketingAutoAZ Platform',
+      name: 'Ai Bee Go Platform',
       slug: ORG_SLUG,
       email: EMAIL,
     },
@@ -63,14 +63,14 @@ async function ensureSuperAdminRole(organizationId: string) {
     where: { organizationId_code: { organizationId, code: 'SUPER_ADMIN' } },
     update: {
       name: 'Super Admin',
-      description: 'Quản trị nền tảng MarketingAutoAZ',
+      description: 'Quản trị nền tảng Ai Bee Go',
       isSystem: true,
     },
     create: {
       organizationId,
       code: 'SUPER_ADMIN',
       name: 'Super Admin',
-      description: 'Quản trị nền tảng MarketingAutoAZ',
+      description: 'Quản trị nền tảng Ai Bee Go',
       isSystem: true,
     },
   });

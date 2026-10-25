@@ -100,7 +100,7 @@ export async function fetchPublicHtmlSafe(
   const maxRedirects = opts?.maxRedirects ?? 3;
   const userAgent =
     opts?.userAgent ??
-    'Mozilla/5.0 (compatible; MarketingAutoAZ-PolicyImporter/1.0)';
+    'Mozilla/5.0 (compatible; AiBeeGo-PolicyImporter/1.0)';
 
   let current = await assertPublicHttpUrl(rawUrl);
   let redirects = 0;

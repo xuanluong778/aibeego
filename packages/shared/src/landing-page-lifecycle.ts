@@ -17,6 +17,8 @@ import {
   type LandingPageStatus,
   type LandingPageTheme,
 } from './landing-page-types';
+import { sanitizeHtmlFragment } from './landing-page-html-import';
+import { sanitizeTextBoxChrome } from './landing-page-text-box';
 import { normalizeLandingPageThemeTokens } from './landing-page-theme-presets';
 import {
   sanitizeFreeLayout,
@@ -139,6 +141,28 @@ export type SanitizeLandingPageOptions = {
  * `clampText(..., mode)` so draft vs persist semantics stay explicit.
  * Scoped to Landing Page lifecycle (not a global shared string util).
  */
+const TEMPLATE_HTML_MAX = 1_500_000;
+
+/** Keep layout CSS and markup. Drop scripts, frames, and javascript URLs. */
+export function sanitizeTemplateHtml(input: string): string {
+  let html = String(input || '').replace(/\0/g, '').slice(0, TEMPLATE_HTML_MAX);
+  html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  html = html.replace(/<script\b[^>]*\/?>/gi, '');
+  html = html.replace(/<\/script>/gi, '');
+  html = html.replace(/<(?:iframe|object|embed|base)\b[^>]*>[\s\S]*?<\/(?:iframe|object|embed|base)>/gi, '');
+  html = html.replace(/<(?:iframe|object|embed|base)\b[^>]*\/?>/gi, '');
+  html = html.replace(/\s+on[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, '');
+  html = html.replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '');
+  html = html.replace(/(javascript|vbscript)\s*:/gi, '');
+  html = html.replace(/(<form\b[^>]*?)\s+action\s*=\s*(['"])[\s\S]*?\2/gi, '$1');
+  html = html.replace(/(<form\b[^>]*?)\s+action\s*=\s*[^\s>]+/gi, '$1');
+  if (!html.trim()) return '';
+  if (!/<html[\s>]/i.test(html)) {
+    html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`;
+  }
+  return html;
+}
+
 function stripHtml(input: string): string {
   return String(input || '')
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
@@ -259,7 +283,7 @@ export function createEmptyLandingPageSpec(theme: LandingPageTheme = 'MODERN'): 
         type: 'Footer',
         enabled: true,
         spacing: 'sm',
-        body: '© AI Beego — Landing Page Auto',
+        body: '© Ai Bee Go — Landing Page Auto',
       },
     ],
   };
@@ -442,6 +466,43 @@ export function sanitizeLandingPageSpec(
             : {}),
       }
     : undefined;
+  const htmlSource =
+    typeof metaIn?.htmlSource === 'string' && metaIn.htmlSource.trim()
+      ? sanitizeTemplateHtml(metaIn.htmlSource)
+      : '';
+  const htmlConverted = metaIn?.htmlConverted === true;
+  const htmlSections = Array.isArray(metaIn?.htmlSections)
+    ? metaIn.htmlSections.slice(0, 40).flatMap((row) => {
+        if (!row || typeof row !== 'object') return [];
+        const record = row as { blockId?: unknown; html?: unknown; label?: unknown };
+        const blockId = clampText(record.blockId ?? '', 64, 'persist');
+        const html = sanitizeHtmlFragment(typeof record.html === 'string' ? record.html : '');
+        if (!blockId || !html) return [];
+        const label = clampText(record.label ?? '', 80, 'persist');
+        return [{ blockId, html, ...(label ? { label } : {}) }];
+      })
+    : [];
+  const htmlImportNotes = Array.isArray(metaIn?.htmlImportNotes)
+    ? metaIn.htmlImportNotes
+        .filter((note): note is string => typeof note === 'string')
+        .map((note) => note.replace(/<[^>]+>/g, '').slice(0, 240))
+        .filter(Boolean)
+        .slice(0, 12)
+    : [];
+  const isolatedScriptCount =
+    typeof metaIn?.isolatedScriptCount === 'number' && Number.isFinite(metaIn.isolatedScriptCount)
+      ? Math.max(0, Math.min(100, Math.floor(metaIn.isolatedScriptCount)))
+      : 0;
+  const scopedCss =
+    typeof metaIn?.scopedCss === 'string'
+      ? metaIn.scopedCss.replace(/<\/style/gi, '').slice(0, 20_000).trim()
+      : '';
+  const fontHref =
+    typeof metaIn?.fontHref === 'string' &&
+    /^https:\/\/fonts\.googleapis\.com\//.test(metaIn.fontHref) &&
+    metaIn.fontHref.length <= 500
+      ? metaIn.fontHref
+      : '';
   const themePreset =
     typeof metaIn?.themePreset === 'string' ? metaIn.themePreset.slice(0, 40) : undefined;
   const themeUserLocked = metaIn?.themeUserLocked === true;
@@ -501,10 +562,20 @@ export function sanitizeLandingPageSpec(
             ...(typeof metaIn.catalogVersion === 'string' && metaIn.catalogVersion.trim()
               ? { catalogVersion: metaIn.catalogVersion.trim().slice(0, 80) }
               : {}),
+            ...(htmlSource ? { htmlSource } : {}),
+            ...(htmlSections.length ? { htmlSections } : {}),
+            ...(htmlImportNotes.length ? { htmlImportNotes } : {}),
+            ...(htmlConverted ? { htmlConverted: true } : {}),
+            ...(isolatedScriptCount ? { isolatedScriptCount } : {}),
+            ...(scopedCss ? { scopedCss } : {}),
+            ...(fontHref ? { fontHref } : {}),
             ...(themePreset ? { themePreset } : {}),
             ...(themeUserLocked ? { themeUserLocked: true } : {}),
             ...(typeof metaIn.clientRevision === 'number' && Number.isFinite(metaIn.clientRevision)
               ? { clientRevision: Math.max(0, Math.floor(metaIn.clientRevision)) }
+              : {}),
+            ...(typeof metaIn.lastAutosaveRequestId === 'string' && metaIn.lastAutosaveRequestId.trim()
+              ? { lastAutosaveRequestId: metaIn.lastAutosaveRequestId.trim().slice(0, 64) }
               : {}),
             ...(inlineTextStyles ? { inlineTextStyles } : {}),
             ...(elementFreeLayouts ? { elementFreeLayouts } : {}),
@@ -647,6 +718,8 @@ function sanitizeInlineTextStylesMap(
     if (typeof s.height === 'number' && Number.isFinite(s.height)) {
       cleaned.height = Math.min(2400, Math.max(28, Math.round(s.height)));
     }
+    const box = sanitizeTextBoxChrome(s.box);
+    if (box) cleaned.box = box;
     if (Object.keys(cleaned).length) out[safeKey] = cleaned;
   }
   return Object.keys(out).length ? out : undefined;
@@ -1086,9 +1159,11 @@ export function duplicateLandingPageNestedItem<T extends { id: string }>(item: T
  */
 export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingPageSpec {
   const raw = JSON.parse(JSON.stringify(input)) as LandingPageSpec;
+  const idMap = new Map<string, string>();
   const blocks = (raw.blocks || []).map((block) => {
-    const next = { ...block, id: uid(block.type.toLowerCase()) } as LandingPageBlock &
-      Record<string, unknown>;
+    const id = uid(block.type.toLowerCase());
+    idMap.set(block.id, id);
+    const next = { ...block, id } as LandingPageBlock & Record<string, unknown>;
     if (Array.isArray(next.items)) {
       next.items = next.items.map((row: { id?: string } & Record<string, unknown>) => ({
         ...row,
@@ -1112,6 +1187,15 @@ export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingP
   const meta = raw.meta ? { ...raw.meta } : undefined;
   if (meta && 'clientRevision' in meta) {
     delete (meta as { clientRevision?: number }).clientRevision;
+  }
+  if (meta && 'lastAutosaveRequestId' in meta) {
+    delete (meta as { lastAutosaveRequestId?: string }).lastAutosaveRequestId;
+  }
+  if (meta && Array.isArray(meta.htmlSections)) {
+    meta.htmlSections = meta.htmlSections.map((row) => ({
+      ...row,
+      blockId: idMap.get(row.blockId) || row.blockId,
+    }));
   }
   return sanitizeLandingPagePersistSpec({
     ...raw,

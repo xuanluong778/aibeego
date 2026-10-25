@@ -126,14 +126,28 @@ const LP_AGENCY_GOLD_FOUNDATION_CSS = `
   color: #f5f5f4;
 }
 [data-lp-gold-standard] [data-lp-section-tone="dark"] [data-lp-section-head] h2,
-[data-lp-gold-standard] [data-lp-section-tone="dark"] h2,
-[data-lp-gold-standard] [data-lp-section-tone="dark"] h3 {
+[data-lp-gold-standard] [data-lp-section-tone="dark"] > [data-lp-container-inner] > h2 {
   color: #fafaf9 !important;
 }
 [data-lp-gold-standard] [data-lp-section-tone="dark"] [data-lp-section-head] p,
-[data-lp-gold-standard] [data-lp-section-tone="dark"] p,
-[data-lp-gold-standard] [data-lp-section-tone="dark"] li {
+[data-lp-gold-standard] [data-lp-section-tone="dark"] > [data-lp-container-inner] > p,
+[data-lp-gold-standard] [data-lp-section-tone="dark"] li:not([data-lp-card-item] li) {
   color: #c8c8c4 !important;
+}
+[data-lp-gold-standard] [data-lp-section-tone="editorial"],
+[data-lp-gold-standard] [data-lp-section-tone="canvas"],
+[data-lp-gold-standard] [data-lp-section-tone="surface"] {
+  color: var(--lp-text-on-light, #0f172a);
+}
+[data-lp-gold-standard] [data-lp-section-tone="editorial"] [data-lp-section-head] h2,
+[data-lp-gold-standard] [data-lp-section-tone="canvas"] [data-lp-section-head] h2,
+[data-lp-gold-standard] [data-lp-section-tone="surface"] [data-lp-section-head] h2 {
+  color: var(--lp-text-on-light, #0f172a) !important;
+}
+[data-lp-gold-standard] [data-lp-section-tone="editorial"] [data-lp-section-head] p,
+[data-lp-gold-standard] [data-lp-section-tone="canvas"] [data-lp-section-head] p,
+[data-lp-gold-standard] [data-lp-section-tone="surface"] [data-lp-section-head] p {
+  color: var(--lp-muted-on-light, #475569) !important;
 }
 [data-lp-gold-standard] [data-lp-section-tone="accent"] {
   color: #fff;

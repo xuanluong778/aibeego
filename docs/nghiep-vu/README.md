@@ -1,7 +1,7 @@
 # HƯỚNG DẪN ĐỌC TÀI LIỆU ĐẶC TẢ NGHIỆP VỤ HỆ THỐNG
-*Dự án: Nền tảng Marketing & Chăm sóc khách hàng tự động cho Spa (MarketingAutoAZ)*
+*Dự án: Nền tảng Marketing & Chăm sóc khách hàng tự động cho Spa (Ai Bee Go)*
 
-Chào mừng bạn đến với thư mục tài liệu đặc tả nghiệp vụ của MarketingAutoAZ. Tài liệu này được biên soạn bởi **Senior Business Analyst (10 năm kinh nghiệm)** nhằm làm rõ toàn bộ quy trình nghiệp vụ và các tính năng cốt lõi của hệ thống.
+Chào mừng bạn đến với thư mục tài liệu đặc tả nghiệp vụ của Ai Bee Go. Tài liệu này được biên soạn bởi **Senior Business Analyst (10 năm kinh nghiệm)** nhằm làm rõ toàn bộ quy trình nghiệp vụ và các tính năng cốt lõi của hệ thống.
 
 ---
 

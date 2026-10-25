@@ -337,6 +337,9 @@ export function normalizeLandingPageThemeTokens(
     lineHeightHeading: input?.lineHeightHeading ?? 1.15,
     lineHeightBody: input?.lineHeightBody ?? 1.6,
     imageTreatment: input?.imageTreatment || 'photo-real',
+    iconSurface:
+      input?.iconSurface || `color-mix(in srgb, ${primary} 14%, ${surface})`,
+    iconColor: input?.iconColor || primary,
   };
 }
 

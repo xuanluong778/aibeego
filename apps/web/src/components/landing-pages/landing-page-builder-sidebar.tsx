@@ -37,12 +37,14 @@ import {
 } from './landing-page-box-presets';
 import type { LandingPageFormPreset } from './landing-page-form-presets';
 import { LandingPageGraphicsLibraryPanel } from './landing-page-graphics-library';
-import { beginSidebarPresetDrag } from './landing-page-sidebar-dnd';
+import {
+  beginSidebarPresetDrag,
+  LP_SIDEBAR_CLOSE_OVERLAY_EVENT,
+  requestCloseSidebarOverlay,
+} from './landing-page-sidebar-dnd';
 import { RailIconHoverLabel } from './rail-icon-hover-label';
 import { cn } from '@/lib/utils';
-
-/** Must match AppShell MAIN_SIDEBAR_WIDTH_EVENT. */
-const MAIN_SIDEBAR_WIDTH_EVENT = 'mkspa:main-sidebar-width';
+import { MAIN_SIDEBAR_WIDTH_EVENT } from '@/components/layout/main-sidebar-collapse';
 
 type RailPanel = 'layers' | 'theme' | 'add' | 'text' | 'button' | 'graphics' | 'icon' | null;
 type AddTab = 'elements' | 'presets';
@@ -726,11 +728,16 @@ export function LandingPageBuilderSidebar({
         close();
       }
     };
+    // Drag-drop insert ends while the overlay still covers the canvas — close so
+    // the newly selected element receives select/move/resize/edit like existing ones.
+    const onInsertClose = () => close();
     window.addEventListener('keydown', onKey);
     window.addEventListener('mousedown', onPointer, true);
+    document.addEventListener(LP_SIDEBAR_CLOSE_OVERLAY_EVENT, onInsertClose);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousedown', onPointer, true);
+      document.removeEventListener(LP_SIDEBAR_CLOSE_OVERLAY_EVENT, onInsertClose);
     };
   }, [panel]);
 
@@ -1164,12 +1171,15 @@ export function LandingPageBuilderSidebar({
           onTabChange={setTextTab}
           onInsertTitle={(preset) => {
             onInsertTitlePreset(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertParagraph={(preset) => {
             onInsertParagraphPreset?.(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertList={(preset) => {
             onInsertListPreset?.(preset);
+            requestCloseSidebarOverlay();
           }}
         />
       ) : null}
@@ -1181,9 +1191,11 @@ export function LandingPageBuilderSidebar({
           onTabChange={setButtonTab}
           onInsertButton={(preset) => {
             onInsertButtonPreset(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertGroup={(preset) => {
             onInsertButtonGroupPreset?.(preset);
+            requestCloseSidebarOverlay();
           }}
         />
       ) : null}
@@ -1193,12 +1205,15 @@ export function LandingPageBuilderSidebar({
           onClose={close}
           onInsertBox={(preset) => {
             onInsertBoxPreset(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertForm={(preset) => {
             onInsertFormPreset?.(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertBlockType={(type) => {
             onAddBlock(type);
+            requestCloseSidebarOverlay();
           }}
           onOpenMediaLibrary={onOpenMediaLibrary}
         />
@@ -1212,12 +1227,15 @@ export function LandingPageBuilderSidebar({
           panelTitle="Biểu tượng"
           onInsertBox={(preset) => {
             onInsertBoxPreset(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertForm={(preset) => {
             onInsertFormPreset?.(preset);
+            requestCloseSidebarOverlay();
           }}
           onInsertBlockType={(type) => {
             onAddBlock(type);
+            requestCloseSidebarOverlay();
           }}
           onOpenMediaLibrary={onOpenMediaLibrary}
         />

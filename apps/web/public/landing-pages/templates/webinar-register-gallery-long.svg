@@ -42,6 +42,6 @@
   <rect x="48" y="934" width="560" height="8" rx="2" fill="#FFFFFF" opacity="0.18"/>
   <text x="12" y="884" fill="#FFFFFF" font-family="system-ui,sans-serif" font-size="9" opacity="0.55">CTA</text>
   <rect x="0" y="970" width="720" height="56" fill="#0F172A" opacity="0.92"/>
-  <text x="40" y="1003" fill="#FFFFFF" font-family="system-ui,sans-serif" font-size="14" font-weight="700">AI Beego</text>
+  <text x="40" y="1003" fill="#FFFFFF" font-family="system-ui,sans-serif" font-size="14" font-weight="700">Ai Bee Go</text>
   <text x="12" y="984" fill="#0B1F3A" font-family="system-ui,sans-serif" font-size="9" opacity="0.55">Footer</text>
 </svg>

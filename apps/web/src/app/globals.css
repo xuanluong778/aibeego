@@ -94,6 +94,16 @@
     color: hsl(var(--heading));
   }
 
+  /* Landing canvas keeps the page theme color, not the app heading color. */
+  [data-lp-canvas-root] h1,
+  [data-lp-canvas-root] h2,
+  [data-lp-canvas-root] h3,
+  [data-lp-canvas-root] h4,
+  [data-lp-canvas-root] h5,
+  [data-lp-canvas-root] h6 {
+    color: inherit;
+  }
+
   /* Tab Tạo content: chữ đen trên nền form sáng */
   .content-create-tab {
     color: #0f172a;

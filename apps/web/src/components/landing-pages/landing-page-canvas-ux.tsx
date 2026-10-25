@@ -22,14 +22,13 @@ import {
   type TouchEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import type { LandingPageFreeLayout } from '@marketingspa/shared';
-import { applyResizeHandle, resizeHandleCursor } from '@marketingspa/shared';
+import type { LandingPageFreeLayout, LandingPageTextBoxChrome } from '@marketingspa/shared';
+import { applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChromeCss, textBoxHideAttrs } from '@marketingspa/shared';
 import {
   FreeDragHandle,
   FreeTransformChrome,
   cancelAllFreeDrags,
   freeLayoutStyle,
-  isFreeDragBlockedTarget,
   isPlausibleFreeLayout,
   readCanvasPointerScale,
   useFreeDragBox,
@@ -41,6 +40,8 @@ import {
   parseSidebarPresetPayload,
 } from './landing-page-sidebar-dnd';
 import { SectionBackgroundToolbar } from './landing-page-section-background-toolbar';
+import { SectionSettingsStack } from './landing-page-section-bg-layer';
+import { sectionSettingsActive } from './landing-page-section-settings';
 import { readElementCustomCssStyle, safeCustomClassName } from './landing-page-block-design-style';
 import {
   collectMarqueeTargetsInBlock,
@@ -172,13 +173,16 @@ export type LandingPageCanvasHandlers = {
       viewport: 'desktop' | 'tablet' | 'mobile';
     },
   ) => void;
-  /** Text-box 8-handle resize — width/height + offset in ONE history entry. */
+  /** Text-box 8-handle resize — width/height + optional typography + offset in ONE history entry. */
   onTextBoxResizeCommit?: (
     blockId: string,
     field: string,
     payload: {
       width: number;
       height: number;
+      fontSize?: number;
+      lineHeight?: number | string;
+      scaleTypography?: boolean;
       freeLayout: import('@marketingspa/shared').LandingPageFreeLayout;
       viewport: 'desktop' | 'tablet' | 'mobile';
     },
@@ -233,7 +237,11 @@ export type LandingPageCanvasHandlers = {
 export function isTextToolbarElement(el?: LandingPageCanvasElementKey | null): boolean {
   if (!el || el === 'section' || el === 'section-background' || el === 'image') return false;
   if (el === 'headline' || el === 'subheadline' || el === 'body' || el === 'cta') return true;
-  if (typeof el === 'string' && el.startsWith('item:')) return true;
+  if (typeof el === 'string' && el.startsWith('item:')) {
+    // Hero trust checkmarks are box/icon chrome — not text toolbar targets.
+    if (el.startsWith('item:trust-icon-')) return false;
+    return true;
+  }
   return false;
 }
 
@@ -260,6 +268,8 @@ export type LandingPageInlineTextStyle = {
   width?: number;
   /** Text box height in px — corner resize. */
   height?: number;
+  /** Wrapper around the glyphs. Font fields above stay on the text node. */
+  box?: LandingPageTextBoxChrome;
 };
 
 export const LP_HEADING_LEVEL_PRESETS: Record<
@@ -287,6 +297,23 @@ export const LP_TEXT_FONT_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Great Vibes', value: '"Great Vibes", cursive' },
 ];
 
+/** CTA / button labels — keep as interactive text (no H1–H6 tag swap). */
+export function isButtonLikeTextField(field: string): boolean {
+  if (
+    field === 'cta' ||
+    field === 'ctaLabel' ||
+    field === 'submitLabel' ||
+    field === 'buttonLabel'
+  ) {
+    return true;
+  }
+  return (
+    field.startsWith('planCta:') ||
+    field.startsWith('itemCta:') ||
+    field.startsWith('ctaLabel:')
+  );
+}
+
 export const LP_BLOCK_MIME = 'application/x-lp-block-id';
 export const LP_ITEM_MIME = 'application/x-lp-item';
 
@@ -305,6 +332,7 @@ function isInteractiveCanvasChild(t: HTMLElement | null): boolean {
       t.closest('[data-lp-grid-cell]') ||
       t.closest('[data-lp-item-handle]') ||
       t.closest('[data-lp-floating-toolbar]') ||
+      t.closest('[data-lp-element-vertical-toolbar]') ||
       t.closest('[data-lp-free-drag-handle]') ||
       t.closest('[data-lp-section-handle]') ||
       t.closest('[data-lp-resize-handle]') ||
@@ -392,9 +420,12 @@ export function useLpPublicRenderMeta(): LpPublicRenderMeta | null {
 }
 
 export function elementKeyForField(field: string): LandingPageCanvasElementKey {
+  // Keep in sync with elementFromField (selection.ts) — trustPoint must not fall through to 'section'.
   if (field === 'ctaLabel') return 'cta';
   if (field === 'body') return 'body';
   if (field === 'headline' || field === 'subheadline') return field;
+  const trust = /^trustPoint:(\d+)$/.exec(field);
+  if (trust?.[1] != null) return `item:trust-${trust[1]}`;
   // itemTitle:xyz / planName:xyz / fieldLabel:xyz → item:xyz selection
   const m = /^(?:itemTitle|itemDesc|itemQuestion|itemAnswer|itemQuote|itemAuthor|planName|planPrice|planCta|fieldLabel):(.+)$/.exec(
     field,
@@ -433,12 +464,15 @@ export function useCanvasElementFreeDrag({
   handlers,
   selected,
   paused = false,
+  /** Text boxes: never lock freeLayout height — selection must hug glyphs. */
+  contentHug = false,
 }: {
   blockId: string;
   field: string;
   handlers?: LandingPageCanvasHandlers | null;
   selected: boolean;
   paused?: boolean;
+  contentHug?: boolean;
 }) {
   const publicMeta = useLpPublicRenderMeta();
   const viewport = handlers?.viewport || 'desktop';
@@ -446,7 +480,17 @@ export function useCanvasElementFreeDrag({
     handlers?.getElementFreeLayout?.(blockId, field) ??
     publicMeta?.elementFreeLayouts[styleKeyForInlineField(blockId, field)] ??
     null;
-  const layout = isPlausibleFreeLayout(layoutRaw, 'offset') ? layoutRaw : null;
+  const layoutBase = isPlausibleFreeLayout(layoutRaw, 'offset') ? layoutRaw : null;
+  // Drop legacy locked height so freeLayoutStyle cannot inflate the text frame.
+  const layout =
+    contentHug && layoutBase
+      ? (() => {
+          const next = { ...layoutBase };
+          delete next.height;
+          delete next.reserveHeight;
+          return next;
+        })()
+      : layoutBase;
   const freeEnabled = Boolean(handlers?.onElementFreeLayoutCommit) && !paused;
 
   const freeDrag = useFreeDragBox({
@@ -455,14 +499,52 @@ export function useCanvasElementFreeDrag({
     viewport,
     layout,
     mode: 'offset',
-    onCommit: (payload) => handlers?.onElementFreeLayoutCommit?.(blockId, field, payload),
+    onCommit: (payload) => {
+      if (!handlers?.onElementFreeLayoutCommit) return;
+      if (!contentHug) {
+        handlers.onElementFreeLayoutCommit(blockId, field, payload);
+        return;
+      }
+      // Persist x/y/width(/rotate) only — height always follows text content.
+      const { height: _h, reserveHeight: _rh, ...rest } = payload.freeLayout;
+      void _h;
+      void _rh;
+      handlers.onElementFreeLayoutCommit(blockId, field, {
+        ...payload,
+        freeLayout: rest,
+      });
+    },
   });
 
   const bindShellRef = (node: HTMLElement | null) => {
     freeDrag.shellRef.current = node as HTMLDivElement | null;
+    if (contentHug && node) {
+      // Clear any leftover imperative height from a prior free-drag session.
+      // React style objects that omit `height` do not wipe prior el.style.height.
+      node.style.height = '';
+      node.style.minHeight = '';
+      node.style.maxHeight = '';
+      node.style.overflow = '';
+    }
   };
 
-  const shellStyle = freeLayoutStyle(layout, freeDrag.dragging, 'offset');
+  const shellStyleRaw = freeDrag.shellStyle;
+  const shellStyle =
+    contentHug && shellStyleRaw
+      ? (() => {
+          const next = { ...shellStyleRaw } as CSSProperties;
+          delete next.height;
+          delete next.minHeight;
+          delete next.maxHeight;
+          delete next.overflow;
+          // Width is owned by the text node (--lp-text-box-width); wrap must stay
+          // max-content so selection chrome hugs the painted box.
+          delete next.width;
+          delete next.maxWidth;
+          delete next.minWidth;
+          return next;
+        })()
+      : shellStyleRaw;
 
   const armDrag = (e: PointerEvent) => {
     if (selected && freeEnabled) freeDrag.beginDrag(e, { force: true });
@@ -491,6 +573,30 @@ function isTouchLike(): boolean {
   return window.matchMedia('(hover: none), (pointer: coarse)').matches;
 }
 
+/** Lift spacing utilities off the text node onto the hug wrap so selection hugs glyphs. */
+function liftTextSpacingFromClassName(className?: string): {
+  textClassName: string;
+  wrapClassName: string;
+} {
+  if (!className) return { textClassName: '', wrapClassName: '' };
+  const tokens = className.split(/\s+/).filter(Boolean);
+  const wrap: string[] = [];
+  const text: string[] = [];
+  for (const t of tokens) {
+    if (/^(sm:|md:|lg:|xl:|2xl:)?(m|mt|mb|ml|mr|mx|my)-/.test(t)) {
+      wrap.push(t);
+      continue;
+    }
+    if (/^(sm:|md:|lg:|xl:|2xl:)?max-w-/.test(t)) {
+      // Keep width constraints on the wrap (outer frame), not the glyph node.
+      wrap.push(t);
+      continue;
+    }
+    text.push(t);
+  }
+  return { textClassName: text.join(' '), wrapClassName: wrap.join(' ') };
+}
+
 /** Soft outline — outline only (no layout shift). Hover styles gated to fine pointers. */
 export function SelectableShell({
   blockId,
@@ -502,6 +608,9 @@ export function SelectableShell({
   allowReorder = true,
   designClassName,
   publicFreeLayout = null,
+  responsiveHide,
+  surfaceBlock = null,
+  surfaceFallback,
 }: {
   blockId: string;
   label?: string;
@@ -512,13 +621,27 @@ export function SelectableShell({
   allowReorder?: boolean;
   /** Optional custom class from Design tab (block.style.className). */
   designClassName?: string;
+  /** Section fill painted behind the copy when Section settings are active. */
+  surfaceBlock?: Pick<import('@marketingspa/shared').LandingPageBlock, 'background' | 'style'> | null;
+  surfaceFallback?: string;
   /**
    * Public/Preview free-position (no handlers). Absolute section layout from
    * block.positionMode/freeLayout — render-only, no edit chrome.
    */
   publicFreeLayout?: import('@marketingspa/shared').LandingPageFreeLayout | null;
+  /** From block.responsiveStyle — data-lp-hide-{desktop|tablet|mobile}. */
+  responsiveHide?: {
+    desktop?: boolean;
+    tablet?: boolean;
+    mobile?: boolean;
+  } | null;
 }) {
   const cls = safeCustomClassName(designClassName);
+  const hideAttrs = {
+    'data-lp-hide-desktop': responsiveHide?.desktop ? '1' : undefined,
+    'data-lp-hide-tablet': responsiveHide?.tablet ? '1' : undefined,
+    'data-lp-hide-mobile': responsiveHide?.mobile ? '1' : undefined,
+  };
   if (!handlers) {
     const freeStyle = freeLayoutStyle(publicFreeLayout ?? null, false);
     return (
@@ -529,10 +652,13 @@ export function SelectableShell({
         data-lp-free-box={freeStyle ? '1' : undefined}
         data-lp-position-mode={freeStyle ? 'free' : 'flow'}
         data-lp-public-free={freeStyle ? '1' : undefined}
-        className={cls || undefined}
+        className={(cls ? `${cls} ` : '') + 'relative'}
         style={freeStyle}
+        {...hideAttrs}
       >
-        {children}
+        <SectionSettingsStack block={surfaceBlock} fallback={surfaceFallback}>
+          {children}
+        </SectionSettingsStack>
       </div>
     );
   }
@@ -545,6 +671,9 @@ export function SelectableShell({
       handlers={handlers}
       allowReorder={allowReorder}
       designClassName={cls}
+      responsiveHide={responsiveHide}
+      surfaceBlock={surfaceBlock}
+      surfaceFallback={surfaceFallback}
     >
       {children}
     </SelectableShellInteractive>
@@ -560,6 +689,9 @@ function SelectableShellInteractive({
   children,
   allowReorder = true,
   designClassName,
+  responsiveHide,
+  surfaceBlock = null,
+  surfaceFallback,
 }: {
   blockId: string;
   label?: string;
@@ -569,8 +701,18 @@ function SelectableShellInteractive({
   children: ReactNode;
   allowReorder?: boolean;
   designClassName?: string;
+  responsiveHide?: {
+    desktop?: boolean;
+    tablet?: boolean;
+    mobile?: boolean;
+  } | null;
+  surfaceBlock?: Pick<import('@marketingspa/shared').LandingPageBlock, 'background' | 'style'> | null;
+  surfaceFallback?: string;
 }) {
-  const sectionPrimary = handlers.isSectionPrimary?.(blockId) ?? false;
+  // Form counts as section primary for free-drag / chrome (LeadForm is the section).
+  const sectionPrimary =
+    (handlers.isSectionPrimary?.(blockId) ?? false) ||
+    (handlers.selection?.blockId === blockId && handlers.selection?.element === 'form');
   const sectionInSelection = Boolean(
     selected ||
       handlers.isSelected?.({ blockId, element: 'section' }) ||
@@ -580,22 +722,6 @@ function SelectableShellInteractive({
     ? parseLpSelectionKey(handlers.primarySelectedId)
     : null;
   const isBgSelected = sectionPrimary && selectedElement === 'section-background';
-  const imageMeta = handlers.getContentImageMeta?.(blockId, selectedElement) || {
-    hasImage: false,
-    hasAnyBg: false,
-  };
-  const isImageTarget =
-    Boolean(
-      primaryTarget &&
-        primaryTarget.blockId === blockId &&
-        !primaryTarget.field &&
-        (primaryTarget.element === 'image' ||
-          (typeof primaryTarget.element === 'string' && primaryTarget.element.startsWith('grid:')) ||
-          (typeof primaryTarget.element === 'string' &&
-            primaryTarget.element.startsWith('item:') &&
-            imageMeta.hasImage)),
-    );
-  const showImageToolbar = Boolean(isImageTarget && imageMeta.hasImage);
   const isTextFieldSelected = Boolean(
     primaryTarget &&
       primaryTarget.blockId === blockId &&
@@ -609,7 +735,6 @@ function SelectableShellInteractive({
     sectionPrimary &&
     !isTextFieldSelected &&
     selectedElement !== 'section-background' &&
-    !showImageToolbar &&
     isSectionToolbarElement(selectedElement);
   const showBgToolbar = Boolean(isBgSelected);
   const pointerRef = useRef<{
@@ -640,7 +765,11 @@ function SelectableShellInteractive({
 
   const freeDrag = useFreeDragBox({
     enabled: freeEnabled,
-    selected: Boolean(sectionPrimary && isSectionLevelElement(selectedElement)),
+    // Form selection still free-drags the section shell (LeadForm is the section).
+    selected: Boolean(
+      sectionPrimary &&
+        (isSectionLevelElement(selectedElement) || selectedElement === 'form'),
+    ),
     viewport,
     layout,
     onCommit: (payload) => handlers.onFreeLayoutCommit?.(blockId, payload),
@@ -652,7 +781,7 @@ function SelectableShellInteractive({
       setButtonLike(
         Boolean(
           node.querySelector(
-            '[data-lp-button-block],[data-lp-button-group-block],[data-lp-box-block],[data-lp-transformable]',
+            '[data-lp-button-block],[data-lp-button-group-block],[data-lp-box-block],[data-lp-transformable],[data-lp-form-hit],[data-lp-form-block]',
           ),
         ),
       );
@@ -661,34 +790,24 @@ function SelectableShellInteractive({
     }
   };
 
-  /** When section is in free mode, body drag is allowed (handle ✥ or shell padding). */
-  const canArmSectionBodyFreeDrag = (target: EventTarget | null) => {
-    if (!sectionPrimary || !freeEnabled || !layout) return false;
-    return !isFreeDragBlockedTarget(target);
-  };
-
+  /** Free-drag only from [data-lp-free-drag-handle] — never from section body/padding. */
   const armSectionPointer = (e: PointerEvent, opts?: { fromBgHit?: boolean }) => {
     if (e.button !== 0) return;
     const t = e.target as HTMLElement | null;
     const onFreeHandle = Boolean(t?.closest?.('[data-lp-free-drag-handle]'));
-    if (!opts?.fromBgHit && isInteractiveCanvasChild(t)) {
-      if (!canArmSectionBodyFreeDrag(e.target)) return;
+    if (!opts?.fromBgHit && isInteractiveCanvasChild(t) && !onFreeHandle) {
+      return;
     }
-    const freeDragIntent = canArmSectionBodyFreeDrag(e.target) || onFreeHandle;
     pointerRef.current = {
       x: e.clientX,
       y: e.clientY,
       moved: false,
       shiftKey: e.shiftKey,
-      dragHandle: freeDragIntent,
+      dragHandle: onFreeHandle,
       marquee: false,
     };
     if (onFreeHandle) {
       freeDrag.beginDrag(e, { force: true, immediate: true });
-      return;
-    }
-    if (freeDragIntent) {
-      freeDrag.beginDrag(e, { force: true });
       return;
     }
     attachMarqueeWin();
@@ -802,7 +921,8 @@ function SelectableShellInteractive({
   const isSectionTransformTarget =
     !selectedElement ||
     selectedElement === 'section' ||
-    selectedElement === 'section-background';
+    selectedElement === 'section-background' ||
+    selectedElement === 'form';
   const showTransformChrome = Boolean(sectionPrimary && freeEnabled && isSectionTransformTarget);
 
   return (
@@ -818,10 +938,13 @@ function SelectableShellInteractive({
       data-lp-section-multi={isSectionMultiChrome ? '1' : undefined}
       data-lp-button-shell={buttonLike ? '1' : undefined}
       data-lp-button-move-layer={buttonLike ? '1' : undefined}
+      data-lp-hide-desktop={responsiveHide?.desktop ? '1' : undefined}
+      data-lp-hide-tablet={responsiveHide?.tablet ? '1' : undefined}
+      data-lp-hide-mobile={responsiveHide?.mobile ? '1' : undefined}
       role="button"
       tabIndex={0}
       style={
-        freeLayoutStyle(layout, freeDrag.dragging) ||
+        freeDrag.shellStyle ||
         // Empty / short flow sections still need a hit target for click + Delete.
         (!layout ? { minHeight: 56 } : undefined)
       }
@@ -897,6 +1020,8 @@ function SelectableShellInteractive({
       onDragLeave={
         allowReorder || handlers.onInsertSidebarPreset
           ? (e) => {
+              // Ignore leave→child (keeps between-section indicator stable while dragging).
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
               e.currentTarget.removeAttribute('data-lp-drop-over');
               e.currentTarget.removeAttribute('data-lp-preset-drop');
               e.currentTarget.removeAttribute('data-lp-drop-edge');
@@ -935,10 +1060,12 @@ function SelectableShellInteractive({
                     );
                     return;
                   }
-                  // Section presets / other presets: insert before|after section — never into child.
+                  // Text/shape presets: keep drop client point so insert lands under the cursor.
                   handlers.onInsertSidebarPreset(
                     payload,
-                    edge === 'after' ? { mode: 'after', blockId } : { mode: 'before', blockId },
+                    edge === 'after'
+                      ? { mode: 'after', blockId, clientX: e.clientX, clientY: e.clientY }
+                      : { mode: 'before', blockId, clientX: e.clientX, clientY: e.clientY },
                   );
                 }
                 return;
@@ -1001,13 +1128,8 @@ function SelectableShellInteractive({
           freeDragHandle={
             freeEnabled || handlers.onToggleFreePosition ? (
               <>
-                {/* Always-available drag grip — once a section is free-positioned, its
-                    OWN body can be 100% covered by an interactive hit-zone (e.g. LeadForm's
-                    data-lp-form-hit spans the whole visible card), leaving no empty padding
-                    to grab. isFreeDragBlockedTarget already special-cases
-                    [data-lp-free-drag-handle] to always be draggable — this button is the
-                    section-level element that was missing to make that path reachable
-                    (items already have the equivalent via ItemReorderChromeInteractive). */}
+                {/* Always-available drag grip — free-drag only from this handle
+                    (or vertical Move toolbar), never from section body/padding. */}
                 {layout ? (
                   <button
                     type="button"
@@ -1036,7 +1158,7 @@ function SelectableShellInteractive({
                       ? 'Section đang khóa'
                       : layout
                         ? 'Tắt vị trí tự do'
-                        : 'Bật vị trí tự do (kéo thân section khi bật)'
+                        : 'Bật vị trí tự do (kéo icon Di chuyển khi bật)'
                   }
                   className={`inline-flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 ${
                     layout ? 'bg-orange-50 text-orange-700' : 'text-zinc-800'
@@ -1099,23 +1221,6 @@ function SelectableShellInteractive({
           onDeselect={() => handlers.onDeselect()}
         />
       ) : null}
-      {showImageToolbar ? (
-        <SectionBackgroundToolbar
-          variant="image"
-          blockId={blockId}
-          anchorEl={
-            freeDrag.shellRef.current?.querySelector(
-              '[data-lp-element-selected="1"][data-lp-element-kind="image"],[data-lp-content-image="1"]',
-            ) as HTMLElement | null
-          }
-          hasImage={imageMeta.hasImage}
-          hasAnyBg={imageMeta.hasAnyBg}
-          onAction={(action) =>
-            handlers.onContentImageAction?.(blockId, selectedElement, action)
-          }
-          onDeselect={() => handlers.onDeselect()}
-        />
-      ) : null}
       {/* Background hit layer — empty/padding clicks always select section (never auto Nền). */}
       {!buttonLike ? (
         <div
@@ -1154,7 +1259,7 @@ function SelectableShellInteractive({
           }}
         />
       ) : null}
-      {bgMeta.hasImage ? (
+      {bgMeta.hasImage && !sectionSettingsActive(surfaceBlock?.style) ? (
         <div
           data-lp-section-bg-paint="1"
           data-lp-bg-motion={bgMeta.motion}
@@ -1171,7 +1276,9 @@ function SelectableShellInteractive({
             : 'relative z-[1]'
         }
       >
-        {children}
+        <SectionSettingsStack block={surfaceBlock} fallback={surfaceFallback}>
+          {children}
+        </SectionSettingsStack>
       </div>
       {marqueeRect && typeof document !== 'undefined'
         ? createPortal(
@@ -1377,7 +1484,6 @@ export function ElementChrome({
     freeEnabled,
     bindShellRef,
     shellStyle,
-    armDrag,
     consumePointerUpForDrag,
     showTransformChrome,
   } = useCanvasElementFreeDrag({
@@ -1386,7 +1492,7 @@ export function ElementChrome({
     handlers,
     selected: Boolean(isPrimary),
   });
-  const canResize = kind === 'box' || kind === 'image';
+  const canResize = (kind === 'box' || kind === 'image') && element !== 'form';
   const isFormChrome = element === 'form';
   const elementClass = handlers?.getElementCustomClass?.(blockId, element) || '';
   const customCssStyle =
@@ -1401,7 +1507,13 @@ export function ElementChrome({
         data-lp-free-child={shellStyle ? '1' : undefined}
         data-lp-free-mode={shellStyle ? 'offset' : undefined}
         style={{ ...(shellStyle || {}), ...customCssStyle }}
-        className={`${kind === 'button' || kind === 'text' ? 'inline-block max-w-full' : 'relative'} ${className}`}
+        className={`${
+        kind === 'button' || kind === 'text'
+          ? 'inline-block max-w-full'
+          : kind === 'box'
+            ? 'relative inline-flex max-w-full'
+            : 'relative'
+      } ${className}`}
       >
         {children}
       </div>
@@ -1410,14 +1522,10 @@ export function ElementChrome({
 
   const cursor =
     kind === 'text'
-      ? selected && freeEnabled
-        ? 'cursor-grab active:cursor-grabbing'
-        : 'cursor-text'
+      ? 'cursor-text'
       : kind === 'button'
         ? 'cursor-pointer'
-        : selected && freeEnabled
-          ? 'cursor-grab active:cursor-grabbing'
-          : 'cursor-pointer';
+        : 'cursor-pointer';
   const pointerRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   return (
@@ -1432,7 +1540,13 @@ export function ElementChrome({
       data-lp-free-mode="offset"
       data-lp-bounding-box={isPrimary ? '1' : '0'}
       style={{ ...shellStyle, ...customCssStyle }}
-      className={`${kind === 'button' || kind === 'text' ? 'inline-block max-w-full' : 'relative'} ${cursor} outline-offset-2 ${
+      className={`${
+        kind === 'button' || kind === 'text'
+          ? 'inline-block max-w-full'
+          : kind === 'box'
+            ? 'relative inline-flex max-w-full'
+            : 'relative'
+      } ${cursor} outline-offset-2 ${
         isPrimary
           ? 'z-[1] outline outline-2 outline-[#F97316]/85 data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
           : selected
@@ -1447,8 +1561,8 @@ export function ElementChrome({
         if (e.button !== 0) return;
         if (isFormChrome && isLeadFormInteractiveTarget(e.target as HTMLElement)) return;
         e.stopPropagation();
+        // Body never arms free-drag — Move toolbar icon only.
         pointerRef.current = { x: e.clientX, y: e.clientY, moved: false };
-        armDrag(e);
       }}
       onPointerMove={(e) => {
         const p = pointerRef.current;
@@ -1497,10 +1611,44 @@ export function ElementChrome({
 /**
  * Text box transform chrome — 8 handles (N/S/E/W/NE/NW/SE/SW).
  * Snapshot geometry at pointerdown; each frame = applyResizeHandle(start + delta).
- * Corners change both width and height; west/north also shift free offset.
+ *
+ * Handle semantics:
+ * - Corner (nw/ne/sw/se): uniform box scale + fontSize/lineHeight scale (typography).
+ * - East/West: width only (text reflow) — no font scale.
+ * - North/South: height only — no font scale.
  */
 function isHeadingCornerHandle(handle: string): handle is 'nw' | 'ne' | 'sw' | 'se' {
   return handle === 'nw' || handle === 'ne' || handle === 'sw' || handle === 'se';
+}
+
+export const LP_TEXT_SCALE_FONT_MIN = 10;
+export const LP_TEXT_SCALE_FONT_MAX = 96;
+
+function clampTextScaleFont(n: number): number {
+  return Math.min(LP_TEXT_SCALE_FONT_MAX, Math.max(LP_TEXT_SCALE_FONT_MIN, Math.round(n)));
+}
+
+function scaleLineHeightValue(
+  base: number | string | undefined,
+  scale: number,
+): number | string | undefined {
+  if (base == null) return undefined;
+  if (typeof base === 'number') {
+    // Unitless multipliers (e.g. 1.25) stay constant — font-size change preserves rhythm.
+    if (base > 0 && base <= 4) return base;
+    return Math.round(base * scale * 100) / 100;
+  }
+  const m = String(base).trim().match(/^([\d.]+)(px|rem|em)?$/i);
+  if (!m) return base;
+  const n = parseFloat(m[1]!);
+  if (!Number.isFinite(n)) return base;
+  const unit = (m[2] || '').toLowerCase();
+  if (!unit) {
+    if (n > 0 && n <= 4) return base; // unitless string
+    return String(Math.round(n * scale * 100) / 100);
+  }
+  if (unit === 'px') return `${Math.round(n * scale)}px`;
+  return `${Math.round(n * scale * 1000) / 1000}${unit}`;
 }
 
 function HeadingBoxResizeChrome({
@@ -1509,23 +1657,34 @@ function HeadingBoxResizeChrome({
   freeOffset,
   wrapRef,
   textRef,
+  baseFontSize,
+  baseLineHeight,
   onCommitBox,
   onResizingChange,
+  onLiveTypography,
 }: {
   width?: number;
   height?: number;
   freeOffset?: { x: number; y: number } | null;
   wrapRef: { current: HTMLElement | null };
   textRef: { current: HTMLElement | null };
+  /** Starting font-size (px) for corner scale. */
+  baseFontSize?: number;
+  baseLineHeight?: number | string;
   onCommitBox: (next: {
     width: number;
     height: number;
     offsetX: number;
     offsetY: number;
+    fontSize?: number;
+    lineHeight?: number | string;
+    scaleTypography: boolean;
   }) => void;
   /** Active for the duration of a drag gesture — lets the parent stop re-applying
    * committed width/height via React so it doesn't fight applyLiveBox's DOM writes. */
-  onResizingChange?: (active: boolean) => void;
+  onResizingChange?: (active: boolean, meta?: { scaleTypography?: boolean }) => void;
+  /** Realtime typography for toolbar (no history). */
+  onLiveTypography?: (next: { fontSize: number; lineHeight?: number | string }) => void;
 }) {
   const sessionRef = useRef<{
     handle: FreeResizeHandle;
@@ -1536,6 +1695,11 @@ function HeadingBoxResizeChrome({
     originX: number;
     originY: number;
     canvasScale: number;
+    maxW: number;
+    maxH: number;
+    startFont: number;
+    startLineHeight: number | string | undefined;
+    scaleTypography: boolean;
     raf: number;
     pendingX: number;
     pendingY: number;
@@ -1543,38 +1707,67 @@ function HeadingBoxResizeChrome({
     lastH: number;
     lastOX: number;
     lastOY: number;
+    lastFont: number;
+    lastLineHeight: number | string | undefined;
     captureEl: HTMLElement | null;
     pointerId: number;
   } | null>(null);
 
-  const applyLiveBox = (w: number, h: number, ox: number, oy: number) => {
+  const applyLiveBox = (
+    w: number,
+    h: number | 'auto',
+    ox: number,
+    oy: number,
+    typography?: { fontSize: number; lineHeight?: number | string } | null,
+  ) => {
     const el = wrapRef.current;
     const textEl = textRef.current;
     if (!el) return;
     el.style.boxSizing = 'border-box';
-    el.style.width = `${w}px`;
-    el.style.height = `${h}px`;
-    el.style.minWidth = `${w}px`;
-    el.style.minHeight = `${h}px`;
-    el.style.maxWidth = 'none';
+    el.style.width = 'max-content';
+    // Text boxes always hug content vertically — never lock a taller empty frame.
+    el.style.height = 'auto';
+    el.style.minHeight = '0';
     el.style.maxHeight = 'none';
+    el.style.minWidth = '0';
+    el.style.maxWidth = 'none';
     el.style.overflow = 'visible';
-    el.style.display = 'block';
+    el.style.display = 'inline-block';
     el.style.whiteSpace = 'normal';
+    el.style.verticalAlign = 'top';
+    el.style.padding = '2px 4px';
     el.style.transform = `translate3d(${ox}px, ${oy}px, 0)`;
     el.setAttribute('data-lp-heading-width-live', String(w));
-    el.setAttribute('data-lp-heading-height-live', String(h));
+    el.style.setProperty('--lp-text-box-width', `${w}px`);
+    el.removeAttribute('data-lp-heading-height-live');
     if (textEl) {
       textEl.style.boxSizing = 'border-box';
       textEl.style.display = 'block';
-      textEl.style.width = '100%';
-      textEl.style.maxWidth = 'none';
-      textEl.style.height = '100%';
+      // Width lives on the painted text node (beats custom CSS fit-content !important).
+      textEl.style.setProperty('width', `${w}px`, 'important');
+      textEl.style.setProperty('max-width', 'none', 'important');
+      textEl.style.height = 'auto';
+      textEl.style.minHeight = '0';
       textEl.style.whiteSpace = 'normal';
       textEl.style.overflowWrap = 'anywhere';
       textEl.style.wordBreak = 'break-word';
       textEl.style.overflow = 'visible';
+      if (typography) {
+        textEl.style.fontSize = `${typography.fontSize}px`;
+        if (typography.lineHeight != null) {
+          textEl.style.lineHeight = String(typography.lineHeight);
+        }
+        el.setAttribute('data-lp-heading-font-live', String(typography.fontSize));
+      }
     }
+    void h; // height arg kept for API compat; auto-fit ignores locked heights
+  };
+
+  const measureWrapHeight = (scale: number) => {
+    const el = wrapRef.current;
+    if (!el) return 28;
+    const scaleSafe = scale > 0.05 ? scale : 1;
+    return Math.max(28, Math.round(el.getBoundingClientRect().height / scaleSafe));
   };
 
   const applyMoveFrame = () => {
@@ -1584,24 +1777,97 @@ function HeadingBoxResizeChrome({
     const scale = s.canvasScale > 0 ? s.canvasScale : 1;
     const dx = (s.pendingX - s.startX) / scale;
     const dy = (s.pendingY - s.startY) / scale;
-    const next = applyResizeHandle({
-      handle: s.handle,
-      x: s.originX,
-      y: s.originY,
-      width: s.startW,
-      height: s.startH,
-      dx,
-      dy,
-      minW: 80,
-      minH: 28,
-      maxW: 1200,
-      maxH: 1200,
-    });
-    s.lastW = next.width;
-    s.lastH = next.height;
-    s.lastOX = next.x;
-    s.lastOY = next.y;
-    applyLiveBox(next.width, next.height, next.x, next.y);
+    const corner = isHeadingCornerHandle(s.handle);
+    const sideEW = s.handle === 'e' || s.handle === 'w';
+    // N/S ignored for text hug — height always follows content.
+
+    let nextW: number;
+    let nextX: number;
+    let nextY: number;
+    let typography: { fontSize: number; lineHeight?: number | string } | null = null;
+
+    if (corner) {
+      // Uniform scale from dominant pointer axis → width + typography; height auto-fits.
+      const proposed = applyResizeHandle({
+        handle: s.handle,
+        x: s.originX,
+        y: s.originY,
+        width: s.startW,
+        height: s.startH,
+        dx,
+        dy,
+        minW: 80,
+        minH: 28,
+        maxW: s.maxW,
+        maxH: s.maxH,
+      });
+      const sx = proposed.width / Math.max(1, s.startW);
+      const sy = proposed.height / Math.max(1, s.startH);
+      const scaleRaw = Math.abs(dx) >= Math.abs(dy) ? sx : sy;
+      let scaleBox = scaleRaw;
+      const fontAtScale = s.startFont * scaleBox;
+      if (fontAtScale < LP_TEXT_SCALE_FONT_MIN) {
+        scaleBox = LP_TEXT_SCALE_FONT_MIN / Math.max(1, s.startFont);
+      } else if (fontAtScale > LP_TEXT_SCALE_FONT_MAX) {
+        scaleBox = LP_TEXT_SCALE_FONT_MAX / Math.max(1, s.startFont);
+      }
+      nextW = Math.min(s.maxW, Math.max(80, Math.round(s.startW * scaleBox)));
+      const scaleFinal = nextW / Math.max(1, s.startW);
+      nextX = s.originX;
+      nextY = s.originY;
+      if (s.handle.includes('w')) nextX = s.originX + (s.startW - nextW);
+      if (s.handle.includes('n')) nextY = s.originY; // height hugs — don't shift for phantom height
+      const fontSize = clampTextScaleFont(s.startFont * scaleFinal);
+      const lineHeight = scaleLineHeightValue(s.startLineHeight, scaleFinal);
+      typography = { fontSize, lineHeight };
+      s.lastFont = fontSize;
+      s.lastLineHeight = lineHeight;
+      s.scaleTypography = true;
+      onLiveTypography?.({ fontSize, lineHeight });
+      window.dispatchEvent(
+        new CustomEvent('lp-text-box-live-type', {
+          detail: { fontSize, lineHeight },
+        }),
+      );
+    } else if (sideEW) {
+      const resized = applyResizeHandle({
+        handle: s.handle,
+        x: s.originX,
+        y: s.originY,
+        width: s.startW,
+        height: s.startH,
+        dx,
+        dy,
+        minW: 80,
+        minH: 28,
+        maxW: s.maxW,
+        maxH: s.maxH,
+      });
+      nextW = resized.width;
+      nextX = resized.x;
+      nextY = s.originY;
+      s.scaleTypography = false;
+      s.lastFont = s.startFont;
+      s.lastLineHeight = s.startLineHeight;
+    } else {
+      // N/S: keep width; height stays content-driven (no empty frame).
+      nextW = s.startW;
+      nextX = s.originX;
+      nextY = s.originY;
+      s.scaleTypography = false;
+      s.lastFont = s.startFont;
+      s.lastLineHeight = s.startLineHeight;
+    }
+
+    if (nextX + nextW > s.maxW) nextX = Math.max(0, s.maxW - nextW);
+    if (nextX < 0) nextX = 0;
+    if (nextY < 0) nextY = 0;
+
+    s.lastW = nextW;
+    s.lastOX = nextX;
+    s.lastOY = nextY;
+    applyLiveBox(nextW, 'auto', nextX, nextY, typography);
+    s.lastH = measureWrapHeight(s.canvasScale);
   };
 
   const scheduleMove = (clientX: number, clientY: number) => {
@@ -1624,19 +1890,67 @@ function HeadingBoxResizeChrome({
       /* ignore */
     }
     const wrap = wrapRef.current;
+    const textEl = textRef.current;
     if (!wrap) return;
     const scale = readCanvasPointerScale(wrap);
     const rect = wrap.getBoundingClientRect();
+    const textRect = textEl?.getBoundingClientRect();
+    // Prefer locked width, else the painted text box (not a stretched parent).
     const startW =
       width && width > 0
         ? width
-        : Math.max(80, Math.round(rect.width / (scale > 0.05 ? scale : 1)));
-    const startH =
-      height && height > 0
-        ? height
-        : Math.max(28, Math.round(rect.height / (scale > 0.05 ? scale : 1)));
+        : Math.max(
+            80,
+            Math.round(
+              (textRect && textRect.width > 0 ? textRect.width : rect.width) /
+                (scale > 0.05 ? scale : 1),
+            ),
+          );
+    // Content height (ignore locked empty frame from legacy height commits).
+    const startH = Math.max(
+      28,
+      Math.round((textRect?.height || rect.height) / (scale > 0.05 ? scale : 1)),
+    );
     const originX = freeOffset?.x ?? 0;
     const originY = freeOffset?.y ?? 0;
+    const sectionEl =
+      (wrap.closest('[data-lp-section-chrome="1"]') as HTMLElement | null) ||
+      (wrap.closest('[data-lp-block-slot]') as HTMLElement | null) ||
+      (wrap.closest('[data-lp-canvas-root]') as HTMLElement | null);
+    const sectionRect = sectionEl?.getBoundingClientRect();
+    const scaleSafe = scale > 0.05 ? scale : 1;
+    const maxW = sectionRect
+      ? Math.max(80, Math.round(sectionRect.width / scaleSafe) - 8)
+      : 1200;
+    const maxH = sectionRect
+      ? Math.max(28, Math.round(Math.max(sectionRect.height, 480) / scaleSafe))
+      : 1200;
+
+    let startFont = baseFontSize && baseFontSize > 0 ? baseFontSize : 0;
+    if (!startFont && textEl) {
+      const cs = getComputedStyle(textEl);
+      startFont = parseFloat(cs.fontSize) || 16;
+    }
+    if (!startFont) startFont = 16;
+    const startLineHeight =
+      baseLineHeight ??
+      (textEl
+        ? (() => {
+            const cs = getComputedStyle(textEl);
+            const lh = cs.lineHeight;
+            if (!lh || lh === 'normal') return undefined;
+            const px = parseFloat(lh);
+            const fs = parseFloat(cs.fontSize) || startFont;
+            if (Number.isFinite(px) && fs > 0) {
+              const ratio = px / fs;
+              // Prefer unitless ratio when close to typical leading.
+              if (ratio >= 0.8 && ratio <= 3.5) return Math.round(ratio * 100) / 100;
+              return `${Math.round(px)}px`;
+            }
+            return undefined;
+          })()
+        : undefined);
+
     sessionRef.current = {
       handle,
       startX: e.clientX,
@@ -1646,6 +1960,11 @@ function HeadingBoxResizeChrome({
       originX,
       originY,
       canvasScale: scale,
+      maxW,
+      maxH,
+      startFont,
+      startLineHeight,
+      scaleTypography: isHeadingCornerHandle(handle),
       raf: 0,
       pendingX: e.clientX,
       pendingY: e.clientY,
@@ -1653,12 +1972,14 @@ function HeadingBoxResizeChrome({
       lastH: startH,
       lastOX: originX,
       lastOY: originY,
+      lastFont: startFont,
+      lastLineHeight: startLineHeight,
       captureEl,
       pointerId: e.pointerId,
     };
     wrap.setAttribute('data-lp-heading-resizing', '1');
     document.documentElement.setAttribute('data-lp-heading-box-resizing', '1');
-    onResizingChange?.(true);
+    onResizingChange?.(true, { scaleTypography: isHeadingCornerHandle(handle) });
     applyLiveBox(startW, startH, originX, originY);
 
     const onMove = (ev: globalThis.PointerEvent) => {
@@ -1686,19 +2007,28 @@ function HeadingBoxResizeChrome({
       const el = wrapRef.current;
       document.documentElement.removeAttribute('data-lp-heading-box-resizing');
       window.dispatchEvent(new CustomEvent('lp-heading-box-resize-end'));
-      // Flip back to declarative styling in the SAME batch as onCommitBox's spec
-      // update below, so the wrap span never re-renders with the old (pre-drag)
-      // committed width/height for even one frame.
       onResizingChange?.(false);
       if (!el || !s) return;
       el.removeAttribute('data-lp-heading-resizing');
       el.removeAttribute('data-lp-heading-width-live');
       el.removeAttribute('data-lp-heading-height-live');
+      el.removeAttribute('data-lp-heading-font-live');
+      // Drop live imperative sizing so React + CSS variables own geometry after commit.
+      el.style.minWidth = '';
+      el.style.width = '';
+      const textEl = textRef.current;
+      if (textEl) {
+        textEl.style.removeProperty('width');
+        textEl.style.removeProperty('max-width');
+      }
       onCommitBox({
         width: s.lastW,
         height: s.lastH,
         offsetX: s.lastOX,
         offsetY: s.lastOY,
+        fontSize: s.scaleTypography ? s.lastFont : undefined,
+        lineHeight: s.scaleTypography ? s.lastLineHeight : undefined,
+        scaleTypography: s.scaleTypography,
       });
     };
     window.addEventListener('pointermove', onMove, { passive: false });
@@ -1707,9 +2037,9 @@ function HeadingBoxResizeChrome({
   };
 
   const handleCls =
-    'pointer-events-auto absolute z-[19] h-2.5 w-2.5 rounded-[2px] border-2 border-[#F97316] bg-white shadow-sm';
+    'pointer-events-auto absolute z-[50] h-2.5 w-2.5 rounded-[2px] border-2 border-[#F97316] bg-white shadow-sm';
 
-  const handles: FreeResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  const handles: FreeResizeHandle[] = ['nw', 'ne', 'e', 'se', 'sw', 'w'];
 
   return (
     <div
@@ -1717,6 +2047,7 @@ function HeadingBoxResizeChrome({
       data-lp-heading-box-chrome="1"
       data-lp-heading-handles="sm"
       data-lp-heading-corner-resizes-box="1"
+      data-lp-heading-corner-scales-type="1"
       data-lp-transform-chrome="1"
       className="pointer-events-none absolute inset-0 z-[18] overflow-visible"
       aria-hidden
@@ -1738,6 +2069,11 @@ function HeadingBoxResizeChrome({
           const ty = handle.includes('n') ? '-50%' : '50%';
           pos.transform = `translate(${tx}, ${ty})`;
         }
+        const title = isHeadingCornerHandle(handle)
+          ? 'Scale chữ + khung'
+          : handle === 'e' || handle === 'w'
+            ? 'Đổi chiều rộng (reflow)'
+            : 'Đổi chiều cao';
         return (
           <button
             key={handle}
@@ -1745,7 +2081,7 @@ function HeadingBoxResizeChrome({
             data-lp-resize-handle={handle}
             data-lp-heading-width-handle={handle === 'e' || handle === 'w' ? handle : undefined}
             data-lp-heading-corner-handle={isHeadingCornerHandle(handle) ? handle : undefined}
-            title="Resize text box"
+            title={title}
             className={handleCls}
             style={{ ...pos, cursor: resizeHandleCursor(handle) }}
             onPointerDown={onHandleDown(handle)}
@@ -1805,14 +2141,21 @@ export function InlineEditable({
   // incidental re-render (autosave tick, selection change, anything) doesn't
   // reapply the stale pre-drag committed size and undo the live shrink/grow.
   const [boxResizing, setBoxResizing] = useState(false);
+  /** Corner-scale only — suppress React fontSize so live DOM typography wins. */
+  const [boxScaleTypography, setBoxScaleTypography] = useState(false);
   const draftRef = useRef(value || '');
   const pointerRef = useRef<{ x: number; y: number; moved: boolean; t: number } | null>(null);
+  const pendingCaretRef = useRef<{ x: number; y: number } | null>(null);
   const wrapNodeRef = useRef<HTMLSpanElement | null>(null);
+  const sel = handlers?.selection;
+  const nestedTextField =
+    /^(?:itemTitle|itemDesc|itemQuestion|itemAnswer|itemQuote|itemAuthor|planName|planPrice|planCta|fieldLabel):/.test(
+      field,
+    );
   const selected = Boolean(
     handlers?.isSelected?.({ blockId, element, field }) ??
-      (handlers?.selection?.blockId === blockId &&
-        (handlers?.selection?.field === field ||
-          (!handlers?.selection?.field && handlers?.selection.element === element))),
+      (sel?.blockId === blockId &&
+        (sel?.field === field || (!sel?.field && sel.element === element && !nestedTextField))),
   );
   const isPrimary = Boolean(
     handlers?.isPrimarySelected?.({ blockId, element, field }) ?? selected,
@@ -1828,13 +2171,16 @@ export function InlineEditable({
     readElementCustomCssStyle(blockStyle, element);
   const editBorderColor = resolveEditBorderColor(style, textStyle, className);
   const isHeadingField = textRole === 'heading' || field === 'headline';
+  /** Text/content boxes (not buttons/labels) get 8-handle resize chrome when selected. */
+  const isTextBoxResizable =
+    !fillParent && textRole !== 'button' && textRole !== 'form-label';
   const boxWidthEarly =
     typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : undefined;
 
   const mergeFieldStyle = (extra?: CSSProperties): CSSProperties => {
     // Theme/base → custom CSS → toolbar textStyle (toolbar color must win).
     const fromToolbar = mergeTextStyle(undefined, textStyle, {
-      widthOnWrapOnly: isHeadingField && Boolean(boxWidthEarly),
+      widthOnWrapOnly: isTextBoxResizable && Boolean(boxWidthEarly),
     }) || {};
     const merged: CSSProperties = {
       ...(style || {}),
@@ -1850,6 +2196,13 @@ export function InlineEditable({
     if (isHeadingField && (boxWidthEarly || merged.fontSize)) {
       if (textStyle?.lineHeight == null) merged.lineHeight = 1.25;
     }
+    // During corner scale, live DOM owns fontSize/lineHeight — don't let React
+    // re-apply the pre-drag committed size and cancel the realtime scale.
+    // Side (E/W/N/S) resize keeps React typography so reflow doesn't drop font-size.
+    if (boxScaleTypography) {
+      delete merged.fontSize;
+      delete merged.lineHeight;
+    }
     return merged;
   };
   const elementFreeDrag = useCanvasElementFreeDrag({
@@ -1857,11 +2210,18 @@ export function InlineEditable({
     field,
     handlers,
     selected: Boolean(isPrimary),
-    paused: editing || locked,
+    // Do not pause free-drag while editing — Move handle must still work; body no longer arms drag.
+    paused: locked,
+    contentHug: isTextBoxResizable,
   });
   const bindWrapRef = (node: HTMLSpanElement | null) => {
     elementFreeDrag.bindShellRef(node);
     wrapNodeRef.current = node;
+    if (isTextBoxResizable && node && !boxResizing) {
+      // Imperative leftover height from free-drag must not outlive React paint.
+      if (node.style.height && node.style.height !== 'auto') node.style.height = 'auto';
+      if (node.style.minHeight && node.style.minHeight !== '0px') node.style.minHeight = '0';
+    }
   };
 
   // Clear sticky browser selection when leaving edit / deselected.
@@ -1919,6 +2279,11 @@ export function InlineEditable({
       el.textContent = fallback;
     }
     el.focus({ preventScroll: true });
+    const caret = pendingCaretRef.current;
+    pendingCaretRef.current = null;
+    if (caret && placeCaretAtPoint(el, caret.x, caret.y)) {
+      return;
+    }
     try {
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -1935,6 +2300,8 @@ export function InlineEditable({
   if (!handlers) {
     const Comp = Tag;
     const freeStyle = elementFreeDrag.shellStyle;
+    const boxCss = textBoxChromeCss(textStyle?.box);
+    const hideAttrs = textBoxHideAttrs(textStyle?.box);
     const node = (
       <Comp
         className={className}
@@ -1945,14 +2312,16 @@ export function InlineEditable({
         {value}
       </Comp>
     );
-    if (!freeStyle) return node;
+    if (!freeStyle && !textBoxChromeActive(textStyle?.box)) return node;
     return (
       <span
-        data-lp-free-child="1"
-        data-lp-free-mode="offset"
-        data-lp-free-id={`${blockId}::${field}`}
-        style={freeStyle}
-        className={fillParent ? 'block w-full' : 'inline-block max-w-full'}
+        data-lp-text-box="1"
+        data-lp-free-child={freeStyle ? '1' : undefined}
+        data-lp-free-mode={freeStyle ? 'offset' : undefined}
+        data-lp-free-id={freeStyle ? `${blockId}::${field}` : undefined}
+        style={{ ...freeStyle, ...(boxCss as CSSProperties) }}
+        className={fillParent ? 'block w-full' : 'inline-block max-w-full align-top'}
+        {...hideAttrs}
       >
         {node}
       </span>
@@ -1963,8 +2332,18 @@ export function InlineEditable({
     e.stopPropagation();
   };
 
-  const startEdit = () => {
+  const startEdit = (opts?: { clientX?: number; clientY?: number }) => {
     if (locked) return;
+    if (
+      typeof opts?.clientX === 'number' &&
+      typeof opts?.clientY === 'number' &&
+      Number.isFinite(opts.clientX) &&
+      Number.isFinite(opts.clientY)
+    ) {
+      pendingCaretRef.current = { x: opts.clientX, y: opts.clientY };
+    } else {
+      pendingCaretRef.current = null;
+    }
     handlers.onSelect({ blockId, element, field });
     const el = ref.current;
     const keep = (el?.innerText || value || draftRef.current || '').replace(/\u00a0/g, ' ');
@@ -1995,43 +2374,45 @@ export function InlineEditable({
     handlers.onDeselect();
   };
 
-  const textCursor =
-    editing || !elementFreeDrag.freeEnabled
-      ? 'cursor-text'
-      : selected
-        ? 'cursor-grab active:cursor-grabbing'
-        : 'cursor-text';
+  const textCursor = 'cursor-text';
 
   const keepEmptyChrome = Boolean(editing || selected || isPrimary);
-  const emptyChromeStyle: CSSProperties | undefined = keepEmptyChrome
-    ? {
-        minWidth: '2ch',
-        minHeight: '1.25em',
-        display: isHeadingField ? 'block' : 'inline-block',
-        boxSizing: 'border-box',
-        verticalAlign: 'top',
-      }
-    : undefined;
+  const isTextEmpty = !(value || '').trim();
+  const emptyChromeStyle: CSSProperties | undefined =
+    keepEmptyChrome && isTextEmpty
+      ? {
+          minWidth: '2ch',
+          minHeight: '1.25em',
+          display: isTextBoxResizable ? 'block' : 'inline-block',
+          boxSizing: 'border-box',
+          verticalAlign: 'top',
+        }
+      : undefined;
 
   const headingLevel = textStyle?.headingLevel;
+  const allowHeadingTag =
+    textRole !== 'button' && textRole !== 'form-label' && textRole !== 'cta';
   const ResolvedTag =
-    isHeadingField && headingLevel && headingLevel >= 1 && headingLevel <= 6
+    allowHeadingTag && headingLevel && headingLevel >= 1 && headingLevel <= 6
       ? (`h${headingLevel}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6')
       : Tag;
   const viewport = handlers.viewport || 'desktop';
-  const showHeadingWidthResize =
-    isHeadingField &&
+  // 8-handle box resize for ALL content text (headline, subheadline, body, cards…).
+  // Previously gated to heading/headline only — other text showed selection outline
+  // but no handles, so mouse drag resize looked broken.
+  const showTextBoxResize =
+    isTextBoxResizable &&
     isPrimary &&
     !locked &&
     !editing &&
-    viewport !== 'mobile' &&
     !isTouchLike();
+  const textShellStyle = elementFreeDrag.shellStyle;
   const boxWidth = typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : undefined;
-  const boxHeight =
-    typeof textStyle?.height === 'number' && textStyle.height > 0 ? textStyle.height : undefined;
+  // Legacy height commits are ignored for paint — height always follows text content.
+  const boxHeight = undefined as number | undefined;
 
-  const headingChromeOutline =
-    isHeadingField && !editing
+  const textBoxChromeOutline =
+    isTextBoxResizable && !editing
       ? isPrimary
         ? 'outline outline-2 outline-offset-2 outline-[#F97316]/85 data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
         : selected
@@ -2039,19 +2420,31 @@ export function InlineEditable({
           : '[@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/40'
       : '';
 
+  // Builder hug: move mt/max-w off the text node onto the wrap so the selection
+  // frame measures glyphs only (spacing stays between elements via wrap margin).
+  const spaced =
+    handlers && isTextBoxResizable
+      ? liftTextSpacingFromClassName(className)
+      : { textClassName: className || '', wrapClassName: '' };
+  const textNodeClassName = spaced.textClassName;
+  const wrapSpacingClassName = spaced.wrapClassName;
+
   return (
     <span
       ref={bindWrapRef}
       className={
         (fillParent
           ? 'relative flex h-full w-full min-w-0'
-          : 'relative block align-top') +
-        (headingChromeOutline ? ` ${headingChromeOutline}` : '')
+          : 'relative inline-block align-top') +
+        (wrapSpacingClassName ? ` ${wrapSpacingClassName}` : '') +
+        (textBoxChromeOutline ? ` ${textBoxChromeOutline}` : '')
       }
       data-lp-inline-wrap={textRole}
       data-lp-inline-empty={!(value || '').trim() && keepEmptyChrome ? '1' : undefined}
-      data-lp-heading-resize={isHeadingField ? '1' : undefined}
-      data-lp-heading-auto-height={isHeadingField && !boxHeight ? '1' : undefined}
+      data-lp-heading-resize={isTextBoxResizable ? '1' : undefined}
+      data-lp-heading-auto-height={isTextBoxResizable ? '1' : undefined}
+      data-lp-text-hug="1"
+      data-lp-heading-width-locked={boxWidth ? '1' : undefined}
       data-lp-fill-parent={fillParent ? '1' : undefined}
       data-lp-button-hit={fillParent && textRole === 'button' ? '1' : undefined}
       data-lp-cta-body={element === 'cta' || textRole === 'button' ? '1' : undefined}
@@ -2063,39 +2456,51 @@ export function InlineEditable({
       data-lp-bounding-box={isPrimary ? '1' : '0'}
       data-lp-text-hidden={hidden ? '1' : undefined}
       data-lp-text-locked={locked ? '1' : undefined}
+      {...textBoxHideAttrs(textStyle?.box)}
       style={{
-        ...elementFreeDrag.shellStyle,
+        ...textShellStyle,
         ...(hidden ? { opacity: selected ? 0.55 : 0.35 } : undefined),
-        ...(keepEmptyChrome && !(value || '').trim()
+        ...(keepEmptyChrome && isTextEmpty
           ? { minWidth: '2ch', minHeight: '1.25em' }
           : undefined),
+        // Locked width is applied to the TEXT node via --lp-text-box-width (builder CSS
+        // !important). Wrap stays max-content so selection chrome hugs the painted box
+        // even when custom CSS used width:fit-content on the text.
+        ...(boxWidth
+          ? ({ ['--lp-text-box-width' as string]: `${boxWidth}px` } as CSSProperties)
+          : null),
         ...(boxResizing
           ? null
-          : boxWidth
-            ? {
-                width: boxWidth,
-                maxWidth: 'none',
-                boxSizing: 'border-box',
-              }
-            : undefined),
-        ...(boxResizing
-          ? null
-          : boxHeight
-            ? {
-                height: boxHeight,
-                minHeight: boxHeight,
-                boxSizing: 'border-box',
-              }
-            : { height: 'auto' }),
-        ...(boxResizing ? null : { overflow: 'visible' }),
-        display: boxWidth || isHeadingField ? 'block' : undefined,
-        whiteSpace: 'normal',
+          : {
+              width: isTextBoxResizable ? 'max-content' : undefined,
+              maxWidth: isTextBoxResizable ? '100%' : undefined,
+              height: 'auto',
+              minHeight: 0,
+              maxHeight: 'none',
+              minWidth: 0,
+              boxSizing: 'border-box',
+              padding: isTextBoxResizable ? '2px 4px' : undefined,
+              overflow: 'visible',
+              display: isTextBoxResizable || boxWidth ? 'inline-block' : undefined,
+              whiteSpace: 'normal',
+              verticalAlign: 'top',
+              alignSelf: isTextBoxResizable ? 'flex-start' : undefined,
+              justifySelf: isTextBoxResizable ? 'start' : undefined,
+              flex: isTextBoxResizable ? '0 0 auto' : undefined,
+            }),
+        ...(textBoxChromeCss(textStyle?.box) as CSSProperties),
       }}
     >
-      {showHeadingWidthResize ? (
+      {showTextBoxResize ? (
         <HeadingBoxResizeChrome
           width={boxWidth}
           height={boxHeight}
+          baseFontSize={
+            typeof textStyle?.fontSize === 'number' && textStyle.fontSize > 0
+              ? textStyle.fontSize
+              : undefined
+          }
+          baseLineHeight={textStyle?.lineHeight}
           freeOffset={
             elementFreeDrag.layout
               ? { x: elementFreeDrag.layout.x, y: elementFreeDrag.layout.y }
@@ -2103,18 +2508,24 @@ export function InlineEditable({
           }
           wrapRef={wrapNodeRef}
           textRef={ref}
-          onResizingChange={setBoxResizing}
+          onResizingChange={(active, meta) => {
+            setBoxResizing(active);
+            setBoxScaleTypography(active ? Boolean(meta?.scaleTypography) : false);
+          }}
           onCommitBox={(next) => {
             const freeLayout = {
               x: next.offsetX,
               y: next.offsetY,
               width: next.width,
-              height: next.height,
+              // Omit height — text wrap hugs content; measured height only for parent reflow.
             };
             if (handlers.onTextBoxResizeCommit) {
               handlers.onTextBoxResizeCommit(blockId, field, {
                 width: next.width,
                 height: next.height,
+                fontSize: next.fontSize,
+                lineHeight: next.lineHeight,
+                scaleTypography: next.scaleTypography,
                 freeLayout,
                 viewport,
               });
@@ -2122,7 +2533,10 @@ export function InlineEditable({
             }
             handlers.onTextStyleChange?.(blockId, field, {
               width: next.width,
-              height: next.height,
+              height: undefined,
+              ...(next.scaleTypography && next.fontSize
+                ? { fontSize: next.fontSize, lineHeight: next.lineHeight }
+                : null),
             });
             handlers.onElementFreeLayoutCommit?.(blockId, field, {
               positionMode: 'free',
@@ -2145,10 +2559,10 @@ export function InlineEditable({
         data-lp-element-primary={isPrimary ? '1' : '0'}
         data-lp-no-layout-shift="1"
         data-lp-edit-border={editing ? editBorderColor : ''}
-        className={`${className || ''} ${textCursor} ${
+        className={`${textNodeClassName || ''} ${textCursor} ${
           editing
             ? 'relative z-[2] rounded-sm'
-            : isHeadingField
+            : isTextBoxResizable
               ? ''
               : isPrimary
                 ? 'outline outline-2 outline-offset-2 outline-[#F97316]/85 data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
@@ -2156,18 +2570,35 @@ export function InlineEditable({
                   ? 'outline outline-1 outline-offset-2 outline-dashed outline-[#F97316]/55'
                   : 'outline-offset-2 [@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/40'
         } ${
-          isHeadingField || boxWidth
-            ? 'block w-full whitespace-normal break-words [overflow-wrap:anywhere] [max-width:none]'
-            : ''
+          isTextBoxResizable
+            ? boxWidth
+              ? 'block whitespace-normal break-words [overflow-wrap:anywhere] [height:auto] [min-height:0] !m-0'
+              : 'block whitespace-normal break-words [overflow-wrap:anywhere] [height:auto] [min-height:0] [max-width:none] !m-0'
+            : boxWidth
+              ? 'block w-full whitespace-normal break-words [overflow-wrap:anywhere] [max-width:none]'
+              : ''
         }`}
         style={mergeFieldStyle(
           editing
             ? {
                 boxShadow: `0 0 0 2px ${editBorderColor}`,
                 outline: 'none',
+                height: 'auto',
+                minHeight: 0,
+                margin: 0,
+                maxWidth: 'none',
                 ...emptyChromeStyle,
               }
-            : emptyChromeStyle,
+            : isTextBoxResizable
+              ? {
+                  height: 'auto',
+                  minHeight: 0,
+                  margin: 0,
+                  maxWidth: 'none',
+                  // Width comes from --lp-text-box-width (builder CSS !important).
+                  ...emptyChromeStyle,
+                }
+              : emptyChromeStyle,
         )}
         contentEditable={editing}
         suppressContentEditableWarning
@@ -2189,8 +2620,8 @@ export function InlineEditable({
             return;
           }
           if (e.button !== 0) return;
+          // Body never arms free-drag — Move toolbar icon only.
           pointerRef.current = { x: e.clientX, y: e.clientY, moved: false, t: Date.now() };
-          elementFreeDrag.armDrag(e);
         }}
         onPointerMove={(e) => {
           const p = pointerRef.current;
@@ -2207,21 +2638,23 @@ export function InlineEditable({
           if (!p || p.moved) return;
           stop(e);
           e.preventDefault();
-          const already = selected;
-          handlers.onSelect({ blockId, element, field }, { shiftKey: e.shiftKey });
-          clearBrowserTextSelection();
-          if (already && isTouchLike()) startEdit();
+          // 1 click = select + enter inline edit with caret at click (no dblclick).
+          if (e.shiftKey) {
+            handlers.onSelect({ blockId, element, field }, { shiftKey: true });
+            clearBrowserTextSelection();
+            return;
+          }
+          startEdit({ clientX: e.clientX, clientY: e.clientY });
         }}
         onClick={(e) => {
           stop(e);
           e.preventDefault();
-          if (!editing) clearBrowserTextSelection();
         }}
         onDoubleClick={(e) => {
+          // Keep as no-op safety: single-click already enters edit.
           e.preventDefault();
           stop(e);
-          clearBrowserTextSelection();
-          startEdit();
+          if (!editing && !locked) startEdit({ clientX: e.clientX, clientY: e.clientY });
         }}
         onPaste={(e) => {
           if (!editing) return;
@@ -2302,6 +2735,37 @@ function clearBrowserTextSelection() {
   }
 }
 
+/** Place caret at click coordinates inside a contentEditable (single-click edit). */
+function placeCaretAtPoint(el: HTMLElement, clientX: number, clientY: number): boolean {
+  try {
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      caretPositionFromPoint?: (
+        x: number,
+        y: number,
+      ) => { offsetNode: Node; offset: number } | null;
+    };
+    let range: Range | null = null;
+    if (typeof doc.caretRangeFromPoint === 'function') {
+      range = doc.caretRangeFromPoint(clientX, clientY);
+    } else if (typeof doc.caretPositionFromPoint === 'function') {
+      const pos = doc.caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range || !el.contains(range.startContainer)) return false;
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function mergeTextStyle(
   base: CSSProperties | undefined,
   textStyle: LandingPageInlineTextStyle | undefined,
@@ -2359,7 +2823,38 @@ function mergeTextStyle(
   return next;
 }
 
-const LP_TEXT_COLOR_PRESETS = [
+/** rgb()/rgba() or #hex → #rrggbb for inspector color inputs. */
+export function cssColorToHex(raw: string): string | null {
+  const s = raw.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/.test(s)) {
+    const h = s.slice(1);
+    return `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`;
+  }
+  const m = s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if (!m) return null;
+  const toByte = (n: string) => Math.min(255, Math.max(0, Math.round(Number(n))));
+  const r = toByte(m[1]!);
+  const g = toByte(m[2]!);
+  const b = toByte(m[3]!);
+  return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Painted color on canvas when inlineTextStyles has no explicit color (theme CSS vars). */
+export function readCanvasInlineTextColorHex(blockId: string, field: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const esc =
+    typeof CSS !== 'undefined' && 'escape' in CSS
+      ? CSS.escape(field)
+      : field.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const el = document.querySelector(
+    `[data-lp-canvas-root] [data-lp-block-id="${blockId}"] [data-lp-inline-field="${esc}"]`,
+  ) as HTMLElement | null;
+  if (!el) return null;
+  return cssColorToHex(getComputedStyle(el).color);
+}
+
+export const LP_TEXT_COLOR_PRESETS = [
   '#ffffff',
   '#000000',
   '#111827',
@@ -2391,6 +2886,14 @@ const LP_TEXT_COLOR_PALETTE = [
 ];
 
 const LP_TEXT_MY_COLORS_KEY = 'mkspa.lpTextMyColors.v1';
+
+export function loadLpTextMyColors(): string[] {
+  return loadMyTextColors();
+}
+
+export function rememberLpTextMyColor(color: string) {
+  pushMyTextColor(color);
+}
 
 function loadMyTextColors(): string[] {
   try {
@@ -2576,28 +3079,31 @@ function TextEditToolbar({
   const [morePos, setMorePos] = useState<{ left: number; top: number } | null>(null);
   const [colorPos, setColorPos] = useState<{ left: number; top: number } | null>(null);
   const [sizeDraft, setSizeDraft] = useState<string | null>(null);
+  const [liveFontSize, setLiveFontSize] = useState<number | null>(null);
   const [hexDraft, setHexDraft] = useState('');
   const [myColors, setMyColors] = useState<string[]>(() =>
     typeof window !== 'undefined' ? loadMyTextColors() : LP_TEXT_COLOR_PRESETS.slice(0, 12),
   );
 
   const btn =
-    'inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium text-zinc-800 hover:bg-zinc-100 disabled:opacity-40';
+    'pointer-events-auto inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[11px] font-medium text-zinc-800 hover:bg-zinc-100 disabled:opacity-40';
   const menuItem =
     'flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-zinc-800 hover:bg-zinc-50';
-  const size = textStyle?.fontSize || 14;
+  const size = liveFontSize ?? textStyle?.fontSize ?? 14;
   const bold = textStyle?.fontWeight === 'bold' || textStyle?.fontWeight === 700 || textStyle?.fontWeight === 800;
   const align = textStyle?.textAlign || 'left';
   const color = normalizeHexColor(textStyle?.color || '#111827');
-  const isHeadingToolbar = field === 'headline';
+  // Font + Heading for every text box toolbar (headline, itemTitle, body, …).
+  // Previously gated to field==='headline' only — free-drag / card text had neither control.
+  const showTypeControls = !isButtonLikeTextField(field);
   const fontFamily = textStyle?.fontFamily || 'system-ui, sans-serif';
   const headingLevel = textStyle?.headingLevel || 2;
 
   useEffect(() => {
-    if (isHeadingToolbar) {
+    if (showTypeControls) {
       void import('./landing-page-title-presets').then((m) => m.ensureLandingPageTitleFonts());
     }
-  }, [isHeadingToolbar, fontFamily]);
+  }, [showTypeControls, fontFamily]);
 
   useEffect(() => {
     setSizeDraft(null);
@@ -2612,6 +3118,32 @@ function TextEditToolbar({
   useEffect(() => {
     if (colorOpen) setHexDraft(color);
   }, [colorOpen, color]);
+
+  // Corner-scale resize streams live font-size into the toolbar input.
+  useEffect(() => {
+    const onLive = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ fontSize?: number }>).detail;
+      if (typeof detail?.fontSize === 'number' && detail.fontSize > 0) {
+        setLiveFontSize(detail.fontSize);
+        setSizeDraft(String(detail.fontSize));
+      }
+    };
+    const onEnd = () => {
+      // Defer clear so commitTextBoxResize can land new fontSize before toolbar drops live.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setLiveFontSize(null);
+          setSizeDraft(null);
+        });
+      });
+    };
+    window.addEventListener('lp-text-box-live-type', onLive);
+    window.addEventListener('lp-heading-box-resize-end', onEnd);
+    return () => {
+      window.removeEventListener('lp-text-box-live-type', onLive);
+      window.removeEventListener('lp-heading-box-resize-end', onEnd);
+    };
+  }, [blockId, field]);
 
   useLayoutEffect(() => {
     const update = () => {
@@ -2756,7 +3288,9 @@ function TextEditToolbar({
       setSizeDraft(null);
       return;
     }
-    onStyle?.({ fontSize: Math.min(48, Math.max(10, n)) });
+    onStyle?.({
+      fontSize: Math.min(LP_TEXT_SCALE_FONT_MAX, Math.max(LP_TEXT_SCALE_FONT_MIN, n)),
+    });
     setSizeDraft(null);
   };
 
@@ -2777,7 +3311,7 @@ function TextEditToolbar({
       // excess buttons rendered past the box's right edge, past the viewport edge,
       // and unreachable (html/body use overflow-x:clip, so there's no scroll to
       // recover them either). Wrapping to a 2nd row keeps every control reachable.
-      className="fixed z-[9995] flex max-w-[min(calc(100vw-1rem),720px)] -translate-x-1/2 flex-row flex-wrap items-center gap-0.5 overflow-visible rounded-lg border border-zinc-200 bg-white px-1 py-0.5 shadow-lg max-[767px]:data-[lp-toolbar-placement=below]:translate-y-0"
+      className="pointer-events-none fixed z-[9995] flex max-w-[min(calc(100vw-1rem),720px)] -translate-x-1/2 flex-row flex-wrap items-center gap-0.5 overflow-visible rounded-lg border border-zinc-200 bg-white px-1 py-0.5 shadow-lg max-[767px]:data-[lp-toolbar-placement=below]:translate-y-0"
       style={{ left: pos.left, top: pos.top }}
       onClick={(e) => {
         e.stopPropagation();
@@ -2798,12 +3332,13 @@ function TextEditToolbar({
         e.stopPropagation();
       }}
     >
-      {isHeadingToolbar ? (
+      {showTypeControls ? (
         <>
           <select
-            className="h-7 max-w-[7.5rem] shrink-0 rounded border border-zinc-200 bg-white px-1 text-[11px] text-zinc-800"
+            className="pointer-events-auto h-7 max-w-[7.5rem] shrink-0 rounded border border-zinc-200 bg-white px-1 text-[11px] text-zinc-800"
             data-lp-text-font
             title="Font chữ"
+            aria-label="Font chữ"
             disabled={locked}
             value={
               LP_TEXT_FONT_OPTIONS.some((f) => f.value === fontFamily)
@@ -2824,9 +3359,10 @@ function TextEditToolbar({
             ))}
           </select>
           <select
-            className="h-7 w-[3.25rem] shrink-0 rounded border border-zinc-200 bg-white px-1 text-[11px] font-semibold text-zinc-800"
+            className="pointer-events-auto h-7 w-[3.25rem] shrink-0 rounded border border-zinc-200 bg-white px-1 text-[11px] font-semibold text-zinc-800"
             data-lp-text-heading-level
             title="Loại Heading"
+            aria-label="Loại Heading"
             disabled={locked}
             value={String(headingLevel)}
             onChange={(e) => {
@@ -2838,6 +3374,7 @@ function TextEditToolbar({
               onStyle?.({
                 headingLevel: level,
                 fontSize: preset.fontSize,
+                fontWeight: preset.fontWeight,
               });
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -2858,15 +3395,15 @@ function TextEditToolbar({
         title="Giảm cỡ chữ"
         data-lp-text-fs-dec
         disabled={locked}
-        onClick={run(() => onStyle?.({ fontSize: Math.max(10, size - 1) }))}
+        onClick={run(() => onStyle?.({ fontSize: Math.max(LP_TEXT_SCALE_FONT_MIN, size - 1) }))}
       >
         A−
       </button>
       <input
         type="number"
-        min={10}
-        max={48}
-        className="h-7 w-10 shrink-0 rounded border border-zinc-200 bg-white text-center text-[11px] tabular-nums text-zinc-700"
+        min={LP_TEXT_SCALE_FONT_MIN}
+        max={LP_TEXT_SCALE_FONT_MAX}
+        className="pointer-events-auto h-7 w-10 shrink-0 rounded border border-zinc-200 bg-white text-center text-[11px] tabular-nums text-zinc-700"
         data-lp-text-fs
         value={sizeDraft ?? String(size)}
         disabled={locked}
@@ -2887,7 +3424,9 @@ function TextEditToolbar({
         title="Tăng cỡ chữ"
         data-lp-text-fs-inc
         disabled={locked}
-        onClick={run(() => onStyle?.({ fontSize: Math.min(48, size + 1) }))}
+        onClick={run(() =>
+          onStyle?.({ fontSize: Math.min(LP_TEXT_SCALE_FONT_MAX, size + 1) }),
+        )}
       >
         A+
       </button>
@@ -3277,7 +3816,9 @@ function ItemReorderChromeInteractive({
 }) {
   const element: LandingPageCanvasElementKey = `item:${itemId}`;
   const selected =
-    handlers.selection?.blockId === blockId && handlers.selection.element === element;
+    handlers.selection?.blockId === blockId &&
+    handlers.selection.element === element &&
+    !handlers.selection.field;
   const pointerRef = useRef<{ x: number; y: number; moved: boolean; freeIntent?: boolean } | null>(
     null,
   );
@@ -3310,7 +3851,7 @@ function ItemReorderChromeInteractive({
       data-lp-position-mode={layout ? 'free' : 'flow'}
       data-lp-bounding-box={selected ? '1' : '0'}
       draggable={false}
-      style={freeLayoutStyle(layout, freeDrag.dragging, 'offset')}
+      style={freeDrag.shellStyle}
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes(LP_ITEM_MIME)) return;
         e.preventDefault();
@@ -3336,20 +3877,13 @@ function ItemReorderChromeInteractive({
       onPointerDown={(e) => {
         if ((e.target as HTMLElement | null)?.closest?.('[data-lp-item-handle]')) return;
         if ((e.target as HTMLElement | null)?.closest?.('[data-lp-inline-editing="1"]')) return;
+        if ((e.target as HTMLElement | null)?.closest?.('[data-lp-free-drag-handle]')) return;
         if ((e.target as HTMLElement | null)?.closest?.('[data-lp-resize-handle],[data-lp-rotate-handle]')) {
           return;
         }
         if (e.button !== 0) return;
+        // Body never arms free-drag — Move handle / vertical toolbar only.
         pointerRef.current = { x: e.clientX, y: e.clientY, moved: false };
-        if (
-          selected &&
-          freeEnabled &&
-          !(e.target as HTMLElement | null)?.closest?.(
-            'input, textarea, select, a[href], button:not([data-lp-free-drag-handle]), [data-lp-item-handle]',
-          )
-        ) {
-          freeDrag.beginDrag(e, { force: true });
-        }
       }}
       onPointerMove={(e) => {
         const p = pointerRef.current;
@@ -3366,7 +3900,9 @@ function ItemReorderChromeInteractive({
         const p = pointerRef.current;
         pointerRef.current = null;
         if (!p || p.moved) return;
-        if ((e.target as HTMLElement | null)?.closest?.('[data-lp-item-handle]')) return;
+        const hit = e.target as HTMLElement | null;
+        if (hit?.closest?.('[data-lp-item-handle]')) return;
+        if (hit?.closest?.('[data-lp-inline-field],[data-lp-inline-wrap]')) return;
         e.preventDefault();
         e.stopPropagation();
         handlers.onSelect({ blockId, element });
@@ -3377,7 +3913,7 @@ function ItemReorderChromeInteractive({
       }}
       className={`relative min-w-0 outline-offset-2 ${
         selected
-          ? 'z-[1] cursor-grab outline outline-2 outline-[#F97316]/80 active:cursor-grabbing data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
+          ? 'z-[1] cursor-pointer outline outline-2 outline-[#F97316]/80 data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700'
           : '[@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/35 data-[lp-item-drop-over=1]:outline data-[lp-item-drop-over=1]:outline-2 data-[lp-item-drop-over=1]:outline-dashed data-[lp-item-drop-over=1]:outline-[#F97316]/60'
       }`}
     >

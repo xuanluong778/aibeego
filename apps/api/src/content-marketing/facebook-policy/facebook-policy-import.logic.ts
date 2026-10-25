@@ -211,7 +211,7 @@ async function detectFacebookUnavailableNotice(url: string): Promise<string | nu
       timeoutMs: 10_000,
       maxBytes: 500_000,
       maxRedirects: 3,
-      userAgent: 'Mozilla/5.0 (compatible; MarketingAutoAZ-PolicyImporter/1.0)',
+      userAgent: 'Mozilla/5.0 (compatible; AiBeeGo-PolicyImporter/1.0)',
     });
     const plain = fetched.text.replace(/\s+/g, ' ').trim();
     if (/không còn nữa|không còn tồn tại|no longer available|privacy/i.test(plain)) {

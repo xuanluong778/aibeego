@@ -10,13 +10,27 @@ import type { Response } from 'express';
 import { captureException } from '../../sentry';
 import { redactLogText } from '../utils/redact-log.util';
 
+function prismaErrorCode(exception: unknown): string {
+  if (!exception || typeof exception !== 'object' || !('code' in exception)) return '';
+  const code = (exception as { code?: unknown }).code;
+  return typeof code === 'string' ? code : '';
+}
+
+function isUniqueConflict(exception: unknown): boolean {
+  return exception instanceof Error && prismaErrorCode(exception) === 'P2002';
+}
+
 function isInfrastructureError(exception: unknown): boolean {
   if (!(exception instanceof Error)) return false;
+  const code = prismaErrorCode(exception);
+  if (code.startsWith('P') && !['P1001', 'P1002', 'P1008', 'P1011', 'P1017', 'P2024'].includes(code)) {
+    return false;
+  }
   const msg = exception.message.toLowerCase();
   const name = exception.name.toLowerCase();
   return (
     name.includes('prismaclientinitialization') ||
-    name.includes('prismaclientknownrequest') ||
+    name.includes('prismaclientrustpanic') ||
     msg.includes("can't reach database server") ||
     msg.includes('cannot reach database server') ||
     msg.includes('database server is not reachable') ||
@@ -26,7 +40,13 @@ function isInfrastructureError(exception: unknown): boolean {
     msg.includes('server has closed the connection') ||
     msg.includes('p1001') ||
     msg.includes('p1002') ||
-    msg.includes('p1017')
+    msg.includes('p1017') ||
+    code === 'P1001' ||
+    code === 'P1002' ||
+    code === 'P1008' ||
+    code === 'P1011' ||
+    code === 'P1017' ||
+    code === 'P2024'
   );
 }
 
@@ -69,10 +89,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           }
         }
       }
+    } else if (isUniqueConflict(exception)) {
+      status = HttpStatus.CONFLICT;
+      message = 'Địa chỉ trang đã được dùng. Hãy thử lại.';
+      this.logger.warn(redactLogText(exception instanceof Error ? exception.message : String(exception)));
     } else if (isInfrastructureError(exception)) {
       status = HttpStatus.SERVICE_UNAVAILABLE;
-      message =
-        'Không kết nối được database. Chạy `pnpm dev:infra` (Docker Postgres/Redis) rồi thử lại.';
+      message = 'Không kết nối được dữ liệu. Vui lòng thử lại sau ít phút.';
       this.logger.error(
         redactLogText(exception instanceof Error ? exception.message : String(exception)),
         exception instanceof Error ? redactLogText(exception.stack) : undefined,

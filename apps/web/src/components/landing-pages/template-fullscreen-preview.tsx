@@ -69,7 +69,7 @@ export function TemplateFullscreenPreview({
       aria-label={`Xem trước ${title}`}
     >
       <div
-        className="flex h-11 shrink-0 items-center gap-2 border-b border-white/10 bg-zinc-950 px-2 sm:px-3"
+        className="relative z-[200] flex h-11 shrink-0 items-center gap-2 border-b border-white/10 bg-zinc-950 px-2 sm:px-3"
         data-lp-template-preview-toolbar="1"
       >
         <div className="min-w-0 flex-1">
@@ -81,7 +81,7 @@ export function TemplateFullscreenPreview({
 
         <div className="flex shrink-0 items-center gap-2">
           <div
-            className="hidden h-9 shrink-0 items-center gap-1.5 px-1 sm:flex"
+            className="flex h-9 shrink-0 items-center gap-1.5 px-1"
             data-lp-preview-toggle
             data-lp-preview-on="1"
           >
@@ -129,7 +129,7 @@ export function TemplateFullscreenPreview({
       </div>
 
       <div
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white"
+        className="relative z-0 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white [scrollbar-width:none] [transform:translateZ(0)] [&::-webkit-scrollbar]:hidden"
         data-lp-preview-canvas="1"
         data-lp-preview-full-canvas="1"
         data-lp-template-preview-renderer="1"

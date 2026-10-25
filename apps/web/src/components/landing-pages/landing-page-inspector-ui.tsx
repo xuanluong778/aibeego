@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Compact accordion group for inspector design sections. */
@@ -44,7 +44,7 @@ export function InspectorSegmented<T extends string>({
   'data-lp': dataLp,
 }: {
   value: T;
-  options: Array<{ value: T; label: string }>;
+  options: Array<{ value: T; label: string; title?: string }>;
   onChange: (v: T) => void;
   'data-lp'?: string;
 }) {
@@ -60,10 +60,11 @@ export function InspectorSegmented<T extends string>({
           type="button"
           role="tab"
           aria-selected={value === opt.value}
+          title={opt.title}
           className={cn(
-            'flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-medium transition',
+            'min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-medium transition',
             value === opt.value
-              ? 'bg-white/15 text-white shadow-sm'
+              ? 'bg-white/15 text-white shadow-sm ring-1 ring-white/20'
               : 'text-white/50 hover:bg-white/5 hover:text-white/80',
           )}
           onClick={() => onChange(opt.value)}
@@ -83,6 +84,8 @@ export function InspectorSliderNumber({
   max = 120,
   step = 1,
   onChange,
+  /** Live scrub — called every input tick WITHOUT committing document history. */
+  onLiveChange,
   unit = 'px',
 }: {
   label: string;
@@ -91,14 +94,39 @@ export function InspectorSliderNumber({
   max?: number;
   step?: number;
   onChange: (n: number) => void;
+  onLiveChange?: (n: number) => void;
   unit?: string;
 }) {
+  const scrubbingRef = useRef(false);
+  const liveRef = useRef(value);
+  const [display, setDisplay] = useState(value);
+
+  useEffect(() => {
+    if (scrubbingRef.current) return;
+    setDisplay(value);
+    liveRef.current = value;
+  }, [value]);
+
+  function emitLive(n: number) {
+    liveRef.current = n;
+    setDisplay(n);
+    if (onLiveChange) onLiveChange(n);
+    else onChange(n);
+  }
+
+  function commit() {
+    if (!scrubbingRef.current) return;
+    scrubbingRef.current = false;
+    // Only commit once at pointer-up when using live scrub path.
+    if (onLiveChange) onChange(liveRef.current);
+  }
+
   return (
     <label className="block text-[11px]" data-lp-inspector-slider={label}>
       <span className="mb-1 flex items-center justify-between opacity-60">
         <span>{label}</span>
         <span className="tabular-nums text-white/70">
-          {value}
+          {display}
           {unit}
         </span>
       </span>
@@ -109,8 +137,13 @@ export function InspectorSliderNumber({
           min={min}
           max={max}
           step={step}
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
+          value={display}
+          onPointerDown={() => {
+            scrubbingRef.current = true;
+          }}
+          onPointerUp={commit}
+          onPointerCancel={commit}
+          onChange={(e) => emitLive(Number(e.target.value))}
         />
         <input
           type="number"
@@ -118,11 +151,14 @@ export function InspectorSliderNumber({
           min={min}
           max={max}
           step={step}
-          value={value}
+          value={display}
           onChange={(e) => {
             const n = Number(e.target.value);
             if (!Number.isFinite(n)) return;
-            onChange(Math.min(max, Math.max(min, n)));
+            const clamped = Math.min(max, Math.max(min, n));
+            liveRef.current = clamped;
+            setDisplay(clamped);
+            onChange(clamped);
           }}
         />
       </div>

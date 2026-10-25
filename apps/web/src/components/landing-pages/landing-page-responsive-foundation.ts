@@ -77,22 +77,41 @@ export const LP_RESPONSIVE_FOUNDATION_CSS = `
   background: linear-gradient(145deg, color-mix(in srgb, var(--lp-primary) 18%, var(--lp-surface)) 0%, var(--lp-surface-alt, var(--lp-surface)) 100%);
 }
 
-/* —— Simulated viewport shell widths (preview + shot; any mode) —— */
-[data-lp-viewport="mobile"] {
+/* —— Simulated viewport shell widths (preview + shot; any mode) ——
+ * Never target builder [data-lp-canvas-scroll] — that chrome must stay full
+ * width; device bezels (390+20 / 768+28) would overflow a 390/768 scrollport
+ * and create a horizontal scrollbar with left-biased preview.
+ */
+[data-lp-viewport="mobile"]:not([data-lp-canvas-scroll]) {
   width: 100% !important;
   max-width: min(100%, 390px) !important;
   margin-inline: auto !important;
   box-sizing: border-box !important;
 }
-[data-lp-viewport="tablet"] {
+[data-lp-viewport="tablet"]:not([data-lp-canvas-scroll]) {
   width: 100% !important;
   max-width: min(100%, 768px) !important;
   margin-inline: auto !important;
   box-sizing: border-box !important;
 }
-[data-lp-viewport="desktop"] {
+[data-lp-viewport="desktop"]:not([data-lp-canvas-scroll]) {
   width: 100% !important;
   max-width: 100% !important;
+}
+
+/* Builder device preview: no horizontal scroll; keep chrome centered */
+[data-lp-canvas-scroll][data-lp-viewport="mobile"],
+[data-lp-canvas-scroll][data-lp-viewport="tablet"] {
+  overflow-x: hidden !important;
+}
+[data-lp-canvas-scroll][data-lp-viewport="mobile"] [data-lp-canvas-zoom-slot],
+[data-lp-canvas-scroll][data-lp-viewport="tablet"] [data-lp-canvas-zoom-slot],
+[data-lp-canvas-scroll][data-lp-viewport="mobile"] [data-lp-device-frame-host],
+[data-lp-canvas-scroll][data-lp-viewport="tablet"] [data-lp-device-frame-host],
+[data-lp-canvas-scroll][data-lp-viewport="mobile"] [data-lp-device-scale-slot],
+[data-lp-canvas-scroll][data-lp-viewport="tablet"] [data-lp-device-scale-slot] {
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 /* —— Mobile reflow (attribute sim — NOT browser width) —— */
@@ -100,6 +119,27 @@ export const LP_RESPONSIVE_FOUNDATION_CSS = `
   overflow-x: hidden !important;
   max-width: 100% !important;
   width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Builder device chrome only: pin free sections to full screen width so
+ * inner containers (margin:auto) center and nothing overflows horizontally. */
+[data-lp-device-content] [data-lp-canvas-root] {
+  overflow-x: hidden !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
+}
+[data-lp-device-content] [data-lp-section-chrome="1"][data-lp-position-mode="free"] {
+  left: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
 }
 [data-lp-viewport="mobile"] [data-lp-canvas-root] * {
   max-width: 100%;
@@ -367,6 +407,50 @@ export const LP_RESPONSIVE_FOUNDATION_CSS = `
 @media (min-width: 1440px) {
   [data-lp-canvas-root] [data-lp-container-inner] {
     max-width: min(var(--lp-container, 68rem), calc(100% - 2rem));
+  }
+}
+
+/* —— Per-block responsive visibility (responsiveStyle → data-lp-hide-*) —— */
+[data-lp-viewport="desktop"] [data-lp-hide-desktop="1"],
+[data-lp-viewport="tablet"] [data-lp-hide-tablet="1"],
+[data-lp-viewport="mobile"] [data-lp-hide-mobile="1"] {
+  display: none !important;
+}
+@media (max-width: 767px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-hide-mobile="1"] {
+    display: none !important;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-hide-tablet="1"] {
+    display: none !important;
+  }
+}
+@media (min-width: 1024px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-hide-desktop="1"] {
+    display: none !important;
+  }
+}
+
+/* Text-box visibility uses the same breakpoints. Selected text stays visible in the editor. */
+[data-lp-viewport="desktop"] [data-lp-text-hide-desktop="1"]:not([data-lp-element-primary="1"]),
+[data-lp-viewport="tablet"] [data-lp-text-hide-tablet="1"]:not([data-lp-element-primary="1"]),
+[data-lp-viewport="mobile"] [data-lp-text-hide-mobile="1"]:not([data-lp-element-primary="1"]) {
+  display: none !important;
+}
+@media (max-width: 767px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-text-hide-mobile="1"] {
+    display: none !important;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-text-hide-tablet="1"] {
+    display: none !important;
+  }
+}
+@media (min-width: 1024px) {
+  [data-lp-canvas-root]:not([data-lp-viewport]) [data-lp-text-hide-desktop="1"] {
+    display: none !important;
   }
 }
 `.trim();

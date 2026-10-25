@@ -6,9 +6,15 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import type { LandingPageSpec } from '@marketingspa/shared';
 import { getApiBaseUrl } from '@/lib/api-client';
-import { LandingPageRenderer } from '@/components/landing-pages/landing-page-renderer';
+import { interpretPublicLeadResponse } from '@/components/landing-pages/landing-page-public-lead';
+
+const LandingPageRenderer = dynamic(
+  () => import('@/components/landing-pages/landing-page-renderer').then((m) => m.LandingPageRenderer),
+  { loading: () => <div className="min-h-[40vh] bg-white" data-lp-public-loading="1" /> },
+);
 import {
   detectDevice,
   getOrCreateSessionId,
@@ -54,6 +60,8 @@ export function PublicLandingPageClient({
   const api = useMemo(() => getApiBaseUrl(), []);
   const [data] = useState(initial);
   const [success, setSuccess] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const leadInflight = useRef<Promise<void> | null>(null);
   const [viewport, setViewport] = useState<PublicViewport>('desktop');
   const trackedView = useRef(false);
   const utm = useMemo(() => readUtmFromLocation(), []);
@@ -133,6 +141,11 @@ export function PublicLandingPageClient({
       {success ? (
         <div className="bg-emerald-600 px-4 py-2 text-center text-sm text-white">{success}</div>
       ) : null}
+      {formError ? (
+        <div className="bg-red-700 px-4 py-2 text-center text-sm text-white" data-lp-form-error>
+          {formError}
+        </div>
+      ) : null}
       <LandingPageRenderer
         spec={data.spec}
         mode="public"
@@ -143,28 +156,50 @@ export function PublicLandingPageClient({
                 setSuccess('Preview: form không gửi lead thật.');
               }
             : async (fields, blockId) => {
-                await track('FORM_SUBMIT', { blockId });
-                const res = await fetch(
-                  `${api}/landing-pages/public/${encodeURIComponent(slug)}/lead`,
-                  {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      fields,
-                      blockId,
-                      website: '',
-                      attribution: utm,
-                      referrer: document.referrer || undefined,
-                      landingPageUrl: window.location.href,
-                      visitorId: getOrCreateVisitorId(),
-                      sessionId: getOrCreateSessionId(),
-                      device: detectDevice(),
-                    }),
-                  },
-                );
-                const body = (await res.json()) as { message?: string; ok?: boolean };
-                if (!res.ok) throw new Error(body.message || 'Gửi thất bại');
-                setSuccess('Cảm ơn bạn! Chúng tôi sẽ liên hệ sớm.');
+                if (leadInflight.current) return leadInflight.current;
+                setFormError(null);
+                setSuccess(null);
+                const task = (async () => {
+                try {
+                  const res = await fetch(
+                    `${api}/landing-pages/public/${encodeURIComponent(slug)}/lead`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        fields,
+                        blockId,
+                        website: '',
+                        attribution: utm,
+                        referrer: document.referrer || undefined,
+                        landingPageUrl: window.location.href,
+                        visitorId: getOrCreateVisitorId(),
+                        sessionId: getOrCreateSessionId(),
+                        device: detectDevice(),
+                      }),
+                    },
+                  );
+                  let body: { ok?: boolean; message?: string } | null = null;
+                  try {
+                    body = (await res.json()) as { ok?: boolean; message?: string };
+                  } catch {
+                    body = null;
+                  }
+                  const result = interpretPublicLeadResponse(res.status, body);
+                  if (!result.ok) {
+                    setSuccess(null);
+                    setFormError(result.message);
+                    throw new Error(result.message);
+                  }
+                  await track('FORM_SUBMIT', { blockId });
+                  setFormError(null);
+                  setSuccess(result.message);
+                } finally {
+                  leadInflight.current = null;
+                }
+                })();
+                leadInflight.current = task;
+                return task;
               }
         }
         onFormStart={() => {
