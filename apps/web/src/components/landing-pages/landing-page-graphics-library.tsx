@@ -737,6 +737,7 @@ export function LandingPageGraphicsLibraryPanel({
   onInsertBlockType,
   onOpenMediaLibrary,
   initialCategory = null,
+  initialShapeGroup = null,
   iconsOnly = false,
   panelTitle,
   className,
@@ -748,6 +749,8 @@ export function LandingPageGraphicsLibraryPanel({
   onOpenMediaLibrary?: () => void;
   /** Open directly into a category (e.g. Biểu tượng → graphics groups). */
   initialCategory?: LandingPageGraphicsCategoryId | null;
+  /** Open inside category at icon/shape group (e.g. social). */
+  initialShapeGroup?: string | null;
   /** Skip top category grid; stay inside graphics icon groups. */
   iconsOnly?: boolean;
   panelTitle?: string;
@@ -757,7 +760,7 @@ export function LandingPageGraphicsLibraryPanel({
   const [categoryId, setCategoryId] = useState<LandingPageGraphicsCategoryId | null>(
     initialCategory || (iconsOnly ? 'graphics' : null),
   );
-  const [shapeGroupId, setShapeGroupId] = useState<string | null>(null);
+  const [shapeGroupId, setShapeGroupId] = useState<string | null>(initialShapeGroup || null);
   const [query, setQuery] = useState('');
 
   const category = LP_GRAPHICS_CATEGORIES.find((c) => c.id === categoryId) || null;

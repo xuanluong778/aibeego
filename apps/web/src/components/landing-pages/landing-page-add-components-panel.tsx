@@ -7,9 +7,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageBlockType } from '@marketingspa/shared';
-import {
-  LP_ADD_ELEMENTS_LIVE,
-} from './landing-page-builder-sidebar';
+import { LP_ADD_ELEMENTS_LIVE } from './landing-page-builder-sidebar';
 import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag } from './landing-page-sidebar-dnd';
 import {
   LandingPageTextPresetsPanel,
@@ -34,7 +32,7 @@ import {
 import { cn } from '@/lib/utils';
 
 type RootMode = 'add' | 'layers';
-type SubView = 'root' | 'text' | 'button' | 'graphics' | 'icon' | 'forms';
+type SubView = 'root' | 'text' | 'button' | 'graphics' | 'icon' | 'forms' | 'social';
 
 type QuickCard = {
   id: string;
@@ -43,53 +41,65 @@ type QuickCard = {
   kind:
     | 'section-library'
     | 'media'
-    | 'text-title'
-    | 'text-paragraph'
-    | 'text-list'
+    | 'text'
     | 'button'
     | 'graphics'
     | 'icon'
+    | 'social'
     | 'forms'
     | 'layers'
     | 'block';
   blockType?: LandingPageBlockType;
 };
 
-/** Cơ bản — gọn cho người mới: thư viện + insert thường dùng. */
+const GROUP_BASIC = 'Thành phần cơ bản';
+const GROUP_ADVANCED = 'Thành phần nâng cao';
+const GROUP_TOOLS = 'Công cụ bổ sung';
+const GROUP_ECOMMERCE = 'Thương mại điện tử';
+
+/** GetResponse-style basic row — section blocks live in thư viện Phần. */
 const BASIC_CARDS: QuickCard[] = [
   { id: 'section', label: 'Phần', icon: '▭', kind: 'section-library' },
-  { id: 'heading', label: 'Tiêu đề', icon: 'T', kind: 'text-title' },
-  { id: 'text', label: 'Văn bản', icon: '¶', kind: 'text-paragraph' },
-  { id: 'list', label: 'Danh sách', icon: '≡', kind: 'text-list' },
+  { id: 'text', label: 'Văn bản', icon: '≡', kind: 'text' },
   { id: 'button', label: 'Nút', icon: '⏺', kind: 'button' },
   { id: 'image', label: 'Ảnh', icon: '🖼', kind: 'media' },
   { id: 'video', label: 'Video', icon: '▶', kind: 'block', blockType: 'Video' },
-  { id: 'graphics', label: 'Đồ họa', icon: '◇', kind: 'graphics' },
-  { id: 'icon', label: 'Biểu tượng', icon: '✦', kind: 'icon' },
-  { id: 'forms', label: 'Mẫu form', icon: '▭', kind: 'forms' },
 ];
 
+const SOCIAL_CARD: QuickCard = {
+  id: 'social',
+  label: 'Social Media',
+  icon: '𝕏',
+  kind: 'social',
+};
+
 const ADVANCED_CARDS: QuickCard[] = [
-  { id: 'form', label: 'Biểu mẫu', icon: '▭', kind: 'block', blockType: 'LeadForm' },
-  { id: 'gallery', label: 'Thư viện', icon: '🖼', kind: 'block', blockType: 'Gallery' },
+  { id: 'gallery', label: 'Thư viện', icon: '▦', kind: 'block', blockType: 'Gallery' },
+  { id: 'forms', label: 'Biểu mẫu', icon: '▭', kind: 'forms' },
   { id: 'countdown', label: 'Bộ hẹn giờ', icon: '⏱', kind: 'block', blockType: 'Countdown' },
-  { id: 'hero', label: 'Hero', icon: '▣', kind: 'block', blockType: 'Hero' },
-  { id: 'benefits', label: 'Benefits', icon: '≡', kind: 'block', blockType: 'Benefits' },
-  { id: 'features', label: 'Features', icon: '✦', kind: 'block', blockType: 'Features' },
-  { id: 'testimonials', label: 'Testimonials', icon: '★', kind: 'block', blockType: 'Testimonials' },
-  { id: 'process', label: 'Process', icon: '↳', kind: 'block', blockType: 'Process' },
-  { id: 'speaker', label: 'Speaker', icon: '👤', kind: 'block', blockType: 'Speaker' },
-  { id: 'guarantee', label: 'Guarantee', icon: '✓', kind: 'block', blockType: 'Guarantee' },
-  { id: 'faq', label: 'FAQ', icon: '▤', kind: 'block', blockType: 'FAQ' },
-  { id: 'cta', label: 'CTA', icon: '⏺', kind: 'block', blockType: 'CTA' },
-  { id: 'header', label: 'Header', icon: '☰', kind: 'block', blockType: 'Header' },
-  { id: 'footer', label: 'Footer', icon: '▁', kind: 'block', blockType: 'Footer' },
+];
+
+/** Đồ họa / biểu tượng — không ẩn để giữ preset hiện có. */
+const TOOL_CARDS: QuickCard[] = [
+  { id: 'graphics', label: 'Đồ họa', icon: '◇', kind: 'graphics' },
+  { id: 'icon', label: 'Biểu tượng', icon: '✦', kind: 'icon' },
 ];
 
 const ECOMMERCE_CARDS: QuickCard[] = [
   { id: 'product', label: 'Hộp sản phẩm', icon: '▣', kind: 'block', blockType: 'Product' },
-  { id: 'pricing', label: 'Bảng giá', icon: '₫', kind: 'block', blockType: 'Pricing' },
 ];
+
+/**
+ * Section block types not represented in thư viện Phần — keep on grid so insert path remains.
+ * (Hero/FAQ/Pricing/… are reachable via Phần → section library catalog.)
+ */
+const SECTION_BLOCKS_WITHOUT_LIBRARY: QuickCard[] = [
+  { id: 'header', label: 'Header', icon: '☰', kind: 'block', blockType: 'Header' },
+  { id: 'footer', label: 'Footer', icon: '▁', kind: 'block', blockType: 'Footer' },
+  { id: 'speaker', label: 'Speaker', icon: '👤', kind: 'block', blockType: 'Speaker' },
+];
+
+const GROUP_SECTION_FALLBACK = 'Section (chưa có trong thư viện Phần)';
 
 const LIVE_TYPES = new Set(LP_ADD_ELEMENTS_LIVE.map((r) => r.type));
 
@@ -190,29 +200,16 @@ export function LandingPageAddComponentsPanel({
       case 'media':
         onOpenMediaLibrary?.();
         return;
-      case 'text-title':
+      case 'text':
         if (!onInsertTitlePreset) {
           onAddBlock('Hero');
           return;
         }
-        setTextTab('title');
         setSubView('text');
         return;
-      case 'text-paragraph':
-        if (!onInsertParagraphPreset) {
-          onAddBlock('Benefits');
-          return;
-        }
-        setTextTab('paragraph');
-        setSubView('text');
-        return;
-      case 'text-list':
-        if (!onInsertListPreset) {
-          onAddBlock('Benefits');
-          return;
-        }
-        setTextTab('list');
-        setSubView('text');
+      case 'social':
+        if (!onInsertBoxPreset) return;
+        setSubView('social');
         return;
       case 'graphics':
         if (!onInsertBoxPreset) {
@@ -301,7 +298,7 @@ export function LandingPageAddComponentsPanel({
   if (subView === 'icon' && onInsertBoxPreset) {
     return (
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white text-zinc-900"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 text-zinc-900"
         data-lp-add-components-sub="icon"
       >
         <LandingPageGraphicsLibraryPanel
@@ -319,21 +316,56 @@ export function LandingPageAddComponentsPanel({
     );
   }
 
+  if (subView === 'social' && onInsertBoxPreset) {
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 text-zinc-900"
+        data-lp-add-components-sub="social"
+      >
+        <LandingPageGraphicsLibraryPanel
+          className={EMBEDDED_PRESET_CLASS}
+          initialCategory="graphics"
+          initialShapeGroup="social"
+          iconsOnly
+          panelTitle="Social Media"
+          onClose={() => setSubView('root')}
+          onInsertBox={(preset) => onInsertBoxPreset(preset)}
+          onInsertForm={(preset) => onInsertFormPreset?.(preset)}
+          onInsertBlockType={(type) => onAddBlock(type)}
+          onOpenMediaLibrary={onOpenMediaLibrary}
+        />
+      </div>
+    );
+  }
+
   if (subView === 'forms' && onInsertFormPreset) {
     return (
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0A3D30] text-white"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 text-zinc-900"
         data-lp-add-components-sub="forms"
       >
-        <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-2.5 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5 py-2">
           <button
             type="button"
-            className="rounded-md border border-white/15 px-2 py-1 text-[11px] hover:bg-white/10"
+            className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
             onClick={() => setSubView('root')}
           >
             ← Quay lại
           </button>
-          <div className="min-w-0 flex-1 truncate text-sm font-semibold">Mẫu biểu mẫu</div>
+          <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+            Mẫu biểu mẫu
+          </div>
+          <button
+            type="button"
+            data-lp-form-insert-empty="1"
+            className="shrink-0 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
+            onClick={() => {
+              onAddBlock('LeadForm');
+              setSubView('root');
+            }}
+          >
+            Form trống
+          </button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2.5 py-3">
           {LP_FORM_GROUPS.map((group) => {
@@ -341,7 +373,7 @@ export function LandingPageAddComponentsPanel({
             if (!rows.length) return null;
             return (
               <section key={group.id}>
-                <h3 className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-wider text-white/50">
+                <h3 className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {group.label}
                 </h3>
                 <div className="flex flex-col gap-1.5">
@@ -350,22 +382,22 @@ export function LandingPageAddComponentsPanel({
                       key={preset.id}
                       type="button"
                       data-lp-form-preset={preset.id}
-                      className="rounded-md bg-white/5 px-2.5 py-2 text-left ring-1 ring-white/10 transition hover:bg-white/10"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-sky-200 hover:shadow-md"
                       onClick={() => onInsertFormPreset(preset)}
                     >
                       <div className="flex items-center gap-2">
                         <span
-                          className="h-8 w-8 shrink-0 rounded-md ring-1 ring-white/15"
+                          className="h-8 w-8 shrink-0 rounded-md ring-1 ring-slate-200"
                           style={{
                             background: `linear-gradient(135deg, ${preset.preview.bg}, ${preset.preview.accent})`,
                           }}
                           aria-hidden
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[12px] font-semibold text-white">
+                          <div className="truncate text-[12px] font-semibold text-slate-800">
                             {preset.label}
                           </div>
-                          <div className="truncate text-[10px] text-white/50">
+                          <div className="truncate text-[10px] text-slate-500">
                             {preset.fields.length} trường · {preset.submitLabel}
                           </div>
                         </div>
@@ -381,29 +413,67 @@ export function LandingPageAddComponentsPanel({
     );
   }
 
+  function renderComponentCard(card: QuickCard) {
+    const libraryDrag =
+      card.kind === 'section-library'
+        ? ('section-library' as const)
+        : card.kind === 'button' && onOpenButtonLibrary
+          ? ('button-library' as const)
+          : null;
+    return (
+      <ComponentCard
+        key={card.id}
+        card={card}
+        onClick={() => runQuick(card)}
+        draggable={Boolean(libraryDrag)}
+        onDragStart={
+          libraryDrag === 'section-library'
+            ? (e) =>
+                beginSidebarPresetDrag(e, { kind: 'section-library-open' }, 'Thư viện Section', {
+                  subtitle: 'Thả vào canvas để chọn mẫu',
+                })
+            : libraryDrag === 'button-library'
+              ? (e) =>
+                  beginSidebarPresetDrag(e, { kind: 'button-library-open' }, 'Thư viện Nút', {
+                    subtitle: 'Thả vào canvas để chọn mẫu',
+                  })
+              : undefined
+        }
+      />
+    );
+  }
+
+  const showSocial = Boolean(onInsertBoxPreset);
+
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0A3D30] text-white"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 text-zinc-900"
       data-lp-add-components-panel="1"
       data-lp-add-root-mode={rootMode}
+      data-lp-add-components-theme="light"
     >
       {aiMenu ? (
         <div
-          className="shrink-0 border-b border-white/10 px-2 py-1.5 [&_button]:text-white"
+          className="shrink-0 border-b border-slate-200 bg-white px-2 py-1.5 [&_button]:text-zinc-800"
           data-lp-add-components-ai
         >
           {aiMenu}
         </div>
       ) : null}
 
-      <div className="shrink-0 border-b border-white/10 px-2 py-1.5" data-lp-add-root-tabs>
-        <div className="flex gap-1 rounded-lg bg-black/20 p-0.5">
+      <div
+        className="shrink-0 border-b border-slate-200 bg-white px-2 py-1.5"
+        data-lp-add-root-tabs
+      >
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-0.5">
           <button
             type="button"
             data-lp-add-root-tab="add"
             className={cn(
               'flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold',
-              rootMode === 'add' ? 'bg-white text-zinc-900 shadow-sm' : 'text-white/60 hover:text-white',
+              rootMode === 'add'
+                ? 'bg-white text-zinc-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-800',
             )}
             onClick={() => {
               setRootMode('add');
@@ -419,7 +489,7 @@ export function LandingPageAddComponentsPanel({
               'flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold',
               rootMode === 'layers'
                 ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-white/60 hover:text-white',
+                : 'text-slate-500 hover:text-slate-800',
             )}
             onClick={() => {
               setRootMode('layers');
@@ -432,12 +502,9 @@ export function LandingPageAddComponentsPanel({
       </div>
 
       {rootMode === 'layers' ? (
-        <div
-          className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2"
-          data-lp-add-components-layers
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2" data-lp-add-components-layers>
           {!blocks?.length ? (
-            <p className="px-1 py-3 text-[11px] text-white/45">
+            <p className="px-1 py-3 text-[11px] text-slate-500">
               Chưa có section — dùng tab Thêm để chèn phần tử.
             </p>
           ) : (
@@ -456,14 +523,12 @@ export function LandingPageAddComponentsPanel({
                     dragIndex.current = null;
                   }}
                   className={cn(
-                    'flex cursor-grab items-center gap-1 rounded-md px-2 py-1.5 text-[12px]',
-                    selectedBlockId === b.id
-                      ? 'bg-orange-400/20 ring-1 ring-orange-400/50'
-                      : 'bg-white/5 hover:bg-white/10',
+                    'flex cursor-grab items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] shadow-sm',
+                    selectedBlockId === b.id ? 'ring-2 ring-orange-400/60' : 'hover:border-sky-200',
                   )}
                   onClick={() => onSelectBlock?.(b.id)}
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                     {b.type}
                     {!b.enabled ? ' (ẩn)' : ''}
                     {b.locked ? ' 🔒' : ''}
@@ -471,7 +536,7 @@ export function LandingPageAddComponentsPanel({
                   {onDupBlock ? (
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-[10px] text-white/55 hover:bg-white/10 hover:text-white"
+                      className="rounded px-1.5 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDupBlock(b.id);
@@ -483,7 +548,7 @@ export function LandingPageAddComponentsPanel({
                   {onRemoveBlock ? (
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-[10px] text-red-300/80 hover:bg-red-500/20 hover:text-red-200"
+                      className="rounded px-1.5 py-0.5 text-[10px] text-red-600/80 hover:bg-red-50 hover:text-red-700"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemoveBlock(b.id);
@@ -502,54 +567,27 @@ export function LandingPageAddComponentsPanel({
           className="min-h-0 flex-1 space-y-4 overflow-y-auto px-2.5 py-3"
           data-lp-add-components-scroll
         >
-          <CardGroup title="Cơ bản">
-            {filterLiveCards(BASIC_CARDS).map((card) => {
-              const libraryDrag =
-                card.kind === 'section-library'
-                  ? ('section-library' as const)
-                  : card.kind === 'button' && onOpenButtonLibrary
-                    ? ('button-library' as const)
-                    : null;
-              return (
-                <ComponentCard
-                  key={card.id}
-                  card={card}
-                  onClick={() => runQuick(card)}
-                  draggable={Boolean(libraryDrag)}
-                  onDragStart={
-                    libraryDrag === 'section-library'
-                      ? (e) =>
-                          beginSidebarPresetDrag(
-                            e,
-                            { kind: 'section-library-open' },
-                            'Thư viện Section',
-                            { subtitle: 'Thả vào canvas để chọn mẫu' },
-                          )
-                      : libraryDrag === 'button-library'
-                        ? (e) =>
-                            beginSidebarPresetDrag(
-                              e,
-                              { kind: 'button-library-open' },
-                              'Thư viện Nút',
-                              { subtitle: 'Thả vào canvas để chọn mẫu' },
-                            )
-                        : undefined
-                  }
-                />
-              );
-            })}
+          <CardGroup title={GROUP_BASIC}>
+            {filterLiveCards(BASIC_CARDS).map((card) => renderComponentCard(card))}
+            {showSocial ? renderComponentCard(SOCIAL_CARD) : null}
           </CardGroup>
 
-          <CardGroup title="Nâng cao">
-            {filterLiveCards(ADVANCED_CARDS).map((card) => (
-              <ComponentCard key={card.id} card={card} onClick={() => runQuick(card)} />
-            ))}
+          <CardGroup title={GROUP_ADVANCED}>
+            {filterLiveCards(ADVANCED_CARDS).map((card) => renderComponentCard(card))}
           </CardGroup>
 
-          <CardGroup title="Thương mại điện tử">
-            {filterLiveCards(ECOMMERCE_CARDS).map((card) => (
-              <ComponentCard key={card.id} card={card} onClick={() => runQuick(card)} />
-            ))}
+          {onInsertBoxPreset ? (
+            <CardGroup title={GROUP_TOOLS}>
+              {TOOL_CARDS.map((card) => renderComponentCard(card))}
+            </CardGroup>
+          ) : null}
+
+          <CardGroup title={GROUP_SECTION_FALLBACK}>
+            {filterLiveCards(SECTION_BLOCKS_WITHOUT_LIBRARY).map((card) => renderComponentCard(card))}
+          </CardGroup>
+
+          <CardGroup title={GROUP_ECOMMERCE}>
+            {filterLiveCards(ECOMMERCE_CARDS).map((card) => renderComponentCard(card))}
           </CardGroup>
         </div>
       )}
@@ -560,10 +598,8 @@ export function LandingPageAddComponentsPanel({
 function CardGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section data-lp-add-components-group={title}>
-      <h3 className="mb-2 px-0.5 text-[10px] font-bold uppercase tracking-wider text-white/50">
-        {title}
-      </h3>
-      <div className="grid grid-cols-2 gap-1.5">{children}</div>
+      <h3 className="mb-2 px-0.5 text-[11px] font-semibold text-slate-500">{title}</h3>
+      <div className="grid grid-cols-3 gap-2">{children}</div>
     </section>
   );
 }
@@ -584,16 +620,12 @@ function ComponentCard({
       type="button"
       data-lp-add-component-card={card.id}
       data-lp-sidebar-draggable={
-        draggable
-          ? card.kind === 'button'
-            ? 'button-library'
-            : 'section-library'
-          : undefined
+        draggable ? (card.kind === 'button' ? 'button-library' : 'section-library') : undefined
       }
       draggable={draggable}
       onDragStart={onDragStart}
       className={cn(
-        'flex flex-col items-center gap-1.5 rounded-lg bg-white/5 px-2 py-3 text-center ring-1 ring-white/10 transition hover:bg-white/12 hover:ring-white/20',
+        'flex flex-col items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-1.5 py-3 text-center shadow-sm transition hover:border-sky-200 hover:shadow-md',
         draggable && 'cursor-grab active:cursor-grabbing',
       )}
       onClick={(e) => {
@@ -609,12 +641,14 @@ function ComponentCard({
       }
     >
       <span
-        className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-black/25 text-base text-white/90"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-base text-sky-600"
         aria-hidden
       >
         {card.icon}
       </span>
-      <span className="w-full truncate text-[11px] font-medium text-white/90">{card.label}</span>
+      <span className="w-full truncate px-0.5 text-[10px] font-medium leading-tight text-slate-700">
+        {card.label}
+      </span>
     </button>
   );
 }

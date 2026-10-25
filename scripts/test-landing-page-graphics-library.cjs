@@ -18,6 +18,7 @@ const dnd = read('apps/web/src/components/landing-pages/landing-page-sidebar-dnd
 const canvas = read('apps/web/src/components/landing-pages/landing-page-canvas-ux.tsx');
 const freeDrag = read('apps/web/src/components/landing-pages/landing-page-free-drag.tsx');
 const nextCfg = read('apps/web/next.config.js');
+const addPanel = read('apps/web/src/components/landing-pages/landing-page-add-components-panel.tsx');
 
 const gates = {};
 function gate(name, ok, detail) {
@@ -43,6 +44,14 @@ const categoryIds = [
   'mockup',
   'threed',
 ];
+
+gate(
+  'INITIAL_SHAPE_GROUP_SCOPED',
+  graphics.includes('initialShapeGroup = null') &&
+    addPanel.includes('initialShapeGroup="social"') &&
+    !sidebar.includes('initialShapeGroup='),
+  'optional prop; only add-components Social subview sets social group',
+);
 
 gate(
   'RAIL_RENAMED',
