@@ -180,9 +180,15 @@ import { Textarea } from '@/components/ui/textarea';
 
 type InspectorTab = 'content' | 'design' | 'advanced' | 'add';
 
-/** Text / heading / image selection → open Inspector on Design first. */
+/**
+ * Selection → which inspector tab to force open.
+ * Text must stay on Content: selectCanvas/onSelect already open Content for text, and an
+ * older "prefer Design" rule fought that — 1st click landed on Design, 2nd click (same
+ * selection key) kept Content. That looked like the right sidebar randomly missing
+ * "khung nội dung". Images / grid cells still open Design first.
+ */
 function preferInspectorDesignTab(target: LpSelectionTarget): boolean {
-  if (isTextToolbarTarget(target)) return true;
+  if (isTextToolbarTarget(target)) return false;
   const el = target.element;
   if (el === 'image') return true;
   if (typeof el === 'string' && el.startsWith('grid:')) return true;
@@ -472,20 +478,26 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const parsed = parseLpSelectionKey(primarySelectedId);
     return parsed ? normalizeLpSelectionTarget(parsed) : null;
   }, [primarySelectedId]);
-  const textInspectorAutoKeyRef = useRef<string | null>(null);
+  const inspectorAutoTabKeyRef = useRef<string | null>(null);
   const openInspectorOnSelectRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!primarySelectedId) {
-      textInspectorAutoKeyRef.current = null;
+      inspectorAutoTabKeyRef.current = null;
       return;
     }
     const parsed = parseLpSelectionKey(primarySelectedId);
     if (!parsed) return;
     const target = normalizeLpSelectionTarget(parsed);
-    if (!preferInspectorDesignTab(target)) return;
-    if (textInspectorAutoKeyRef.current === primarySelectedId) return;
-    textInspectorAutoKeyRef.current = primarySelectedId;
-    setInspectorTab('design');
+    if (inspectorAutoTabKeyRef.current === primarySelectedId) return;
+    inspectorAutoTabKeyRef.current = primarySelectedId;
+    // Text / inline fields → Content (nội dung). Image/grid → Design.
+    if (isTextToolbarTarget(target)) {
+      setInspectorTab('content');
+      return;
+    }
+    if (preferInspectorDesignTab(target)) {
+      setInspectorTab('design');
+    }
   }, [primarySelectedId]);
   const selectedId = primaryTarget?.blockId ?? null;
   /** Alias — selection by stable block id (not index). */
@@ -506,7 +518,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     if (
       textBlock &&
       textField &&
-      resolveInspectorContext(textBlock, target.element, textField).kind === 'text'
+      (resolveInspectorContext(textBlock, target.element, textField).kind === 'text' ||
+        resolveInspectorContext(textBlock, target.element, textField).kind === 'button')
     ) {
       setInspectorPanelOpen(true);
       setInspectorRailSurface('element');
@@ -528,6 +541,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       setInspectorTab('content');
     }
   }
+  const selectCanvasRef = useRef(selectCanvas);
+  selectCanvasRef.current = selectCanvas;
 
   function setSelectedBlockId(id: string | null) {
     if (!id) deselectCanvas();
@@ -4286,41 +4301,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       selectedElementIds,
       primarySelectedId,
       onSelect: (next: LandingPageCanvasSelection, opts?: LpSelectOptions) => {
-        const element = (parseElementKey(next.element) ||
-          next.element ||
-          'section') as LandingPageCanvasElementKey;
-        const target = normalizeLpSelectionTarget({
-          blockId: next.blockId,
-          element,
-          field: next.field,
-        });
-        setCanvasSelection((prev) => applySelectionClick(prev.ids, prev.primaryId, target, opts));
-        const textField = inspectorTextFieldKey(target.element, target.field);
-        const textBlock = specRef.current.blocks.find((block) => block.id === target.blockId);
-        if (
-          textBlock &&
-          textField &&
-          resolveInspectorContext(textBlock, target.element, textField).kind === 'text'
-        ) {
-          setInspectorPanelOpen(true);
-          setInspectorRailSurface('element');
-          setInspectorTab('content');
-        }
-        if (
-          typeof target.element === 'string' &&
-          target.element.startsWith('item:') &&
-          !target.field &&
-          !target.element.startsWith('item:trust-icon-')
-        ) {
-          setInspectorPanelOpen(true);
-          setInspectorRailSurface('element');
-          setInspectorTab('design');
-        }
-        if (element === 'section' || element === 'section-background') {
-          setInspectorPanelOpen(true);
-          setInspectorRailSurface('element');
-          setInspectorTab('content');
-        }
+        // Keep in sync with selectCanvas — canvas InlineText uses this path (startEdit).
+        selectCanvasRef.current(next, opts);
       },
       onMarqueeSelect: (targets: LpSelectionTarget[], opts?: LpSelectOptions) => {
         setCanvasSelection((prev) => applyMarqueeSelection(prev.ids, prev.primaryId, targets, opts));
