@@ -3,10 +3,12 @@
     {
       "id": "release-dnd-fix-K_XJRJ7p_Pa5",
       "buildId": "K_XJRJ7p_Pa5YPWLsijae",
-      "gitSha": "0abe265",
+      "gitSha": "585279d",
       "label": "release-dnd-fix",
       "path": "deploy/aibeego-vps/bundles/release-dnd-fix-K_XJRJ7p_Pa5",
-      "archivedAt": "2026-10-27T05:49:16.719Z"
+      "archivedAt": "2026-10-27T05:49:16.719Z",
+      "qaCommit": "585279d",
+      "qaNote": "Artifact built/QAd for DnD+Footer fix; tip commit 585279d"
     },
     {
       "id": "rollback-1b5032b-cb7dOatf6l-M",
