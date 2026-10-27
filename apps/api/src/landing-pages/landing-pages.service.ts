@@ -829,6 +829,9 @@ export class LandingPagesService implements OnModuleInit {
         ? Math.floor(dto.baseRevision)
         : null;
 
+    // Sanitize outside the row lock — large specs were exceeding Prisma interactive tx timeout (5s).
+    const sanitizedIncoming = sanitizeLandingPageSpec(dto.draftSpec);
+
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${row.id} FOR UPDATE`;
       const fresh = await tx.landingPage.findFirst({ where: { id: row.id } });
@@ -859,7 +862,7 @@ export class LandingPagesService implements OnModuleInit {
           requestId: dto.requestId ?? null,
         };
       }
-      const sanitized = sanitizeLandingPageSpec(dto.draftSpec);
+      const sanitized = sanitizedIncoming;
       sanitized.meta = {
         ...(sanitized.meta || {}),
         clientRevision: decision.nextRevision,

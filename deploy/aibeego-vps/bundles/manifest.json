@@ -1,0 +1,20 @@
+{
+  "bundles": [
+    {
+      "id": "rollback-1b5032b-cb7dOatf6l-M",
+      "buildId": "cb7dOatf6l-MUfKOMGBfy",
+      "gitSha": "1817cda",
+      "label": "rollback-1b5032b",
+      "path": "deploy/aibeego-vps/bundles/rollback-1b5032b-cb7dOatf6l-M",
+      "archivedAt": "2026-10-27T03:52:34.820Z"
+    },
+    {
+      "id": "release-973fd6e-nohCJ_P34fZa",
+      "buildId": "nohCJ_P34fZaEe_lVZjrp",
+      "gitSha": "1817cda",
+      "label": "release-973fd6e",
+      "path": "deploy/aibeego-vps/bundles/release-973fd6e-nohCJ_P34fZa",
+      "archivedAt": "2026-10-25T17:26:25.789Z"
+    }
+  ]
+}

@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * Post-deploy builder QA (973fd6e+) — Playwright + JWT (owner org, no publish).
+ * Landing page builder acceptance QA (post 973fd6e).
+ * Auth: LP_QA_ACCESS_TOKEN **or** LP_QA_EMAIL + LP_QA_PASSWORD (real login API).
+ * Optional dev-only: LP_QA_ALLOW_JWT_MINT=1 + LP_QA_USER_ID, LP_QA_EMAIL, LP_QA_ORG_ID, LP_QA_ROLE + JWT_SECRET.
+ *
  *   node scripts/with-root-env.cjs node scripts/qa-landing-page-builder-post-deploy.cjs
  */
 const crypto = require('crypto');
@@ -8,19 +11,25 @@ const fs = require('fs');
 const path = require('path');
 
 const APP = (process.env.APP_URL || 'https://aibeego.com').replace(/\/$/, '');
-const JWT_SECRET = process.env.JWT_SECRET;
-const LP_ID = process.env.LP_QA_PAGE_ID || '1f07a824-f288-4150-a54d-ccf6df6f0269';
-const QA_USER_ID = process.env.LP_QA_USER_ID || '7013afc5-a8d2-405f-b125-3a59fb751ae7';
-const QA_EMAIL = process.env.LP_QA_EMAIL || 'xuanluong778@gmail.com';
-const QA_ORG = process.env.LP_QA_ORG_ID || '5756b22e-c568-4a9f-b5d4-3e4d1a2e03a0';
-const QA_ROLE = process.env.LP_QA_ROLE || 'SUPER_ADMIN';
-const OUT = process.env.LP_QA_SCREENSHOT_DIR ||
-  '/var/www/aibeego_com_usr/data/backups/ui-baseline-add-components/post-deploy-qa';
+const SOURCE_LP_ID = process.env.LP_QA_SOURCE_PAGE_ID || process.env.LP_QA_PAGE_ID || '';
+const OUT =
+  process.env.LP_QA_SCREENSHOT_DIR ||
+  '/var/www/aibeego_com_usr/data/backups/ui-baseline-add-components/post-deploy-qa-v2';
 
 const results = [];
+const networkLog = [];
+
 function row(name, status, detail = '') {
   results.push({ name, status, detail });
   console.log(`${status} | ${name}${detail ? ' — ' + detail : ''}`);
+}
+
+function unwrapPage(json) {
+  return json?.data ?? json;
+}
+
+function blockCount(spec) {
+  return spec?.blocks?.length ?? null;
 }
 
 function b64url(input) {
@@ -28,27 +37,82 @@ function b64url(input) {
   return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-function mintAccessToken() {
-  if (!JWT_SECRET) throw new Error('JWT_SECRET missing (use with-root-env.cjs)');
-  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const payload = b64url(
-    JSON.stringify({
-      sub: QA_USER_ID,
-      email: QA_EMAIL,
-      organizationId: QA_ORG,
-      role: QA_ROLE,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    }),
-  );
-  const sig = crypto
-    .createHmac('sha256', JWT_SECRET)
-    .update(`${header}.${payload}`)
-    .digest('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-  return `${header}.${payload}.${sig}`;
+async function resolveAccessToken() {
+  const direct = (process.env.LP_QA_ACCESS_TOKEN || '').trim();
+  if (direct) return direct;
+
+  const email = (process.env.LP_QA_EMAIL || '').trim();
+  const password = process.env.LP_QA_PASSWORD || '';
+  if (email && password) {
+    const res = await fetch(`${APP}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const json = await res.json().catch(() => ({}));
+    const token =
+      json?.data?.accessToken || json?.accessToken || json?.data?.tokens?.accessToken;
+    if (res.ok && token) return token;
+    throw new Error(`login failed ${res.status}: ${JSON.stringify(json).slice(0, 120)}`);
+  }
+
+  if (process.env.LP_QA_ALLOW_JWT_MINT === '1') {
+    const secret = process.env.JWT_SECRET;
+    const userId = (process.env.LP_QA_USER_ID || '').trim();
+    const qaEmail = (process.env.LP_QA_EMAIL || '').trim();
+    const org = (process.env.LP_QA_ORG_ID || '').trim();
+    const role = (process.env.LP_QA_ROLE || '').trim();
+    if (!secret || !userId || !qaEmail || !org || !role) {
+      throw new Error('LP_QA_ALLOW_JWT_MINT=1 requires JWT_SECRET and LP_QA_USER_ID/EMAIL/ORG_ID/ROLE');
+    }
+    console.warn('[QA] JWT mint enabled — use only on staging/CI, not as production auth bypass.');
+    const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const payload = b64url(
+      JSON.stringify({
+        sub: userId,
+        email: qaEmail,
+        organizationId: org,
+        role,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }),
+    );
+    const sig = crypto
+      .createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+    return `${header}.${payload}.${sig}`;
+  }
+
+  throw new Error('Set LP_QA_ACCESS_TOKEN or LP_QA_EMAIL+LP_QA_PASSWORD (or explicit LP_QA_ALLOW_JWT_MINT=1)');
+}
+
+async function api(token, p, init = {}) {
+  const res = await fetch(`${APP}/api/v1${p}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers || {}),
+    },
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = { raw: text.slice(0, 200) };
+  }
+  return { res, json };
+}
+
+async function fetchPage(token, id) {
+  const { res, json } = await api(token, `/landing-pages/${id}`);
+  if (!res.ok) throw new Error(`GET lp ${res.status}`);
+  return unwrapPage(json);
 }
 
 async function main() {
@@ -57,205 +121,339 @@ async function main() {
   try {
     ({ chromium } = require('playwright'));
   } catch {
-    row('PLAYWRIGHT', 'FAIL', 'install playwright in repo root');
+    row('PLAYWRIGHT', 'FAIL', 'pnpm exec playwright install chromium');
     process.exitCode = 1;
     return;
   }
 
-  const token = mintAccessToken();
-  const health = await fetch(`${APP}/api/v1/health`).then((r) => r.status).catch(() => 0);
-  row('API_HEALTH', health === 200 ? 'PASS' : 'FAIL', String(health));
+  let token;
+  try {
+    token = await resolveAccessToken();
+    row('AUTH', 'PASS', process.env.LP_QA_ACCESS_TOKEN ? 'token' : process.env.LP_QA_EMAIL ? 'login' : 'mint');
+  } catch (e) {
+    row('AUTH', 'FAIL', e.message);
+    writeReport(null);
+    process.exitCode = 1;
+    return;
+  }
 
-  const authProbe = await fetch(`${APP}/api/v1/landing-pages/${LP_ID}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  if (!SOURCE_LP_ID) {
+    row('SOURCE_PAGE', 'FAIL', 'LP_QA_SOURCE_PAGE_ID required');
+    process.exitCode = 1;
+    return;
+  }
+
+  const source = await fetchPage(token, SOURCE_LP_ID);
+  const sourceBlocks = blockCount(source.draftSpec);
+  row('SOURCE_PAGE_READ', 'PASS', `blocks=${sourceBlocks}`);
+
+  const { res: dupRes, json: dupJson } = await api(token, `/landing-pages/${SOURCE_LP_ID}/duplicate`, {
+    method: 'POST',
+    body: '{}',
   });
-  row('AUTH_LP_READ', authProbe.ok ? 'PASS' : 'FAIL', String(authProbe.status));
-  if (!authProbe.ok) {
-    writeReport();
+  const clone = unwrapPage(dupJson);
+  const LP_ID = clone?.id;
+  if (!dupRes.ok || !LP_ID) {
+    row('CLONE_PAGE', 'FAIL', String(dupRes.status));
     process.exitCode = 1;
     return;
   }
-
-  const beforeSpec = await authProbe.json();
-  const blockCountBefore =
-    beforeSpec?.data?.draftSpec?.blocks?.length ??
-    beforeSpec?.draftSpec?.blocks?.length ??
-    beforeSpec?.data?.draft_spec?.blocks?.length ??
-    null;
+  row('CLONE_PAGE', 'PASS', LP_ID);
+  fs.writeFileSync(path.join(OUT, 'clone-page-id.txt'), LP_ID);
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    ignoreHTTPSErrors: true,
-  });
-  await context.addInitScript((t) => {
-    localStorage.setItem('ms_access_token', t);
-  }, token);
-
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, ignoreHTTPSErrors: true });
+  await context.addInitScript((t) => localStorage.setItem('ms_access_token', t), token);
   const page = await context.newPage();
+  page.setDefaultTimeout(45000);
+
   const consoleErrors = [];
-  const failedReq = [];
   page.on('console', (msg) => {
-    if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 200));
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+  });
+  page.on('response', (res) => {
+    const url = res.url();
+    if (url.includes('/api/v1/') || url.includes('autosave')) {
+      networkLog.push({
+        url: url.slice(0, 200),
+        status: res.status(),
+        ok: res.ok(),
+        method: res.request().method(),
+      });
+    }
   });
   page.on('requestfailed', (req) => {
-    failedReq.push(`${req.failure()?.errorText || 'fail'} ${req.url().slice(0, 120)}`);
+    networkLog.push({
+      url: req.url().slice(0, 200),
+      failed: req.failure()?.errorText || 'fail',
+      method: req.method(),
+    });
   });
 
-  const builderUrl = `${APP}/landing-pages/builder/${LP_ID}`;
-  const nav = await page.goto(builderUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  row('BUILDER_NAV', nav && nav.status() < 400 ? 'PASS' : 'FAIL', String(nav?.status()));
+  await page.goto(`${APP}/landing-pages/builder/${LP_ID}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForTimeout(5000);
+  const canvas = page.locator('[data-lp-canvas-root]');
+  await canvas.waitFor({ state: 'visible', timeout: 60000 }).catch(() => null);
+  const blocksOnCanvas = () => page.locator('[data-lp-canvas-root] [data-lp-block-id]').count();
 
-  await page.waitForTimeout(4000);
-  await page.screenshot({ path: path.join(OUT, '01-builder-loaded.png'), fullPage: false });
+  let n0 = await blocksOnCanvas();
+  row('BUILDER_CANVAS', n0 > 0 ? 'PASS' : 'FAIL', `blocks visible=${n0}`);
+  await page.screenshot({ path: path.join(OUT, '01-clone-loaded.png') });
 
-  const railBtn = page.locator('[data-lp-inspector-rail-btn="add-components"]');
-  const railVisible = await railBtn.isVisible().catch(() => false);
-  if (!railVisible) {
-    row('PANEL_PLUS_OPEN', 'FAIL', 'rail + not visible');
-  } else {
-    await railBtn.click();
-    await page.waitForTimeout(800);
+  const openPlus = async () => {
     const panel = page.locator('[data-lp-add-components-panel="1"]');
-    row('PANEL_PLUS_OPEN', (await panel.isVisible()) ? 'PASS' : 'FAIL');
-    await page.screenshot({ path: path.join(OUT, '02-add-panel-root.png'), fullPage: false });
-
-    for (const id of ['text', 'button', 'social', 'graphics']) {
-      const vis = await page.locator(`[data-lp-add-component-card="${id}"]`).isVisible().catch(() => false);
-      row(`PRESET_ROOT_${id.toUpperCase()}`, vis ? 'PASS' : 'FAIL');
-    }
-
-    const formsCard = page.locator('[data-lp-add-component-card="forms"]');
-    if (await formsCard.isVisible()) {
-      await formsCard.click();
-      await page.waitForTimeout(600);
-      const emptyBtn = page.locator('[data-lp-form-insert-empty="1"]');
-      row('FORM_EMPTY_CONTROL', (await emptyBtn.isVisible()) ? 'PASS' : 'FAIL');
-      await page.screenshot({ path: path.join(OUT, '03-forms-subview.png'), fullPage: false });
-      if (await emptyBtn.isVisible()) await emptyBtn.click();
-      await page.waitForTimeout(1200);
-    } else {
-      row('FORM_EMPTY_CONTROL', 'FAIL', 'forms card missing');
-    }
-
-    await railBtn.click();
-    await page.waitForTimeout(400);
-    const headerCard = page.locator('[data-lp-add-component-card="header"]');
-    row('HEADER_CARD', (await headerCard.isVisible()) ? 'PASS' : 'FAIL');
-    row('FOOTER_CARD', (await page.locator('[data-lp-add-component-card="footer"]').isVisible()) ? 'PASS' : 'FAIL');
-    row('SPEAKER_CARD', (await page.locator('[data-lp-add-component-card="speaker"]').isVisible()) ? 'PASS' : 'FAIL');
-    if (await headerCard.isVisible()) {
-      await headerCard.click();
+    const rail = page.locator('[data-lp-inspector-rail-btn="add-components"]');
+    if (!(await panel.isVisible().catch(() => false))) {
+      await rail.click();
       await page.waitForTimeout(800);
     }
-    await page.screenshot({ path: path.join(OUT, '04-after-inserts.png'), fullPage: false });
+  };
 
-    const textCard = page.locator('[data-lp-add-component-card="text"]');
-    if (await textCard.isVisible()) {
-      await textCard.click();
+  const ensureAddRoot = async () => {
+    const rail = page.locator('[data-lp-inspector-rail-btn="add-components"]');
+    const panel = page.locator('[data-lp-add-components-panel="1"]');
+    for (let i = 0; i < 4; i++) {
+      const sub = page.locator('[data-lp-add-components-sub]');
+      if (!(await sub.count())) break;
+      const closeX = sub.locator('[data-lp-sidebar-close]').first();
+      const back = sub.getByRole('button', { name: /Quay lại/i }).first();
+      if (await closeX.isVisible().catch(() => false)) await closeX.click();
+      else if (await back.isVisible().catch(() => false)) await back.click();
+      else break;
       await page.waitForTimeout(500);
-      row('PRESET_TEXT_SUBVIEW', (await page.locator('[data-lp-add-components-sub="text"]').count()) > 0 ? 'PASS' : 'CHƯA KIỂM CHỨNG');
-      await page.keyboard.press('Escape');
     }
-
-    const undoBtn = page.getByRole('button', { name: 'Undo' });
-    if (await undoBtn.isEnabled().catch(() => false)) {
-      await undoBtn.click();
-      await page.waitForTimeout(500);
-      row('UNDO', 'PASS');
-    } else {
-      row('UNDO', 'CHƯA KIỂM CHỨNG', 'Undo disabled after inserts');
+    if (!(await panel.isVisible().catch(() => false))) {
+      await rail.click();
+      await page.waitForTimeout(800);
     }
+    await page.locator('[data-lp-add-root-tab="add"]').click().catch(() => {});
+    await page.waitForTimeout(400);
+    await page.locator('[data-lp-add-components-scroll]').evaluate((el) => { el.scrollTop = 0; }).catch(() => {});
+  };
 
-    const saveBtn = page.getByRole('button', { name: /Lưu/i }).first();
-    if (await saveBtn.isVisible().catch(() => false)) {
-      await saveBtn.click();
-      await page.waitForTimeout(2500);
-      row('SAVE_CLICK', 'PASS');
-    } else {
-      row('SAVE_CLICK', 'CHƯA KIỂM CHỨNG', 'Lưu button not found');
-    }
+  await openPlus();
+  row('PANEL_PLUS', (await page.locator('[data-lp-add-components-panel="1"]').isVisible()) ? 'PASS' : 'FAIL');
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(3500);
-    await page.screenshot({ path: path.join(OUT, '05-after-reload.png'), fullPage: false });
-    row('RELOAD', 'PASS');
-  }
-
-  await page.locator('[data-lp-inspector-rail-btn="add-components"]').click().catch(() => {});
+  await page.locator('[data-lp-add-component-card="text"]').click();
   await page.waitForTimeout(500);
-  const layersTab = page.locator('[data-lp-add-root-tab="layers"]');
-  if (await layersTab.isVisible().catch(() => false)) {
-    await layersTab.click();
-    await page.waitForTimeout(500);
-    row('TAB_LAYERS', (await page.locator('[data-lp-add-components-layers]').isVisible()) ? 'PASS' : 'FAIL');
-    await page.screenshot({ path: path.join(OUT, '06-layers-tab.png'), fullPage: false });
+  row('SUBVIEW_TEXT', (await page.locator('[data-lp-add-components-sub="text"]').count()) > 0 ? 'PASS' : 'FAIL');
+  await page.screenshot({ path: path.join(OUT, '02-text-subview.png') });
+  await ensureAddRoot();
+  const panelRoot = page.locator('[data-lp-add-components-panel="1"]');
+  const socialCard = panelRoot.locator('[data-lp-add-component-card="social"]');
+  await panelRoot.locator('[data-lp-add-components-scroll]').evaluate((el) => { el.scrollTop = 0; }).catch(() => {});
+  if (!(await socialCard.isVisible().catch(() => false))) {
+    await page.screenshot({ path: path.join(OUT, '02b-root-no-social.png') });
+    row('SUBVIEW_SOCIAL', 'FAIL', 'social card not visible on add tab');
   } else {
-    row('TAB_LAYERS', 'CHƯA KIỂM CHỨNG');
+    await socialCard.click();
+    await page.waitForTimeout(700);
+    const socialSub = await page.locator('[data-lp-add-components-sub="social"]').count();
+    row('SUBVIEW_SOCIAL', socialSub > 0 ? 'PASS' : 'FAIL');
+    await page.screenshot({ path: path.join(OUT, '03-social-subview.png') });
+    await ensureAddRoot();
   }
-
-  for (const tab of ['design', 'content', 'page-theme']) {
-    const t = page.locator(`[data-lp-inspector-rail-btn="${tab}"]`);
-    if (await t.isVisible().catch(() => false)) {
-      await t.click();
-      await page.waitForTimeout(400);
-      row(`INSPECTOR_TAB_${tab.toUpperCase()}`, 'PASS');
-    } else {
-      row(`INSPECTOR_TAB_${tab.toUpperCase()}`, 'CHƯA KIỂM CHỨNG');
-    }
-  }
-  await page.screenshot({ path: path.join(OUT, '07-inspector-tabs.png'), fullPage: false });
-
-  const afterAuth = await fetch(`${APP}/api/v1/landing-pages/${LP_ID}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  }).then((r) => r.json());
-  const blockCountAfter =
-    afterAuth?.data?.draftSpec?.blocks?.length ??
-    afterAuth?.draftSpec?.blocks?.length ??
-    null;
-  if (blockCountBefore != null && blockCountAfter != null) {
-    row('BLOCK_COUNT_MUTATED', blockCountAfter >= blockCountBefore ? 'PASS' : 'FAIL', `${blockCountBefore}→${blockCountAfter}`);
+  await ensureAddRoot();
+  const formsCard = panelRoot.locator('[data-lp-add-component-card="forms"]');
+  await formsCard.scrollIntoViewIfNeeded().catch(() => {});
+  if (!(await formsCard.isVisible().catch(() => false))) {
+    row('FORM_PRESET_INSERT', 'FAIL', 'forms card not visible');
+    row('FORM_EMPTY_INSERT', 'FAIL', 'skipped');
   } else {
-    row('BLOCK_COUNT_MUTATED', 'CHƯA KIỂM CHỨNG');
+  await formsCard.click();
+  await page.waitForTimeout(500);
+  const presetBtn = page.locator('[data-lp-form-preset]').first();
+  if (await presetBtn.count()) {
+    await presetBtn.click();
+    await page.waitForTimeout(1000);
+    row('FORM_PRESET_INSERT', 'PASS');
+  } else {
+    row('FORM_PRESET_INSERT', 'FAIL', 'no preset');
+  }
+  await ensureAddRoot();
+  await panelRoot.locator('[data-lp-add-component-card="forms"]').click();
+  await page.locator('[data-lp-form-insert-empty="1"]').click();
+  await page.waitForTimeout(1000);
+  row('FORM_EMPTY_INSERT', 'PASS');
+  await ensureAddRoot();
   }
 
-  const severeConsole = consoleErrors.filter(
-    (e) => !/favicon|404.*chunk|hydration/i.test(e),
+  await ensureAddRoot();
+  const footerCard = panelRoot.locator('[data-lp-add-component-card="footer"]');
+  const speakerCardInsert = panelRoot.locator('[data-lp-add-component-card="speaker"]');
+  await panelRoot.locator('[data-lp-add-components-scroll]').evaluate((el) => { el.scrollTop = el.scrollHeight; }).catch(() => {});
+  if (await footerCard.isVisible().catch(() => false)) {
+    await footerCard.click();
+    await page.waitForTimeout(800);
+    let n1 = await blocksOnCanvas();
+    row('INSERT_FOOTER', n1 > n0 ? 'PASS' : 'FAIL', `${n0}→${n1}`);
+    n0 = n1;
+  } else row('INSERT_FOOTER', 'FAIL', 'card not visible');
+  await ensureAddRoot();
+  await panelRoot.locator('[data-lp-add-components-scroll]').evaluate((el) => { el.scrollTop = el.scrollHeight; }).catch(() => {});
+  if (await speakerCardInsert.isVisible().catch(() => false)) {
+    await speakerCardInsert.click();
+    await page.waitForTimeout(800);
+    let n1 = await blocksOnCanvas();
+    row('INSERT_SPEAKER', n1 > n0 ? 'PASS' : 'FAIL', `${n0}→${n1}`);
+    n0 = n1;
+  } else row('INSERT_SPEAKER', 'FAIL', 'card not visible');
+
+  await ensureAddRoot();
+  const sectionCard = panelRoot.locator('[data-lp-add-component-card="section"]');
+  if (!(await sectionCard.isVisible().catch(() => false))) {
+    row('SECTION_LIBRARY_OPEN', 'FAIL', 'section card missing');
+    row('SECTION_LIBRARY_INSERT', 'FAIL', 'skipped');
+  } else {
+  await sectionCard.click();
+  await page.waitForTimeout(800);
+  const lib = page.locator('[data-lp-section-library-modal="1"]');
+  row('SECTION_LIBRARY_OPEN', (await lib.isVisible()) ? 'PASS' : 'FAIL');
+  await page.screenshot({ path: path.join(OUT, '04-section-library.png') });
+  const libCard = page.locator('[data-lp-section-library-card]').first();
+  if (await libCard.count()) {
+    await libCard.hover();
+    await libCard.getByRole('button', { name: /Thêm section/i }).click();
+    await page.waitForTimeout(1200);
+    n1 = await blocksOnCanvas();
+    row('SECTION_LIBRARY_INSERT', n1 > n0 ? 'PASS' : 'FAIL', `${n0}→${n1}`);
+    n0 = n1;
+  }
+  await page.keyboard.press('Escape');
+  }
+
+  await ensureAddRoot();
+  const speakerCard = page.locator('[data-lp-add-component-card="speaker"]');
+  const canvasBox = await canvas.boundingBox();
+  if (canvasBox && (await speakerCard.isVisible())) {
+    const from = await speakerCard.boundingBox();
+    if (from) {
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height * 0.7);
+      await page.mouse.up();
+      await page.waitForTimeout(1200);
+      const nDrag = await blocksOnCanvas();
+      row('DRAG_DROP_SPEAKER', nDrag > n0 ? 'PASS' : 'CHƯA KIỂM CHỨNG', `${n0}→${nDrag}`);
+      n0 = Math.max(n0, nDrag);
+    } else row('DRAG_DROP_SPEAKER', 'CHƯA KIỂM CHỨNG', 'no bbox');
+  } else row('DRAG_DROP_SPEAKER', 'CHƯA KIỂM CHỨNG', 'canvas/speaker missing');
+
+  const undoBtn = page.getByRole('button', { name: 'Undo' });
+  const redoBtn = page.getByRole('button', { name: 'Redo' });
+  const beforeUndo = await blocksOnCanvas();
+  if (await undoBtn.isEnabled().catch(() => false)) {
+    await undoBtn.click();
+    await page.waitForTimeout(700);
+    const afterUndo = await blocksOnCanvas();
+    row('UNDO_CANVAS', afterUndo < beforeUndo ? 'PASS' : 'FAIL', `${beforeUndo}→${afterUndo}`);
+    if (await redoBtn.isEnabled().catch(() => false)) {
+      await redoBtn.click();
+      await page.waitForTimeout(700);
+      const afterRedo = await blocksOnCanvas();
+      row('REDO_CANVAS', afterRedo > afterUndo ? 'PASS' : 'FAIL', `${afterUndo}→${afterRedo}`);
+    } else row('REDO_CANVAS', 'FAIL', 'Redo disabled');
+  } else row('UNDO_CANVAS', 'FAIL', 'Undo disabled');
+
+  const autosaveWait = page.waitForResponse(
+    (r) => r.url().includes('/autosave') && r.request().method() === 'POST',
+    { timeout: 45000 },
   );
-  const flaky = (s) => /ERR_NETWORK_CHANGED|ERR_ABORTED|net::ERR/i.test(s);
-  const severe = severeConsole.filter((e) => !flaky(e));
-  const netFail = failedReq.filter((e) => !flaky(e));
-  row('CONSOLE_ERRORS', severe.length === 0 ? 'PASS' : 'FAIL', severe.slice(0, 3).join(' | '));
-  row('NETWORK_FAIL', netFail.length === 0 ? 'PASS' : 'FAIL', netFail.slice(0, 3).join(' | '));
-  row('DRAG_DROP', 'CHƯA KIỂM CHỨNG', 'headless pointer DnD not automated in this script');
-  row('REDO', 'CHƯA KIỂM CHỨNG', 'Redo button state not asserted');
+  const saveBtn = page.getByRole('button', { name: /Lưu/i }).first();
+  if (await saveBtn.isVisible()) await saveBtn.click();
+  let autosaveStatus = 0;
+  try {
+    const ar = await autosaveWait;
+    autosaveStatus = ar.status();
+  } catch {
+    autosaveStatus = 0;
+  }
+  row('AUTOSAVE_HTTP', autosaveStatus === 201 || autosaveStatus === 200 ? 'PASS' : 'FAIL', String(autosaveStatus));
+
+  const beforeReload = await fetchPage(token, LP_ID);
+  const revBefore = beforeReload.draftSpec?.meta?.clientRevision;
+  const blocksBeforeReload = blockCount(beforeReload.draftSpec);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(5000);
+  const afterReload = await fetchPage(token, LP_ID);
+  const blocksAfterReload = blockCount(afterReload.draftSpec);
+  row(
+    'SAVE_RELOAD_SPEC',
+    blocksAfterReload === blocksBeforeReload ? 'PASS' : 'FAIL',
+    `api blocks ${blocksBeforeReload}→${blocksAfterReload} rev=${revBefore}→${afterReload.draftSpec?.meta?.clientRevision}`,
+  );
+  await page.screenshot({ path: path.join(OUT, '05-after-reload.png') });
+
+  await page.goto(`${APP}/landing-pages/builder/${LP_ID}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(4000);
+  await openPlus();
+  await page.locator('[data-lp-add-root-tab="layers"]').click();
+  row('TAB_LAYERS', (await page.locator('[data-lp-add-components-layers]').isVisible()) ? 'PASS' : 'FAIL');
+  await page.screenshot({ path: path.join(OUT, '07-layers-tab.png') });
+
+  for (const route of ['/landing-pages/pages', '/landing-pages/templates']) {
+    const r = await page.goto(`${APP}${route}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    row(`SMOKE_${route.replace(/\//g, '_')}`, r && r.status() < 400 ? 'PASS' : 'FAIL', String(r?.status()));
+  }
+  await page.screenshot({ path: path.join(OUT, '06-smoke-list.png') });
 
   fs.writeFileSync(path.join(OUT, 'console-errors.json'), JSON.stringify(consoleErrors, null, 2));
-  fs.writeFileSync(path.join(OUT, 'network-failed.json'), JSON.stringify(failedReq, null, 2));
+  fs.writeFileSync(path.join(OUT, 'network-log.json'), JSON.stringify(networkLog, null, 2));
+  writeNetworkAnalysis(networkLog, autosaveStatus);
+
+  const severe = consoleErrors.filter((e) => !/favicon|DevTools/i.test(e));
+  row('CONSOLE_RAW', severe.length === 0 ? 'PASS' : 'FAIL', `count=${severe.length}`);
 
   await browser.close();
-  writeReport();
+  writeReport(LP_ID);
   if (results.some((r) => r.status === 'FAIL')) process.exitCode = 1;
 }
 
-function writeReport() {
+function writeNetworkAnalysis(log, autosaveStatus) {
+  const autosaves = log.filter((e) => e.url && e.url.includes('autosave'));
+  const failed = log.filter((e) => e.failed || (e.status && e.status >= 400));
+  const lines = [
+    '# Network analysis (raw log in network-log.json)',
+    '',
+    '## Autosave',
+    `- Last manual save autosave HTTP: **${autosaveStatus}** (FAIL if not 200/201)`,
+    `- Autosave entries in log: ${autosaves.length}`,
+    '',
+    '## Failed / 4xx+ (unfiltered)',
+    ...failed.slice(0, 30).map((e) => `- ${JSON.stringify(e)}`),
+    '',
+    '## Notes',
+    '- `net::ERR_ABORTED` on RSC prefetch: often navigation cancel — not auto-PASS.',
+    '- Autosave must pair with SAVE_RELOAD_SPEC PASS to claim persist OK.',
+  ];
+  fs.writeFileSync(path.join(OUT, 'NETWORK-ANALYSIS.md'), lines.join('\n'));
+}
+
+function writeReport(lpId) {
   const md = [
-    '# Post-deploy builder QA',
+    '# Builder acceptance QA v2',
     '',
     `- APP: ${APP}`,
-    `- Page: ${LP_ID}`,
-    `- Screenshots: ${OUT}`,
+    `- Clone page: ${lpId || 'n/a'}`,
+    `- Source: ${SOURCE_LP_ID}`,
+    `- OUT: ${OUT}`,
     '',
-    '| Hạng mục | Kết quả | Ghi chú |',
+    '| Test | Result | Detail |',
     '|---|---|---|',
     ...results.map((r) => `| ${r.name} | ${r.status} | ${r.detail.replace(/\|/g, '/')} |`),
     '',
   ].join('\n');
   fs.writeFileSync(path.join(OUT, 'REPORT.md'), md);
-  console.log('\nWrote', path.join(OUT, 'REPORT.md'));
+  console.log('Wrote', path.join(OUT, 'REPORT.md'));
 }
 
 main().catch((err) => {
   console.error(err);
+  row('RUNTIME', 'FAIL', err.message || String(err));
+  try {
+    writeReport(process.env.LP_QA_LAST_CLONE_ID || '');
+  } catch {
+    /* */
+  }
   process.exitCode = 1;
 });

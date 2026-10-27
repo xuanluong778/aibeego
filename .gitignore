@@ -4,6 +4,7 @@ node_modules/
 
 # Build outputs
 dist/
+.worktrees/
 .next/
 out/
 build/
