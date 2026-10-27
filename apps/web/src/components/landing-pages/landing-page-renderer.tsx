@@ -3031,7 +3031,7 @@ function BlockView({
           style={sectionBgStyle(block, 'var(--lp-surface)')}
           data-lp-footer-variant={footerVariant}
           data-lp-section-tone={sectionToneAttr(block)}
-          data-lp-block-id={block.id}
+          data-lp-footer-root="1"
         >
           <div
             className={

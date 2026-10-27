@@ -1,6 +1,14 @@
 {
   "bundles": [
     {
+      "id": "release-dnd-fix-K_XJRJ7p_Pa5",
+      "buildId": "K_XJRJ7p_Pa5YPWLsijae",
+      "gitSha": "0abe265",
+      "label": "release-dnd-fix",
+      "path": "deploy/aibeego-vps/bundles/release-dnd-fix-K_XJRJ7p_Pa5",
+      "archivedAt": "2026-10-27T05:49:16.719Z"
+    },
+    {
       "id": "rollback-1b5032b-cb7dOatf6l-M",
       "buildId": "cb7dOatf6l-MUfKOMGBfy",
       "gitSha": "1817cda",

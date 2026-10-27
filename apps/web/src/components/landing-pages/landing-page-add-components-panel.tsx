@@ -420,12 +420,28 @@ export function LandingPageAddComponentsPanel({
         : card.kind === 'button' && onOpenButtonLibrary
           ? ('button-library' as const)
           : null;
+    const blockDragType =
+      card.kind === 'block' && card.blockType
+        ? card.blockType
+        : card.kind === 'forms'
+          ? ('LeadForm' as const)
+          : null;
+    const canDrag = Boolean(libraryDrag || blockDragType);
     return (
       <ComponentCard
         key={card.id}
         card={card}
+        dragKind={
+          libraryDrag === 'section-library'
+            ? 'section-library'
+            : libraryDrag === 'button-library'
+              ? 'button-library'
+              : blockDragType
+                ? 'block-type'
+                : undefined
+        }
         onClick={() => runQuick(card)}
-        draggable={Boolean(libraryDrag)}
+        draggable={canDrag}
         onDragStart={
           libraryDrag === 'section-library'
             ? (e) =>
@@ -437,7 +453,15 @@ export function LandingPageAddComponentsPanel({
                   beginSidebarPresetDrag(e, { kind: 'button-library-open' }, 'Thư viện Nút', {
                     subtitle: 'Thả vào canvas để chọn mẫu',
                   })
-              : undefined
+              : blockDragType
+                ? (e) =>
+                    beginSidebarPresetDrag(
+                      e,
+                      { kind: 'block-type', type: blockDragType },
+                      card.label,
+                      { subtitle: 'Thả vào section trên canvas để chèn' },
+                    )
+                : undefined
         }
       />
     );
@@ -609,18 +633,25 @@ function ComponentCard({
   onClick,
   draggable,
   onDragStart,
+  dragKind,
 }: {
   card: QuickCard;
   onClick: () => void;
   draggable?: boolean;
   onDragStart?: (e: DragEvent<HTMLButtonElement>) => void;
+  dragKind?: 'section-library' | 'button-library' | 'block-type';
 }) {
   return (
     <button
       type="button"
       data-lp-add-component-card={card.id}
-      data-lp-sidebar-draggable={
-        draggable ? (card.kind === 'button' ? 'button-library' : 'section-library') : undefined
+      data-lp-sidebar-draggable={dragKind}
+      data-lp-sidebar-block-type={
+        dragKind === 'block-type' && card.kind === 'block'
+          ? card.blockType
+          : dragKind === 'block-type' && card.kind === 'forms'
+            ? 'LeadForm'
+            : undefined
       }
       draggable={draggable}
       onDragStart={onDragStart}
@@ -633,11 +664,13 @@ function ComponentCard({
         onClick();
       }}
       title={
-        draggable
-          ? card.kind === 'button'
-            ? `${card.label} — kéo thả hoặc click để mở thư viện nút`
-            : `${card.label} — kéo thả hoặc click để mở thư viện`
-          : card.label
+        dragKind === 'button-library'
+          ? `${card.label} — kéo thả hoặc click để mở thư viện nút`
+          : dragKind === 'section-library'
+            ? `${card.label} — kéo thả hoặc click để mở thư viện`
+            : dragKind === 'block-type'
+              ? `${card.label} — kéo thả vào canvas hoặc click để chèn`
+              : card.label
       }
     >
       <span

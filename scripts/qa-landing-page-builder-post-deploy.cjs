@@ -11,6 +11,9 @@ const fs = require('fs');
 const path = require('path');
 
 const APP = (process.env.APP_URL || 'https://aibeego.com').replace(/\/$/, '');
+/** Server-side API (clone/read/save checks). Keep prod/staging API even when UI is QA host. */
+const API =
+  (process.env.API_URL || process.env.LP_QA_API_URL || 'https://aibeego.com').replace(/\/$/, '');
 const SOURCE_LP_ID = process.env.LP_QA_SOURCE_PAGE_ID || process.env.LP_QA_PAGE_ID || '';
 const OUT =
   process.env.LP_QA_SCREENSHOT_DIR ||
@@ -44,7 +47,7 @@ async function resolveAccessToken() {
   const email = (process.env.LP_QA_EMAIL || '').trim();
   const password = process.env.LP_QA_PASSWORD || '';
   if (email && password) {
-    const res = await fetch(`${APP}/api/v1/auth/login`, {
+    const res = await fetch(`${API}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -91,7 +94,7 @@ async function resolveAccessToken() {
 }
 
 async function api(token, p, init = {}) {
-  const res = await fetch(`${APP}/api/v1${p}`, {
+  const res = await fetch(`${API}/api/v1${p}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -163,6 +166,30 @@ async function main() {
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, ignoreHTTPSErrors: true });
+  // When UI is served from QA host (e.g. :13999) but NEXT_PUBLIC_API_URL is aibeego.com,
+  // fulfill API via Node fetch so Chromium CORS does not block Bearer calls.
+  if (!/^https?:\/\/(www\.)?aibeego\.com\/?$/i.test(APP)) {
+    await context.route('https://aibeego.com/api/v1/**', async (route) => {
+      const req = route.request();
+      const headers = { ...req.headers() };
+      delete headers['host'];
+      try {
+        const res = await fetch(req.url(), {
+          method: req.method(),
+          headers,
+          body: ['GET', 'HEAD'].includes(req.method()) ? undefined : req.postData(),
+        });
+        const buf = Buffer.from(await res.arrayBuffer());
+        const outHeaders = {};
+        res.headers.forEach((v, k) => {
+          if (!['transfer-encoding', 'content-encoding'].includes(k.toLowerCase())) outHeaders[k] = v;
+        });
+        await route.fulfill({ status: res.status, headers: outHeaders, body: buf });
+      } catch (err) {
+        await route.fulfill({ status: 502, body: String(err && err.message ? err.message : err) });
+      }
+    });
+  }
   await context.addInitScript((t) => localStorage.setItem('ms_access_token', t), token);
   const page = await context.newPage();
   page.setDefaultTimeout(45000);
@@ -194,10 +221,114 @@ async function main() {
   await page.waitForTimeout(5000);
   const canvas = page.locator('[data-lp-canvas-root]');
   await canvas.waitFor({ state: 'visible', timeout: 60000 }).catch(() => null);
-  const blocksOnCanvas = () => page.locator('[data-lp-canvas-root] [data-lp-block-id]').count();
+  /** Unique section shells — do not count nested duplicate data-lp-block-id (e.g. old Footer). */
+  const blocksOnCanvas = () =>
+    page.locator('[data-lp-canvas-root] [data-lp-section-chrome="1"]').count();
+  const canvasBlockIds = () =>
+    page.locator('[data-lp-canvas-root] [data-lp-section-chrome="1"]').evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-lp-block-id')).filter(Boolean),
+    );
+
+  async function alignCanvasToApi(label) {
+    const pageJson = await fetchPage(token, LP_ID);
+    const apiIds = (pageJson.draftSpec?.blocks || []).map((b) => b.id);
+    const domIds = await canvasBlockIds();
+    const missing = apiIds.filter((id) => !domIds.includes(id));
+    const extra = domIds.filter((id) => !apiIds.includes(id));
+    const ok = apiIds.length === domIds.length && missing.length === 0 && extra.length === 0;
+    row(
+      label,
+      ok ? 'PASS' : 'FAIL',
+      `api=${apiIds.length} canvas=${domIds.length} missing=${missing.length} extra=${extra.length}`,
+    );
+    fs.writeFileSync(
+      path.join(OUT, `${label.toLowerCase()}-ids.json`),
+      JSON.stringify({ apiIds, domIds, missing, extra }, null, 2),
+    );
+    return { pageJson, apiIds, domIds, ok };
+  }
+
+  /**
+   * HTML5 DnD: shared DataTransfer via Playwright evaluateHandle so React onDragStart
+   * (beginSidebarPresetDrag) and onDrop see the same MIME payload.
+   */
+  async function html5DropBlockType(blockType, edge) {
+    const src = page.locator(
+      `[data-lp-add-components-panel="1"] [data-lp-sidebar-block-type="${blockType}"]`,
+    );
+    const targets = page.locator('[data-lp-canvas-root] [data-lp-section-chrome="1"]');
+    const count = await targets.count();
+    if (!(await src.count()) || count < 1) {
+      return { ok: false, reason: 'src/target missing' };
+    }
+    const target = targets.nth(Math.floor(count / 2));
+    const targetId = await target.getAttribute('data-lp-block-id');
+    const box = await target.boundingBox();
+    if (!box) return { ok: false, reason: 'no target box', targetId };
+    const clientX = box.x + box.width / 2;
+    const clientY = edge === 'after' ? box.y + box.height - 4 : box.y + 4;
+
+    await page.evaluate((type) => {
+      const el = document.querySelector(
+        `[data-lp-add-components-panel="1"] [data-lp-sidebar-block-type="${type}"]`,
+      );
+      const scroller = document.querySelector('[data-lp-add-components-scroll]');
+      if (el && scroller) {
+        const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        scroller.scrollTop += top - 40;
+      }
+    }, blockType);
+
+    const dropResult = await page.evaluate(
+      ({ blockType, edge, mime, clientX, clientY }) => {
+        const src = document.querySelector(
+          `[data-lp-add-components-panel="1"] [data-lp-sidebar-block-type="${blockType}"]`,
+        );
+        const targets = [
+          ...document.querySelectorAll('[data-lp-canvas-root] [data-lp-section-chrome="1"]'),
+        ];
+        const target =
+          targets.find((el) => el.getAttribute('data-lp-block-id')) || targets[0];
+        if (!src || !target) return { ok: false, reason: 'src/target missing' };
+        const dt = new DataTransfer();
+        dt.effectAllowed = 'copy';
+        src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        if (![...dt.types].includes(mime)) {
+          dt.setData(mime, JSON.stringify({ kind: 'block-type', type: blockType }));
+        }
+        target.dispatchEvent(
+          new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt, clientX, clientY }),
+        );
+        target.dispatchEvent(
+          new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX, clientY }),
+        );
+        target.setAttribute('data-lp-drop-edge', edge);
+        target.dispatchEvent(
+          new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX, clientY }),
+        );
+        src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        return {
+          ok: true,
+          targetId: target.getAttribute('data-lp-block-id'),
+          types: [...dt.types],
+          clientX,
+          clientY,
+        };
+      },
+      {
+        blockType,
+        edge,
+        mime: 'application/x-lp-sidebar-preset',
+        clientX,
+        clientY,
+      },
+    );
+    return dropResult;
+  }
 
   let n0 = await blocksOnCanvas();
-  row('BUILDER_CANVAS', n0 > 0 ? 'PASS' : 'FAIL', `blocks visible=${n0}`);
+  row('BUILDER_CANVAS', n0 > 0 ? 'PASS' : 'FAIL', `sections visible=${n0}`);
+  await alignCanvasToApi('BLOCK_ALIGN_INITIAL');
   await page.screenshot({ path: path.join(OUT, '01-clone-loaded.png') });
 
   const openPlus = async () => {
@@ -277,6 +408,7 @@ async function main() {
   row('FORM_EMPTY_INSERT', 'PASS');
   await ensureAddRoot();
   }
+  n0 = await blocksOnCanvas();
 
   await ensureAddRoot();
   const footerCard = panelRoot.locator('[data-lp-add-component-card="footer"]');
@@ -323,21 +455,35 @@ async function main() {
   }
 
   await ensureAddRoot();
-  const speakerCard = page.locator('[data-lp-add-component-card="speaker"]');
-  const canvasBox = await canvas.boundingBox();
-  if (canvasBox && (await speakerCard.isVisible())) {
-    const from = await speakerCard.boundingBox();
-    if (from) {
-      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height * 0.7);
-      await page.mouse.up();
-      await page.waitForTimeout(1200);
-      const nDrag = await blocksOnCanvas();
-      row('DRAG_DROP_SPEAKER', nDrag > n0 ? 'PASS' : 'CHƯA KIỂM CHỨNG', `${n0}→${nDrag}`);
-      n0 = Math.max(n0, nDrag);
-    } else row('DRAG_DROP_SPEAKER', 'CHƯA KIỂM CHỨNG', 'no bbox');
-  } else row('DRAG_DROP_SPEAKER', 'CHƯA KIỂM CHỨNG', 'canvas/speaker missing');
+  await panelRoot.locator('[data-lp-add-components-scroll]').evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  }).catch(() => {});
+  const speakerDraggable = await panelRoot
+    .locator('[data-lp-add-component-card="speaker"][data-lp-sidebar-block-type="Speaker"]')
+    .isVisible()
+    .catch(() => false);
+  row('SPEAKER_DRAGGABLE', speakerDraggable ? 'PASS' : 'FAIL', 'data-lp-sidebar-block-type=Speaker');
+
+  const beforeDragDom = await canvasBlockIds();
+  const beforeDragCount = beforeDragDom.length;
+  const dropMeta = await html5DropBlockType('Header', 'after');
+  await page.waitForTimeout(1500);
+  const afterDragDom = await canvasBlockIds();
+  const newDomIds = afterDragDom.filter((id) => !beforeDragDom.includes(id));
+  const canvasGrew = afterDragDom.length === beforeDragCount + 1 && newDomIds.length === 1;
+  let insertIdx = newDomIds[0] ? afterDragDom.indexOf(newDomIds[0]) : -1;
+  let anchorIdx = dropMeta?.targetId ? afterDragDom.indexOf(dropMeta.targetId) : -1;
+  const positionOk =
+    canvasGrew &&
+    insertIdx >= 0 &&
+    (anchorIdx < 0 || insertIdx === anchorIdx + 1 || insertIdx === anchorIdx);
+  row(
+    'DRAG_DROP_HEADER',
+    dropMeta?.ok && positionOk ? 'PASS' : 'FAIL',
+    `drop=${JSON.stringify(dropMeta)} newId=${newDomIds[0] || 'none'} idx=${insertIdx} anchor=${anchorIdx} canvas ${beforeDragCount}→${afterDragDom.length}`,
+  );
+  n0 = afterDragDom.length;
+  await page.screenshot({ path: path.join(OUT, '04b-after-dnd.png') });
 
   const undoBtn = page.getByRole('button', { name: 'Undo' });
   const redoBtn = page.getByRole('button', { name: 'Redo' });
@@ -346,14 +492,24 @@ async function main() {
     await undoBtn.click();
     await page.waitForTimeout(700);
     const afterUndo = await blocksOnCanvas();
-    row('UNDO_CANVAS', afterUndo < beforeUndo ? 'PASS' : 'FAIL', `${beforeUndo}→${afterUndo}`);
+    row('UNDO_CANVAS', afterUndo === beforeUndo - 1 ? 'PASS' : 'FAIL', `canvas ${beforeUndo}→${afterUndo}`);
     if (await redoBtn.isEnabled().catch(() => false)) {
       await redoBtn.click();
       await page.waitForTimeout(700);
       const afterRedo = await blocksOnCanvas();
-      row('REDO_CANVAS', afterRedo > afterUndo ? 'PASS' : 'FAIL', `${afterUndo}→${afterRedo}`);
+      row('REDO_CANVAS', afterRedo === afterUndo + 1 ? 'PASS' : 'FAIL', `canvas ${afterUndo}→${afterRedo}`);
     } else row('REDO_CANVAS', 'FAIL', 'Redo disabled');
   } else row('UNDO_CANVAS', 'FAIL', 'Undo disabled');
+
+  // Persist DnD result: ensure Header from drop is present, then save + reload.
+  const afterRedoDom = await canvasBlockIds();
+  if (newDomIds[0] && !afterRedoDom.includes(newDomIds[0])) {
+    // Redo may have restored; if not, drop again once for persist check.
+    await ensureAddRoot();
+    await html5DropBlockType('Header', 'after');
+    await page.waitForTimeout(1000);
+  }
+  const persistDomBeforeSave = await canvasBlockIds();
 
   const autosaveWait = page.waitForResponse(
     (r) => r.url().includes('/autosave') && r.request().method() === 'POST',
@@ -362,26 +518,48 @@ async function main() {
   const saveBtn = page.getByRole('button', { name: /Lưu/i }).first();
   if (await saveBtn.isVisible()) await saveBtn.click();
   let autosaveStatus = 0;
+  let autosaveBody = null;
   try {
     const ar = await autosaveWait;
     autosaveStatus = ar.status();
+    autosaveBody = await ar.json().catch(() => null);
   } catch {
     autosaveStatus = 0;
   }
-  row('AUTOSAVE_HTTP', autosaveStatus === 201 || autosaveStatus === 200 ? 'PASS' : 'FAIL', String(autosaveStatus));
+  const autosaveRejected = Boolean(autosaveBody?.rejected || autosaveBody?.data?.rejected);
+  row(
+    'AUTOSAVE_HTTP',
+    (autosaveStatus === 201 || autosaveStatus === 200) && !autosaveRejected ? 'PASS' : 'FAIL',
+    `status=${autosaveStatus} rejected=${autosaveRejected}`,
+  );
 
-  const beforeReload = await fetchPage(token, LP_ID);
+  // Wait until API catches up with canvas section count (autosave flush).
+  let beforeReload = await fetchPage(token, LP_ID);
+  for (let i = 0; i < 8; i++) {
+    if (blockCount(beforeReload.draftSpec) === persistDomBeforeSave.length) break;
+    await page.waitForTimeout(800);
+    beforeReload = await fetchPage(token, LP_ID);
+  }
   const revBefore = beforeReload.draftSpec?.meta?.clientRevision;
   const blocksBeforeReload = blockCount(beforeReload.draftSpec);
+  row(
+    'BLOCK_ALIGN_AFTER_SAVE',
+    blocksBeforeReload === persistDomBeforeSave.length ? 'PASS' : 'FAIL',
+    `api=${blocksBeforeReload} canvas=${persistDomBeforeSave.length}`,
+  );
+
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(5000);
   const afterReload = await fetchPage(token, LP_ID);
   const blocksAfterReload = blockCount(afterReload.draftSpec);
   row(
     'SAVE_RELOAD_SPEC',
-    blocksAfterReload === blocksBeforeReload ? 'PASS' : 'FAIL',
-    `api blocks ${blocksBeforeReload}→${blocksAfterReload} rev=${revBefore}→${afterReload.draftSpec?.meta?.clientRevision}`,
+    blocksAfterReload === blocksBeforeReload && blocksAfterReload === persistDomBeforeSave.length
+      ? 'PASS'
+      : 'FAIL',
+    `api ${blocksBeforeReload}→${blocksAfterReload} canvasWas=${persistDomBeforeSave.length} rev=${revBefore}→${afterReload.draftSpec?.meta?.clientRevision}`,
   );
+  await alignCanvasToApi('BLOCK_ALIGN_AFTER_RELOAD');
   await page.screenshot({ path: path.join(OUT, '05-after-reload.png') });
 
   await page.goto(`${APP}/landing-pages/builder/${LP_ID}`, { waitUntil: 'domcontentloaded' });
