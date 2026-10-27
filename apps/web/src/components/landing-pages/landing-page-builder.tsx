@@ -55,6 +55,8 @@ import {
   inspectorTextFieldKey,
   CustomCssPanel,
   LandingPageInspectorDesignTab,
+  LandingPageInspectorTypographyPanel,
+  LandingPageInspectorTextBoxSizePanel,
 } from './landing-page-inspector-design-tab';
 import { resolveInspectorContext } from './landing-page-inspector-context';
 import { LandingPageInspectorElementActions } from './landing-page-inspector-element-actions';
@@ -5947,6 +5949,21 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       }
                     />
                     {ctx.kind === 'text' ? (
+                      <>
+                      <LandingPageInspectorTypographyPanel
+                        textStyle={textStyle}
+                        textField={field}
+                        canvasBlockId={selected.id}
+                        onPatchTextStyle={(patch) =>
+                          canvasActionRef.current.patchInlineTextStyle(selected.id, field, patch)
+                        }
+                      />
+                      <LandingPageInspectorTextBoxSizePanel
+                        textStyle={textStyle}
+                        onPatchTextStyle={(patch) =>
+                          canvasActionRef.current.patchInlineTextStyle(selected.id, field, patch)
+                        }
+                      />
                       <LandingPageTextQuickPanel
                         embedded
                         open
@@ -5985,6 +6002,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                         }}
                         onClose={() => undefined}
                       />
+                      </>
                     ) : null}
                     </>
                   );

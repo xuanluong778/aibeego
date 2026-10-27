@@ -222,7 +222,8 @@ function BackgroundPanel({
   );
 }
 
-function TypographyPanel({
+/** Typography controls (color, align, size…) — also mounted on Content tab for text. */
+export function LandingPageInspectorTypographyPanel({
   textStyle,
   textField,
   canvasBlockId,
@@ -602,7 +603,7 @@ function TypographyPanel({
   );
 }
 
-function TextBoxSizePanel({
+export function LandingPageInspectorTextBoxSizePanel({
   textStyle,
   onPatchTextStyle,
 }: {
@@ -1528,7 +1529,7 @@ export function LandingPageInspectorDesignTab({
         />
       ) : null}
       {showTypography ? (
-        <TypographyPanel
+        <LandingPageInspectorTypographyPanel
           textStyle={textStyle}
           textField={textField}
           canvasBlockId={selected.id}
@@ -1536,7 +1537,7 @@ export function LandingPageInspectorDesignTab({
         />
       ) : null}
       {showTextBoxSize ? (
-        <TextBoxSizePanel textStyle={textStyle} onPatchTextStyle={onPatchTextStyle} />
+        <LandingPageInspectorTextBoxSizePanel textStyle={textStyle} onPatchTextStyle={onPatchTextStyle} />
       ) : null}
       {ctx.kind === 'text' && textField && selected ? (
         <LandingPageTextQuickPanel

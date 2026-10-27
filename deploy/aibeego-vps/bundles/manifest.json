@@ -1,6 +1,14 @@
 {
   "bundles": [
     {
+      "id": "release-text-typo-OkAajqCaE0zK",
+      "buildId": "OkAajqCaE0zKQl1jsIyss",
+      "gitSha": "f07a066",
+      "label": "release-text-typo",
+      "path": "deploy/aibeego-vps/bundles/release-text-typo-OkAajqCaE0zK",
+      "archivedAt": "2026-10-27T07:25:05.836Z"
+    },
+    {
       "id": "release-text-inspector-XDCVJYYhNJUR",
       "buildId": "XDCVJYYhNJURqeaBiaGVO",
       "gitSha": "0885a49",
