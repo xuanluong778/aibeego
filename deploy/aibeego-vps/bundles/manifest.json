@@ -1,6 +1,14 @@
 {
   "bundles": [
     {
+      "id": "release-publish-ux-WvAOmp3-9OpR",
+      "buildId": "WvAOmp3-9OpR4nYsl9kb3",
+      "gitSha": "5448be9",
+      "label": "release-publish-ux",
+      "path": "deploy/aibeego-vps/bundles/release-publish-ux-WvAOmp3-9OpR",
+      "archivedAt": "2026-10-27T06:55:57.122Z"
+    },
+    {
       "id": "release-dnd-fix-K_XJRJ7p_Pa5",
       "buildId": "K_XJRJ7p_Pa5YPWLsijae",
       "gitSha": "585279d",

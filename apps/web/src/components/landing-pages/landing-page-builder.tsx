@@ -537,8 +537,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const inlineHistStarted = useRef(false);
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [historyNav, setHistoryNav] = useState({ undo: false, redo: false });
   const [saveMsg, setSaveMsg] = useState('');
+  const [publishPublicPath, setPublishPublicPath] = useState<string | null>(null);
   /** Another writer (tab/session) saved a newer revision — autosave paused until user resolves. */
   const [saveConflict, setSaveConflict] = useState(false);
   const [pendingLocalDraft, setPendingLocalDraft] = useState<LocalLandingDraft | null>(null);
@@ -953,6 +955,17 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   useEffect(() => {
     setActionBarMounted(true);
   }, []);
+
+  // Status toast was wired via setSaveMsg everywhere, but only conflict UI rendered it —
+  // publish/save success looked like a no-op. Auto-dismiss non-conflict messages.
+  useEffect(() => {
+    if (!saveMsg || saveConflict || pendingLocalDraft) return;
+    const t = window.setTimeout(() => {
+      setSaveMsg('');
+      setPublishPublicPath(null);
+    }, publishPublicPath ? 12000 : 5000);
+    return () => window.clearTimeout(t);
+  }, [saveMsg, saveConflict, pendingLocalDraft, publishPublicPath]);
 
   // Preview mode: signal AppShell to hide app chrome; restore on exit/unmount.
   useEffect(() => {
@@ -4586,36 +4599,50 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }
 
   async function publish() {
+    if (publishing) return;
     if (saveConflictRef.current) {
+      setPublishPublicPath(null);
       setSaveMsg('Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi publish');
       return;
     }
-    // LP-PUB-001/002: flush latest canvas (specRef) and wait for in-flight autosave.
-    await persist(specRef.current, page?.name, { manual: true, wait: true });
-    if (dirtyRef.current || autosaveInflightRef.current) {
-      setSaveMsg(
-        saveConflictRef.current
-          ? 'Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi publish'
-          : 'Không lưu kịp trước publish — thử lại',
-      );
-      return;
-    }
-    let updated: PagePayload;
+    setPublishing(true);
+    setPublishPublicPath(null);
     try {
-      updated = await apiClient<PagePayload>(`/landing-pages/${pageId}/publish`, {
-        method: 'POST',
-        body: JSON.stringify({ clientRevision: ackedRevisionRef.current }),
-      });
-    } catch (e) {
+      // LP-PUB-001/002: flush latest canvas (specRef) and wait for in-flight autosave.
+      await persist(specRef.current, page?.name, { manual: true, wait: true });
+      if (dirtyRef.current || autosaveInflightRef.current) {
+        setSaveMsg(
+          saveConflictRef.current
+            ? 'Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi publish'
+            : 'Không lưu kịp trước publish — thử lại',
+        );
+        return;
+      }
+      let updated: PagePayload;
+      try {
+        updated = await apiClient<PagePayload>(`/landing-pages/${pageId}/publish`, {
+          method: 'POST',
+          body: JSON.stringify({ clientRevision: ackedRevisionRef.current }),
+        });
+      } catch (e) {
+        setSaveMsg(
+          e instanceof Error ? e.message : 'Publish thất bại — bản công khai chưa đổi',
+        );
+        return;
+      }
+      setPage(updated);
+      clearLocalLandingDraft(pageId);
+      const publicPath = updated.slug ? `/p/${updated.slug}` : null;
+      setPublishPublicPath(publicPath);
+      const fresh = await revalidatePublicLandingPage(updated.slug);
       setSaveMsg(
-        e instanceof Error ? e.message : 'Publish thất bại — bản công khai chưa đổi',
+        fresh
+          ? 'Đã xuất bản thành công'
+          : 'Đã xuất bản. Cache trang công khai chưa làm mới — tải lại sau ít phút',
       );
-      return;
+    } finally {
+      setPublishing(false);
     }
-    setPage(updated);
-    clearLocalLandingDraft(pageId);
-    const fresh = await revalidatePublicLandingPage(updated.slug);
-    setSaveMsg(fresh ? 'Đã publish' : 'Đã publish. Cache trang công khai chưa làm mới — tải lại sau ít phút');
   }
 
   async function applyBusinessProfile(force: boolean) {
@@ -4811,6 +4838,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           viewport={viewport}
           previewOn={fullscreenPreview}
           saving={saving}
+          publishing={publishing}
+          pageStatus={page.status}
+          publicSlug={page.slug}
           alignToCanvas
           inspectorDocked={inspectorMode === 'docked' || !inspectorDesktop}
           onBack={() => router.push('/landing-pages/pages')}
@@ -4868,6 +4898,45 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   Khôi phục bản máy
                 </Button>
               ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {actionBarMounted &&
+      saveMsg &&
+      !saveConflict &&
+      !pendingLocalDraft &&
+      !fullscreenPreview
+        ? createPortal(
+            <div
+              className="fixed bottom-4 left-1/2 z-[58] flex max-w-[min(92vw,32rem)] -translate-x-1/2 items-center gap-2 rounded-xl border border-emerald-500/35 bg-zinc-950 px-3 py-2 text-xs text-emerald-100 shadow-lg"
+              data-lp-status-toast
+              role="status"
+            >
+              <span className="min-w-0 flex-1 leading-snug">{saveMsg}</span>
+              {publishPublicPath ? (
+                <a
+                  href={publishPublicPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 rounded-md bg-emerald-600 px-2 py-1 font-semibold text-white hover:bg-emerald-500"
+                  data-lp-status-toast-public
+                >
+                  Mở trang
+                </a>
+              ) : null}
+              <button
+                type="button"
+                className="shrink-0 rounded-md px-1.5 py-1 text-white/60 hover:bg-white/10 hover:text-white"
+                aria-label="Đóng"
+                onClick={() => {
+                  setSaveMsg('');
+                  setPublishPublicPath(null);
+                }}
+              >
+                ×
+              </button>
             </div>,
             document.body,
           )

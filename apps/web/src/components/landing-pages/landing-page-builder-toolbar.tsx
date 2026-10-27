@@ -36,6 +36,12 @@ type Props = {
   onPublish: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  /** In-flight publish request — disables double submit. */
+  publishing?: boolean;
+  /** Server page status after last load/publish. */
+  pageStatus?: string | null;
+  /** Public slug for post-publish affordance. */
+  publicSlug?: string | null;
 };
 
 function Tip({ label, children }: { label: string; children: ReactNode }) {
@@ -105,8 +111,18 @@ export function LandingPageBuilderToolbar({
   onPublish,
   canUndo = true,
   canRedo = true,
+  publishing = false,
+  pageStatus = null,
+  publicSlug = null,
 }: Props) {
   const centerInCanvas = alignToCanvas && !hideBack && !previewOn && inspectorDocked;
+  const isPublished = (pageStatus || '').toUpperCase() === 'PUBLISHED';
+  const publishLabel = publishing ? 'Đang publish…' : isPublished ? 'Đã xuất bản' : 'Publish';
+  const publishTitle = publishing
+    ? 'Đang publish…'
+    : isPublished && publicSlug
+      ? `Đã xuất bản — /p/${publicSlug}`
+      : 'Publish';
 
   const blockToolbarWheel = (e: ReactWheelEvent) => {
     // Never let wheel over the toolbar scroll the page/canvas (buttons slide under header).
@@ -223,19 +239,38 @@ export function LandingPageBuilderToolbar({
       </div>
 
       <div
-        className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center sm:right-2"
+        className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 sm:right-2"
         data-lp-toolbar-publish
       >
+        {isPublished && publicSlug && !publishing ? (
+          <a
+            href={`/p/${publicSlug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden h-9 items-center rounded-[10px] border border-white/20 px-2.5 text-[12px] font-medium text-white/90 transition hover:bg-white/10 sm:inline-flex"
+            data-lp-public-link
+            title="Mở trang công khai"
+          >
+            Xem live
+          </a>
+        ) : null}
         <button
           type="button"
           onClick={onPublish}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] bg-[#F97316] px-2.5 text-[13px] font-semibold text-white transition hover:bg-[#ea6c0c] sm:px-3"
+          disabled={publishing}
+          className={
+            'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] font-semibold text-white transition sm:px-3 disabled:cursor-wait disabled:opacity-70 ' +
+            (isPublished && !publishing
+              ? 'bg-emerald-600 hover:bg-emerald-500'
+              : 'bg-[#F97316] hover:bg-[#ea6c0c]')
+          }
           data-lp-publish-btn
-          title="Publish"
-          aria-label="Publish"
+          data-lp-publish-state={publishing ? 'busy' : isPublished ? 'published' : 'draft'}
+          title={publishTitle}
+          aria-label={publishLabel}
         >
           <Upload className="h-3.5 w-3.5" strokeWidth={2} />
-          <span className="hidden sm:inline">Publish</span>
+          <span className="hidden sm:inline">{publishLabel}</span>
         </button>
       </div>
     </div>
