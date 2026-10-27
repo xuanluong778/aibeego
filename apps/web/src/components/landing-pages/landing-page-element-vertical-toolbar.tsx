@@ -273,6 +273,7 @@ export function LandingPageElementVerticalToolbar({
 
   const anchorRef = useRef<HTMLElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const sideLockRef = useRef<'left' | 'right' | null>(null);
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
   const posRef = useRef(pos);
@@ -289,6 +290,18 @@ export function LandingPageElementVerticalToolbar({
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const chromeTop = readBuilderChromeTop();
+      // Visible band: below builder chrome, above viewport bottom.
+      const viewTop = chromeTop;
+      const viewBottom = vh - 8;
+      const overlapTop = Math.max(r.top, viewTop);
+      const overlapBottom = Math.min(r.bottom, viewBottom);
+      const visibleH = overlapBottom - overlapTop;
+      // Hide when the selected element has scrolled out of the canvas viewport —
+      // previously we clamped top into view, so the bar stayed stuck mid-screen.
+      if (visibleH < 24 || r.right < 8 || r.left > vw - 8) {
+        return null;
+      }
+
       const preferRight = r.right + GAP;
       const preferLeft = r.left - GAP - TOOLBAR_W;
       const canRight = preferRight + TOOLBAR_W <= vw - 8;
@@ -325,11 +338,12 @@ export function LandingPageElementVerticalToolbar({
 
       left = Math.min(vw - TOOLBAR_W - 8, Math.max(8, left));
 
-      // Tall sections: pin near top of box; otherwise vertically center on the box.
+      // Prefer centering on the *visible* slice of the anchor (not the off-screen part).
+      const visibleMid = (overlapTop + overlapBottom) / 2 - BAR_H / 2;
       const topBase =
-        r.height > 220 ? r.top + 16 : r.top + r.height / 2 - BAR_H / 2;
-      // Never enter app header / builder action bar (screenshot bug: over Pro button).
-      const top = Math.min(Math.max(chromeTop, topBase), vh - BAR_H - 8);
+        r.height > 220 && r.top >= viewTop - 8 ? r.top + 16 : visibleMid;
+      // Soft clamp only while still overlapping — never invent a position when gone.
+      const top = Math.min(Math.max(viewTop, topBase), viewBottom - BAR_H);
       return { left, top, side };
     },
     [],
@@ -379,7 +393,18 @@ export function LandingPageElementVerticalToolbar({
     }
     anchorRef.current = findAnchorForTarget(displayTarget);
     updatePosition();
-    const onScroll = () => updatePosition();
+    const onScroll = () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        // Re-resolve anchor each scroll — DOM nodes can remount / free-id shells move.
+        anchorRef.current = findAnchorForTarget(displayTarget);
+        updatePosition();
+      });
+    };
+    const canvasScroll = canvasRootRef.current;
+    canvasScroll?.addEventListener('scroll', onScroll, { passive: true });
+    // Capture any nested scrollports (device frame, zoom layer).
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     window.addEventListener('lp-heading-box-resize-end', onScroll);
@@ -387,14 +412,16 @@ export function LandingPageElementVerticalToolbar({
     window.addEventListener('pointerup', onScroll, true);
     window.addEventListener('pointercancel', onScroll, true);
     return () => {
+      canvasScroll?.removeEventListener('scroll', onScroll);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
       window.removeEventListener('lp-heading-box-resize-end', onScroll);
       window.removeEventListener('lp-canvas-zoom-change', onScroll);
       window.removeEventListener('pointerup', onScroll, true);
       window.removeEventListener('pointercancel', onScroll, true);
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
-  }, [enabled, displayTarget, updatePosition]);
+  }, [enabled, displayTarget, updatePosition, canvasRootRef]);
 
   // Keep toolbar glued to the element while free-dragging / resizing (transform live).
   // Single listener + rAF loop (do not also listen on layout effect — double updates thrashed side).

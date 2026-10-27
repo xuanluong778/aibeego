@@ -1,6 +1,14 @@
 {
   "bundles": [
     {
+      "id": "release-toolbar-scroll-Sj-wNU0Q4rAx",
+      "buildId": "Sj-wNU0Q4rAxUy1IBBB6v",
+      "gitSha": "7754b13",
+      "label": "release-toolbar-scroll",
+      "path": "deploy/aibeego-vps/bundles/release-toolbar-scroll-Sj-wNU0Q4rAx",
+      "archivedAt": "2026-10-27T07:39:59.114Z"
+    },
+    {
       "id": "release-text-typo-OkAajqCaE0zK",
       "buildId": "OkAajqCaE0zKQl1jsIyss",
       "gitSha": "f07a066",
