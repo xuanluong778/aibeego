@@ -16,6 +16,7 @@ const FEATURE = {
   ADS_AI_CREATIVE: 'ads_ai.creative',
   RAG_QUERY: 'rag.query',
   AI_ANALYSIS: 'ai.analysis',
+  LANDING_PAGE_INLINE_AI: 'landing_page.inline_ai',
 } as const;
 
 const DEFAULT_PRICING: Array<{
@@ -101,6 +102,13 @@ const DEFAULT_PRICING: Array<{
     creditCost: 4,
     description: 'Phân tích nội dung/quảng cáo bằng AI',
     sortOrder: 110,
+  },
+  {
+    featureCode: FEATURE.LANDING_PAGE_INLINE_AI,
+    name: 'Landing page — gợi ý chữ AI',
+    creditCost: 2,
+    description: 'Gợi ý 3 phiên bản cho 1 ô chữ trong builder',
+    sortOrder: 120,
   },
 ];
 

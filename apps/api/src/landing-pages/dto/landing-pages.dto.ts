@@ -317,6 +317,7 @@ export class InlineAiSuggestFieldDto {
     'suggest_3',
     'more_engaging',
     'shorter',
+    'clearer',
     'more_conversion',
     'more_professional',
     'more_friendly',

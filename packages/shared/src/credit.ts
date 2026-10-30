@@ -11,6 +11,7 @@ export const CREDIT_FEATURE_CODES = {
   ADS_AI_CREATIVE: 'ads_ai.creative',
   RAG_QUERY: 'rag.query',
   AI_ANALYSIS: 'ai.analysis',
+  LANDING_PAGE_INLINE_AI: 'landing_page.inline_ai',
 } as const;
 
 export type CreditFeatureCode = (typeof CREDIT_FEATURE_CODES)[keyof typeof CREDIT_FEATURE_CODES];
@@ -134,6 +135,7 @@ export const CREDIT_FEATURE_LABELS: Record<string, string> = {
   'ads_ai.creative': 'Creative quảng cáo AI',
   'rag.query': 'Truy vấn knowledge base',
   'ai.analysis': 'Phân tích AI',
+  'landing_page.inline_ai': 'Landing page — gợi ý chữ AI',
 };
 
 export const CREDIT_TYPE_LABELS: Record<string, string> = {

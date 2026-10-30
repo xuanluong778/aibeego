@@ -30,7 +30,13 @@ type Props = {
   pinned?: boolean;
   onPinnedChange?: (pinned: boolean) => void;
   onClose?: () => void;
-  onUpdateBlock: (id: string, patch: Partial<LandingPageBlock>) => void;
+  onUpdateBlock: (
+    id: string,
+    patch: Partial<LandingPageBlock>,
+    opts?: { coalesce?: boolean },
+  ) => void;
+  /** Close a coalesce gesture (slider/color drag) so the next edit is a new undo step. */
+  onEndGesture?: () => void;
   onPickImage: () => void;
 };
 
@@ -38,8 +44,9 @@ function commit(
   block: LandingPageBlock,
   change: SectionSettingsChange,
   onUpdateBlock: Props['onUpdateBlock'],
+  opts?: { coalesce?: boolean },
 ) {
-  onUpdateBlock(block.id, applySectionSettingsChange(block, change));
+  onUpdateBlock(block.id, applySectionSettingsChange(block, change), opts);
 }
 
 export function LandingPageSectionSettingsPanel({
@@ -50,6 +57,7 @@ export function LandingPageSectionSettingsPanel({
   onPinnedChange,
   onClose,
   onUpdateBlock,
+  onEndGesture,
   onPickImage,
 }: Props) {
   const view = readSectionSettings(block);
@@ -138,10 +146,15 @@ export function LandingPageSectionSettingsPanel({
               onFocus={() => setHexFocused(true)}
               onBlur={() => {
                 setHexFocused(false);
-                const parsed = parseHexAlpha(hexDraft, view.color.hex8);
-                if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hexDraft.trim())) {
-                  commit(block, { background: parsed.hex8 }, onUpdateBlock);
-                } else {
+                onEndGesture?.();
+                // Valid hex is already committed in onChange. Never re-commit on blur:
+                // after Ctrl+Z the input can still hold the old draft and would overwrite
+                // the restored background. Just resync the display to live view.
+                const trimmed = hexDraft.trim();
+                if (
+                  !/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(trimmed) ||
+                  parseHexAlpha(trimmed).hex8 !== view.color.hex8
+                ) {
                   setHexDraft(view.color.hex8);
                 }
               }}
@@ -149,7 +162,9 @@ export function LandingPageSectionSettingsPanel({
                 const value = e.target.value;
                 setHexDraft(value);
                 if (/^#[0-9a-fA-F]{8}$/.test(value.trim()) || /^#[0-9a-fA-F]{6}$/.test(value.trim())) {
-                  commit(block, { background: parseHexAlpha(value).hex8 }, onUpdateBlock);
+                  commit(block, { background: parseHexAlpha(value).hex8 }, onUpdateBlock, {
+                    coalesce: true,
+                  });
                 }
               }}
             />
@@ -160,13 +175,17 @@ export function LandingPageSectionSettingsPanel({
                   aria-label="Chọn màu nền"
                   className="h-9 w-full cursor-pointer"
                   value={view.color.hex}
+                  onPointerUp={() => onEndGesture?.()}
+                  onBlur={() => onEndGesture?.()}
                   onChange={(e) => {
                     const picked = parseHexAlpha(e.target.value);
                     const alpha = view.color.alpha > 0 ? view.color.alpha : 1;
                     const aa = Math.round(alpha * 255)
                       .toString(16)
                       .padStart(2, '0');
-                    commit(block, { background: `${picked.hex}${aa}` }, onUpdateBlock);
+                    commit(block, { background: `${picked.hex}${aa}` }, onUpdateBlock, {
+                      coalesce: true,
+                    });
                   }}
                 />
                 <SliderNumber
@@ -175,7 +194,22 @@ export function LandingPageSectionSettingsPanel({
                   max={100}
                   value={Math.round(view.color.alpha * 100)}
                   suffix="%"
-                  onChange={(n) => commit(block, { background: parseHexAlpha(view.color.hex + Math.round((n / 100) * 255).toString(16).padStart(2, '0')).hex8 }, onUpdateBlock)}
+                  onGestureEnd={onEndGesture}
+                  onChange={(n) =>
+                    commit(
+                      block,
+                      {
+                        background: parseHexAlpha(
+                          view.color.hex +
+                            Math.round((n / 100) * 255)
+                              .toString(16)
+                              .padStart(2, '0'),
+                        ).hex8,
+                      },
+                      onUpdateBlock,
+                      { coalesce: true },
+                    )
+                  }
                 />
               </div>
             ) : null}
@@ -275,7 +309,8 @@ export function LandingPageSectionSettingsPanel({
                 max={100}
                 value={view.opacity}
                 suffix="%"
-                onChange={(opacity) => commit(block, { opacity }, onUpdateBlock)}
+                onGestureEnd={onEndGesture}
+                onChange={(opacity) => commit(block, { opacity }, onUpdateBlock, { coalesce: true })}
               />
               {view.kind === 'image' ? (
                 <label className="block space-y-1">
@@ -293,7 +328,15 @@ export function LandingPageSectionSettingsPanel({
                   </select>
                 </label>
               ) : null}
-              <SliderNumber label="Kích thước" min={1} max={100} value={view.size} suffix="%" onChange={(size) => commit(block, { size }, onUpdateBlock)} />
+              <SliderNumber
+                label="Kích thước"
+                min={1}
+                max={100}
+                value={view.size}
+                suffix="%"
+                onGestureEnd={onEndGesture}
+                onChange={(size) => commit(block, { size }, onUpdateBlock, { coalesce: true })}
+              />
               <div className="space-y-1">
                 <span className="text-xs text-slate-600">Vị trí</span>
                 <div className="grid w-fit grid-cols-3 gap-1 rounded-md border border-slate-200 bg-white p-2" data-lp-section-bg-position="1">
@@ -328,8 +371,24 @@ export function LandingPageSectionSettingsPanel({
               <FrameWidthIcon />
             </IconChoice>
           </div>
-          <SliderNumber label="Trên và dưới" min={0} max={100} value={view.padY} suffix="%" onChange={(padY) => commit(block, { padY }, onUpdateBlock)} />
-          <SliderNumber label="Trái và phải" min={0} max={100} value={view.padX} suffix="%" onChange={(padX) => commit(block, { padX }, onUpdateBlock)} />
+          <SliderNumber
+            label="Trên và dưới"
+            min={0}
+            max={100}
+            value={view.padY}
+            suffix="%"
+            onGestureEnd={onEndGesture}
+            onChange={(padY) => commit(block, { padY }, onUpdateBlock, { coalesce: true })}
+          />
+          <SliderNumber
+            label="Trái và phải"
+            min={0}
+            max={100}
+            value={view.padX}
+            suffix="%"
+            onGestureEnd={onEndGesture}
+            onChange={(padX) => commit(block, { padX }, onUpdateBlock, { coalesce: true })}
+          />
         </div>
 
         <div className="border-t border-slate-200 pt-2">
@@ -350,7 +409,17 @@ export function LandingPageSectionSettingsPanel({
               </div>
               {view.borderOn ? (
                 <div className="space-y-2">
-                  <SliderNumber label="Độ dày" min={0} max={40} value={view.borderWidth} suffix="px" onChange={(borderWidth) => commit(block, { borderWidth }, onUpdateBlock)} />
+                  <SliderNumber
+                    label="Độ dày"
+                    min={0}
+                    max={40}
+                    value={view.borderWidth}
+                    suffix="px"
+                    onGestureEnd={onEndGesture}
+                    onChange={(borderWidth) =>
+                      commit(block, { borderWidth }, onUpdateBlock, { coalesce: true })
+                    }
+                  />
                   <select
                     className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
                     value={view.borderStyle}
@@ -398,10 +467,46 @@ export function LandingPageSectionSettingsPanel({
               </div>
               {view.shadowOn ? (
                 <div className="space-y-2">
-                  <SliderNumber label="Vị trí X" min={-200} max={200} value={view.shadow.x} suffix="px" onChange={(x) => commit(block, { shadow: { x } }, onUpdateBlock)} />
-                  <SliderNumber label="Vị trí Y" min={-200} max={200} value={view.shadow.y} suffix="px" onChange={(y) => commit(block, { shadow: { y } }, onUpdateBlock)} />
-                  <SliderNumber label="Trải" min={0} max={80} value={view.shadow.spread} suffix="px" onChange={(spread) => commit(block, { shadow: { spread } }, onUpdateBlock)} />
-                  <SliderNumber label="Mờ" min={0} max={120} value={view.shadow.blur} suffix="px" onChange={(blur) => commit(block, { shadow: { blur } }, onUpdateBlock)} />
+                  <SliderNumber
+                    label="Vị trí X"
+                    min={-200}
+                    max={200}
+                    value={view.shadow.x}
+                    suffix="px"
+                    onGestureEnd={onEndGesture}
+                    onChange={(x) => commit(block, { shadow: { x } }, onUpdateBlock, { coalesce: true })}
+                  />
+                  <SliderNumber
+                    label="Vị trí Y"
+                    min={-200}
+                    max={200}
+                    value={view.shadow.y}
+                    suffix="px"
+                    onGestureEnd={onEndGesture}
+                    onChange={(y) => commit(block, { shadow: { y } }, onUpdateBlock, { coalesce: true })}
+                  />
+                  <SliderNumber
+                    label="Trải"
+                    min={0}
+                    max={80}
+                    value={view.shadow.spread}
+                    suffix="px"
+                    onGestureEnd={onEndGesture}
+                    onChange={(spread) =>
+                      commit(block, { shadow: { spread } }, onUpdateBlock, { coalesce: true })
+                    }
+                  />
+                  <SliderNumber
+                    label="Mờ"
+                    min={0}
+                    max={120}
+                    value={view.shadow.blur}
+                    suffix="px"
+                    onGestureEnd={onEndGesture}
+                    onChange={(blur) =>
+                      commit(block, { shadow: { blur } }, onUpdateBlock, { coalesce: true })
+                    }
+                  />
                   <HexField value={view.shadow.color} onChange={(color) => commit(block, { shadow: { color: color.slice(0, 7) } }, onUpdateBlock)} />
                 </div>
               ) : null}
@@ -509,6 +614,7 @@ function SliderNumber({
   value,
   suffix,
   onChange,
+  onGestureEnd,
 }: {
   label: string;
   min: number;
@@ -516,6 +622,7 @@ function SliderNumber({
   value: number;
   suffix: string;
   onChange: (n: number) => void;
+  onGestureEnd?: () => void;
 }) {
   return (
     <label className="block space-y-1">
@@ -529,6 +636,7 @@ function SliderNumber({
             value={value}
             className="h-6 w-14 rounded border border-slate-200 bg-white px-1 text-right text-[11px]"
             onChange={(e) => onChange(Number(e.target.value))}
+            onBlur={() => onGestureEnd?.()}
           />
           <span>{suffix}</span>
         </span>
@@ -541,6 +649,9 @@ function SliderNumber({
         style={{ accentColor: ACCENT }}
         className="w-full"
         onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={() => onGestureEnd?.()}
+        onPointerCancel={() => onGestureEnd?.()}
+        onBlur={() => onGestureEnd?.()}
       />
     </label>
   );

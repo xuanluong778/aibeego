@@ -333,7 +333,7 @@ export function LandingPageMediaModal({ open, pageId, onClose, onUse }: Props) {
           <h2 className="text-base font-semibold text-zinc-900">Quản lý Media</h2>
           <button
             type="button"
-            className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+            className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
             onClick={onClose}
             aria-label="Đóng"
             data-lp-media-close

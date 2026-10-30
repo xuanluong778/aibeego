@@ -17,14 +17,15 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import {
-  INSPECTOR_PANEL_WIDTH,
-  INSPECTOR_SHELL_GAP_PX,
+  INSPECTOR_RAIL_WIDTH,
+  INSPECTOR_SHELL_RIGHT_PX,
 } from './landing-page-inspector-rail';
 
 export const LP_CANVAS_ZOOM_MIN = 0.25;
@@ -33,6 +34,7 @@ export const LP_CANVAS_ZOOM_STEP = 0.05;
 export const LP_CANVAS_ZOOM_DEFAULT = 1;
 
 const SCROLL_PAD_PX = 24;
+const DESKTOP_FIT_SCALE = 0.9;
 
 type ZoomSnap = {
   scale: number;
@@ -109,13 +111,16 @@ function isDeviceViewport(scroll: HTMLElement | null): boolean {
  * Hysteresis (≥2px) avoids scrollbar show/hide oscillating clientWidth.
  */
 function resolveDesignWidth(scroll: HTMLElement): number {
-  const raw = Math.max(320, scroll.clientWidth - SCROLL_PAD_PX);
+  // Device screens keep their own logical width; their fit host may be narrower than 320px.
+  const raw = Math.max(isDeviceViewport(scroll) ? 1 : 320, scroll.clientWidth - SCROLL_PAD_PX);
   let next = raw;
   if (isDeviceViewport(scroll)) {
     next = raw;
   } else if (isInspectorDockOpen(scroll)) {
-    next = raw + INSPECTOR_PANEL_WIDTH + INSPECTOR_SHELL_GAP_PX;
+    const slot = scroll.closest('[data-lp-builder-layout]')?.querySelector('[data-lp-inspector-slot]') as HTMLElement | null;
+    next = raw + Math.max(0, (slot?.offsetWidth || 0) - INSPECTOR_RAIL_WIDTH - INSPECTOR_SHELL_RIGHT_PX);
   }
+  if (!isDeviceViewport(scroll)) next = Math.max(1280, next);
   if (store.lockedDesignW > 0 && Math.abs(next - store.lockedDesignW) < 2) {
     return store.lockedDesignW;
   }
@@ -125,8 +130,8 @@ function resolveDesignWidth(scroll: HTMLElement): number {
 
 /**
  * Uniform fit into the visible scrollport (same scale on X and Y — no reflow).
- * Fit by WIDTH only so Desktop stays as wide as the editor allows; tall pages
- * scroll vertically instead of shrinking into a narrow center column.
+ * Fit by width with a small Desktop gutter so the page frame stays visible;
+ * tall pages scroll vertically.
  *
  * Device frames handle their own upscale/fit — keep canvas fit at 1.
  */
@@ -138,8 +143,8 @@ function resolveFitScale(
   if (isDeviceViewport(scroll)) return 1;
   const availW = Math.max(1, scroll.clientWidth - SCROLL_PAD_PX);
   const sx = availW / Math.max(1, designW);
-  let fit = Math.min(1, sx);
-  if (!Number.isFinite(fit) || fit <= 0.05) fit = 1;
+  let fit = Math.min(1, sx) * DESKTOP_FIT_SCALE;
+  if (!Number.isFinite(fit) || fit <= 0.05) fit = DESKTOP_FIT_SCALE;
   // Hysteresis: ignore sub-percent fit jitter from scrollbar flicker.
   if (store.fitScale > 0.05 && Math.abs(fit - store.fitScale) < 0.004) {
     return store.fitScale;
@@ -238,6 +243,14 @@ function applyZoomDom(scale: number, anchor: { clientX: number; clientY: number 
   layer.setAttribute('data-lp-canvas-zoom-user', String(user));
   layer.setAttribute('data-lp-canvas-fit', String(fit));
 
+  const desktopFrame = scroll != null && !isDeviceViewport(scroll);
+  layer.style.borderRadius = desktopFrame ? '8px' : '';
+  layer.style.boxShadow = desktopFrame
+    ? '0 0 0 2px rgba(255,255,255,0.35), 0 14px 36px rgba(0,0,0,0.35)'
+    : '';
+  if (desktopFrame) layer.setAttribute('data-lp-desktop-frame', '1');
+  else layer.removeAttribute('data-lp-desktop-frame');
+
   // Spacer drives scrollable area without reflowing document/element layout in React.
   slot.style.width = `${Math.ceil(w * next)}px`;
   slot.style.height = `${Math.ceil(h * next)}px`;
@@ -310,7 +323,7 @@ export function bumpCanvasZoom(
   delta: number,
   anchor?: { clientX: number; clientY: number } | null,
 ) {
-  setCanvasZoom(store.snap.scale + delta, { anchor: anchor ?? null });
+  setCanvasZoom((store.pending ?? store.snap.scale) + delta, { anchor: anchor ?? null });
 }
 
 export function bindCanvasZoomElements(els: {
@@ -455,9 +468,12 @@ export function LandingPageCanvasZoomControls() {
   const { scale } = useCanvasZoom();
   const pct = Math.round(scale * 100);
   const scrubbingRef = useRef(false);
+  const [sliderDraft, setSliderDraft] = useState<number | null>(null);
 
   const onSliderInput = useCallback((raw: number) => {
     const next = clampZoom(raw / 100);
+    // Keep controlled input in sync immediately; the canvas itself paints on rAF.
+    setSliderDraft(Math.round(next * 100));
     const scroll = store.scrollEl;
     const anchor = scroll
       ? {
@@ -471,14 +487,20 @@ export function LandingPageCanvasZoomControls() {
   const endScrub = useCallback(() => {
     scrubbingRef.current = false;
     store.scrubbing = false;
-    remeasureCanvasZoomNatural();
+    if (store.raf != null) {
+      cancelAnimationFrame(store.raf);
+      store.raf = null;
+    }
+    if (store.pending != null) flushRaf();
+    else remeasureCanvasZoomNatural();
+    setSliderDraft(null);
     emit();
   }, []);
 
   return (
     <div
       data-lp-canvas-zoom-controls="1"
-      className="pointer-events-auto absolute bottom-3 left-1/2 z-[45] flex -translate-x-1/2 items-center gap-1 rounded-xl border border-white/15 bg-zinc-950/90 px-1.5 py-1 shadow-lg backdrop-blur-sm"
+      className="pointer-events-auto flex max-w-full items-center gap-1 rounded-xl border border-white/15 bg-zinc-950/90 px-1.5 py-1 shadow-lg backdrop-blur-sm"
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
@@ -488,7 +510,7 @@ export function LandingPageCanvasZoomControls() {
         aria-label="Zoom Out"
         data-lp-zoom-out
         disabled={scale <= LP_CANVAS_ZOOM_MIN + 0.001}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/90 hover:bg-white/10 disabled:opacity-40"
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/90 hover:bg-white/10 disabled:opacity-40"
         onClick={() => {
           const scroll = store.scrollEl;
           const anchor = scroll
@@ -509,14 +531,16 @@ export function LandingPageCanvasZoomControls() {
         min={Math.round(LP_CANVAS_ZOOM_MIN * 100)}
         max={Math.round(LP_CANVAS_ZOOM_MAX * 100)}
         step={Math.round(LP_CANVAS_ZOOM_STEP * 100)}
-        value={pct}
-        className="h-1.5 w-28 accent-emerald-400 sm:w-36"
+        value={sliderDraft ?? pct}
+        className="h-11 min-w-0 w-20 accent-emerald-400 sm:w-28"
         onPointerDown={() => {
           scrubbingRef.current = true;
           store.scrubbing = true;
         }}
         onPointerUp={endScrub}
         onPointerCancel={endScrub}
+        onBlur={endScrub}
+        onKeyUp={endScrub}
         onChange={(e) => onSliderInput(Number(e.target.value))}
       />
       <button
@@ -525,7 +549,7 @@ export function LandingPageCanvasZoomControls() {
         aria-label="Zoom In"
         data-lp-zoom-in
         disabled={scale >= LP_CANVAS_ZOOM_MAX - 0.001}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/90 hover:bg-white/10 disabled:opacity-40"
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/90 hover:bg-white/10 disabled:opacity-40"
         onClick={() => {
           const scroll = store.scrollEl;
           const anchor = scroll

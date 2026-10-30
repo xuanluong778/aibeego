@@ -16,7 +16,10 @@ import {
 import { createPortal } from 'react-dom';
 import {
   elementFromField,
+  isItemImageField,
   isSectionLevelElement,
+  itemIdFromItemImageField,
+  itemImageField,
   lpSelectionKey,
   normalizeLpSelectionTarget,
   type LpSelectionTarget,
@@ -25,12 +28,10 @@ import type { LandingPageCanvasElementKey } from './landing-page-canvas-ux';
 import { LP_BLOCK_MIME } from './landing-page-canvas-ux';
 import { beginFreeDragByFreeId, beginFreeDragFromShell, cancelAllFreeDrags } from './landing-page-free-drag';
 
-const TOOLBAR_W = 36;
-const BTN_H = 34;
+const TOOLBAR_W = 44;
+const BTN_H = 44;
 const GAP = 6;
 const BAR_H = BTN_H * 4 + 3;
-/** Hysteresis (px) before flipping left/right — stops thrash near viewport edge. */
-const SIDE_HYSTERESIS = 28;
 const DRAGGING_SEL =
   '[data-lp-free-dragging="1"],[data-lp-free-resizing="1"],[data-lp-free-rotating="1"]';
 
@@ -39,6 +40,8 @@ let cachedChromeTopAt = 0;
 
 function readBuilderChromeTop(): number {
   if (typeof document === 'undefined') return 108;
+  const canvas = document.querySelector('[data-lp-canvas-scroll]');
+  if (canvas) return Math.ceil(canvas.getBoundingClientRect().top) + 8;
   const now = performance.now();
   if (cachedChromeTop > 0 && now - cachedChromeTopAt < 500) return cachedChromeTop;
   const root = document.querySelector('[data-lp-builder-root]') as HTMLElement | null;
@@ -120,9 +123,21 @@ function resolveHit(from: HTMLElement | null): { anchor: HTMLElement; target: Lp
       const bid = raw.slice(0, sep);
       const elKey = raw.slice(sep + 2) as LandingPageCanvasElementKey;
       if (bid === blockId) {
+        const fieldAttr = eidHost.getAttribute('data-lp-element-field') || undefined;
+        const kind = eidHost.getAttribute('data-lp-element-kind');
+        let field = fieldAttr;
+        if (
+          !field &&
+          kind === 'image' &&
+          typeof elKey === 'string' &&
+          elKey.startsWith('item:') &&
+          !elKey.startsWith('item:trust-')
+        ) {
+          field = itemImageField(elKey.slice(5));
+        }
         return {
           anchor: eidHost,
-          target: normalizeLpSelectionTarget({ blockId, element: elKey }),
+          target: normalizeLpSelectionTarget({ blockId, element: elKey, field }),
         };
       }
     }
@@ -152,6 +167,18 @@ function resolveHit(from: HTMLElement | null): { anchor: HTMLElement; target: Lp
 
   const img = from.closest('[data-lp-content-image]') as HTMLElement | null;
   if (img) {
+    const itemHost = img.closest('[data-lp-item-id]') as HTMLElement | null;
+    const itemId = itemHost?.getAttribute('data-lp-item-id');
+    if (itemId) {
+      return {
+        anchor: img,
+        target: normalizeLpSelectionTarget({
+          blockId,
+          element: `item:${itemId}`,
+          field: itemImageField(itemId),
+        }),
+      };
+    }
     return { anchor: img, target: { blockId, element: 'image' } };
   }
 
@@ -205,6 +232,20 @@ function findAnchorForTarget(target: LpSelectionTarget): HTMLElement | null {
   }
 
   if (field) {
+    if (isItemImageField(field)) {
+      const itemId = itemIdFromItemImageField(field);
+      if (itemId) {
+        const byField = blockEl.querySelector(
+          `[data-lp-element-field="${CSS.escape(field)}"]`,
+        ) as HTMLElement | null;
+        if (byField) return byField;
+        const itemHost = blockEl.querySelector(
+          `[data-lp-item-id="${CSS.escape(itemId)}"]`,
+        ) as HTMLElement | null;
+        const img = itemHost?.querySelector('[data-lp-content-image="1"]') as HTMLElement | null;
+        if (img) return img;
+      }
+    }
     const inline = blockEl.querySelector(
       `[data-lp-inline-field="${CSS.escape(field)}"]`,
     ) as HTMLElement | null;
@@ -274,10 +315,7 @@ export function LandingPageElementVerticalToolbar({
   const anchorRef = useRef<HTMLElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const sideLockRef = useRef<'left' | 'right' | null>(null);
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
-  const posRef = useRef(pos);
-  posRef.current = pos;
 
   const computePosition = useCallback(
     (target: LpSelectionTarget): { left: number; top: number; side: 'left' | 'right' } | null => {
@@ -289,6 +327,8 @@ export function LandingPageElementVerticalToolbar({
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const toolbarW = vh < 500 ? BAR_H : TOOLBAR_W;
+      const toolbarH = vh < 500 ? TOOLBAR_W : BAR_H;
       const chromeTop = readBuilderChromeTop();
       // Visible band: below builder chrome, above viewport bottom.
       const viewTop = chromeTop;
@@ -298,53 +338,21 @@ export function LandingPageElementVerticalToolbar({
       const visibleH = overlapBottom - overlapTop;
       // Hide when the selected element has scrolled out of the canvas viewport —
       // previously we clamped top into view, so the bar stayed stuck mid-screen.
-      if (visibleH < 24 || r.right < 8 || r.left > vw - 8) {
+      if (visibleH <= 0 || visibleH < Math.min(12, r.height / 2) || r.right < 8 || r.left > vw - 8) {
         return null;
       }
 
-      const preferRight = r.right + GAP;
-      const preferLeft = r.left - GAP - TOOLBAR_W;
-      const canRight = preferRight + TOOLBAR_W <= vw - 8;
-      const canLeft = preferLeft >= 8;
-      const gesture = isGestureActive();
-
-      let side: 'left' | 'right';
-      let left: number;
-
-      // Lock side for the whole gesture — flipping left↔right is the "nhảy lung tung" feel.
-      if (gesture && sideLockRef.current) {
-        side = sideLockRef.current;
-        left = side === 'right' ? preferRight : preferLeft;
-      } else {
-        const prevSide = sideLockRef.current ?? posRef.current?.side ?? null;
-        if (prevSide === 'right' && canRight) {
-          side = 'right';
-          left = preferRight;
-        } else if (prevSide === 'left' && canLeft) {
-          side = 'left';
-          left = preferLeft;
-        } else if (canRight && (!canLeft || preferRight + TOOLBAR_W + SIDE_HYSTERESIS <= vw - 8)) {
-          side = 'right';
-          left = preferRight;
-        } else if (canLeft) {
-          side = 'left';
-          left = preferLeft;
-        } else {
-          left = Math.min(vw - TOOLBAR_W - 8, Math.max(8, r.right + GAP));
-          side = 'right';
-        }
-        sideLockRef.current = side;
-      }
-
-      left = Math.min(vw - TOOLBAR_W - 8, Math.max(8, left));
+      // Always anchor to the element's right edge. Near the viewport boundary,
+      // keep the controls reachable without flipping them to the left side.
+      const left = Math.max(8, Math.min(r.right + GAP, vw - toolbarW - 8));
 
       // Prefer centering on the *visible* slice of the anchor (not the off-screen part).
-      const visibleMid = (overlapTop + overlapBottom) / 2 - BAR_H / 2;
+      const visibleMid = (overlapTop + overlapBottom) / 2 - toolbarH / 2;
       const topBase =
         r.height > 220 && r.top >= viewTop - 8 ? r.top + 16 : visibleMid;
       // Soft clamp only while still overlapping — never invent a position when gone.
-      const top = Math.min(Math.max(viewTop, topBase), viewBottom - BAR_H);
-      return { left, top, side };
+      const top = Math.min(Math.max(viewTop, topBase), viewBottom - toolbarH);
+      return { left, top, side: 'right' };
     },
     [],
   );
@@ -353,7 +361,6 @@ export function LandingPageElementVerticalToolbar({
     const target = displayTarget;
     if (!target) {
       setPos(null);
-      sideLockRef.current = null;
       return;
     }
     const next = computePosition(target);
@@ -381,11 +388,6 @@ export function LandingPageElementVerticalToolbar({
     });
   }, [computePosition, displayTarget]);
 
-  // Reset side lock when selection changes.
-  useEffect(() => {
-    sideLockRef.current = null;
-  }, [displayTarget ? lpSelectionKey(displayTarget) : '']);
-
   useLayoutEffect(() => {
     if (!enabled || !displayTarget) {
       setPos(null);
@@ -403,18 +405,31 @@ export function LandingPageElementVerticalToolbar({
       });
     };
     const canvasScroll = canvasRootRef.current;
+    // Dock fitting, loaded fonts and text resize can move the anchor without scrolling.
+    const resizeObserver = new ResizeObserver(onScroll);
+    if (anchorRef.current) resizeObserver.observe(anchorRef.current);
+    if (canvasScroll) resizeObserver.observe(canvasScroll);
+    const transformObserver = new MutationObserver(onScroll);
+    for (let node = anchorRef.current; node; node = node.parentElement) {
+      transformObserver.observe(node, { attributes: true, attributeFilter: ['style'] });
+      if (node === canvasScroll) break;
+    }
     canvasScroll?.addEventListener('scroll', onScroll, { passive: true });
     // Capture any nested scrollports (device frame, zoom layer).
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
+    window.addEventListener('transitionend', onScroll, true);
     window.addEventListener('lp-heading-box-resize-end', onScroll);
     window.addEventListener('lp-canvas-zoom-change', onScroll);
     window.addEventListener('pointerup', onScroll, true);
     window.addEventListener('pointercancel', onScroll, true);
     return () => {
+      resizeObserver.disconnect();
+      transformObserver.disconnect();
       canvasScroll?.removeEventListener('scroll', onScroll);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
+      window.removeEventListener('transitionend', onScroll, true);
       window.removeEventListener('lp-heading-box-resize-end', onScroll);
       window.removeEventListener('lp-canvas-zoom-change', onScroll);
       window.removeEventListener('pointerup', onScroll, true);
@@ -424,7 +439,7 @@ export function LandingPageElementVerticalToolbar({
   }, [enabled, displayTarget, updatePosition, canvasRootRef]);
 
   // Keep toolbar glued to the element while free-dragging / resizing (transform live).
-  // Single listener + rAF loop (do not also listen on layout effect — double updates thrashed side).
+  // Single listener + rAF loop keeps the position in sync with live transforms.
   useEffect(() => {
     if (!enabled || !displayTarget) return;
     let raf = 0;
@@ -433,8 +448,6 @@ export function LandingPageElementVerticalToolbar({
       active = false;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
-      // Allow side to re-evaluate after gesture ends.
-      sideLockRef.current = null;
       updatePosition();
     };
     const tick = () => {
@@ -450,17 +463,10 @@ export function LandingPageElementVerticalToolbar({
     const start = () => {
       if (active) return;
       if (!isGestureActive()) return;
-      // Capture side once at gesture start.
-      if (!sideLockRef.current && posRef.current) {
-        sideLockRef.current = posRef.current.side;
-      }
       active = true;
       raf = requestAnimationFrame(tick);
     };
     const onFrame = () => {
-      if (!sideLockRef.current && posRef.current) {
-        sideLockRef.current = posRef.current.side;
-      }
       updatePosition();
       start();
     };
@@ -543,9 +549,6 @@ export function LandingPageElementVerticalToolbar({
     // cancel the free-drag session. Target is already the displayTarget.
     const anchor = anchorRef.current || findAnchorForTarget(displayTarget);
     if (!anchor) return;
-
-    // Lock current side before the shell starts moving.
-    if (posRef.current) sideLockRef.current = posRef.current.side;
 
     // Section-level only: HTML5 DnD reorder (form is free-drag below).
     if (isSectionReorder) return;
@@ -633,8 +636,8 @@ export function LandingPageElementVerticalToolbar({
       data-lp-floating-toolbar="1"
       data-lp-vertical-toolbar-side={pos.side}
       data-lp-toolbar-for={displayTarget.blockId}
-      className="pointer-events-auto fixed z-[9994] flex flex-col overflow-hidden rounded-md border border-orange-400/80 bg-[#F97316] shadow-lg"
-      style={{ left: pos.left, top: pos.top, width: TOOLBAR_W }}
+      className="pointer-events-auto fixed z-[9994] flex flex-col [@media(max-height:500px)]:flex-row rounded-md border border-orange-400/80 bg-[#F97316] shadow-lg"
+      style={{ left: pos.left, top: pos.top, width: typeof window !== 'undefined' && window.innerHeight < 500 ? BAR_H : TOOLBAR_W }}
       onPointerEnter={() => setToolbarHover(true)}
       onPointerLeave={() => setToolbarHover(false)}
       onPointerDown={(e) => e.stopPropagation()}
@@ -651,7 +654,7 @@ export function LandingPageElementVerticalToolbar({
         data-lp-vertical-tool="move"
         data-lp-free-drag-handle={!isSectionReorder ? '1' : undefined}
         data-lp-section-drag-handle={isSectionReorder ? '1' : undefined}
-        className="flex h-[34px] w-full cursor-grab items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-11 w-full cursor-grab items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
         onPointerDown={(e) => {
           if (isSectionReorder) {
             e.stopPropagation();
@@ -682,7 +685,7 @@ export function LandingPageElementVerticalToolbar({
         aria-label="Lưu"
         disabled={locked}
         data-lp-vertical-tool="save"
-        className="flex h-[34px] w-full items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-11 w-full items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
         onClick={run(() => onSave(displayTarget))}
       >
         💾
@@ -693,7 +696,7 @@ export function LandingPageElementVerticalToolbar({
         aria-label="Nhân bản"
         disabled={locked}
         data-lp-vertical-tool="duplicate"
-        className="flex h-[34px] w-full items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-11 w-full items-center justify-center border-b border-orange-500/40 text-sm text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
         onClick={run(() => onDuplicate(displayTarget))}
       >
         ⧉
@@ -704,7 +707,7 @@ export function LandingPageElementVerticalToolbar({
         aria-label="Xóa"
         disabled={locked}
         data-lp-vertical-tool="delete"
-        className="flex h-[34px] w-full items-center justify-center text-sm text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-11 w-full items-center justify-center text-sm text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
         onClick={run(() => onDelete(displayTarget))}
       >
         🗑

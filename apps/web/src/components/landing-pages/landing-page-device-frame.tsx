@@ -22,16 +22,17 @@ const BEZEL = {
   tablet: 14,
 } as const;
 
-/** Allow phone/tablet chrome to grow into spare canvas width (editor only). */
+/** Keep device previews compact while preserving their logical viewport sizes. */
 const DEVICE_SCALE_MAX = {
-  mobile: 1.65,
-  tablet: 1.25,
+  mobile: 1,
+  tablet: 0.85,
 } as const;
 
 type Props = {
   device: LandingPageDeviceKind;
   children: ReactNode;
   className?: string;
+  chrome?: boolean;
 };
 
 /**
@@ -42,7 +43,7 @@ type Props = {
  * are coalesced on rAF and skip setState when values are unchanged to avoid
  * render loops with ResizeObserver.
  */
-export function LandingPageDeviceFrame({ device, children, className }: Props) {
+export function LandingPageDeviceFrame({ device, children, className, chrome = true }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -55,11 +56,11 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
   const rafRef = useRef<number | null>(null);
 
   const screen = LP_DEVICE_SCREEN[device];
-  const bezel = BEZEL[device];
+  const bezel = chrome ? BEZEL[device] : 0;
   const frameW = screen.width + bezel * 2;
   const frameH = screen.height + bezel * 2;
-  const outerRadius = device === 'mobile' ? 44 : 28;
-  const screenRadius = device === 'mobile' ? 36 : 20;
+  const outerRadius = chrome ? (device === 'mobile' ? 44 : 28) : 0;
+  const screenRadius = chrome ? (device === 'mobile' ? 36 : 20) : 0;
   const screenHeight = Math.max(screen.height, contentHeight);
   const shellHeight = screenHeight + bezel * 2;
 
@@ -76,8 +77,6 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
       shell.style.width = `${frameW}px`;
       shell.style.minHeight = `${frameH}px`;
       shell.style.height = `${sh}px`;
-      shell.style.marginLeft = 'auto';
-      shell.style.marginRight = 'auto';
       shell.style.transformOrigin = 'top center';
       shell.style.transform = nextScale !== 1 ? `scale(${nextScale})` : '';
       shell.setAttribute('data-lp-device-scale', String(nextScale));
@@ -103,7 +102,7 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
       let nextScale = 1;
       if (availW >= 40) {
         const capped = Math.min(DEVICE_SCALE_MAX[device], availW / frameW);
-        nextScale = Number.isFinite(capped) && capped > 0.2 ? capped : 1;
+        nextScale = Number.isFinite(capped) && capped > 0 ? capped : 1;
       }
       // Hysteresis: ignore sub-pixel scale jitter.
       if (Math.abs(nextScale - scaleRef.current) < 0.004) {
@@ -154,7 +153,10 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', scheduleRecompute);
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
   }, [scheduleRecompute, device]);
 
@@ -185,12 +187,12 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
       <div
         ref={slotRef}
         style={layoutStyle}
-        className="relative mx-auto shrink-0"
+        className="relative mx-auto flex shrink-0 justify-center"
         data-lp-device-scale-slot="1"
       >
         <div
           ref={shellRef}
-          className="relative mx-auto bg-[#1c1c1e] shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+          className="relative shrink-0 bg-[#1c1c1e] shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
           style={shellStyle}
           data-lp-device-frame="1"
           data-lp-device-kind={device}
@@ -201,7 +203,7 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
             className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/15"
             aria-hidden
           />
-          {device === 'mobile' ? (
+          {chrome && device === 'mobile' ? (
             <>
               <span
                 className="pointer-events-none absolute -left-[2px] top-[120px] h-7 w-[2px] rounded-l bg-[#3a3a3c]"
@@ -223,7 +225,7 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
           ) : null}
 
           <div
-            className="absolute overflow-x-hidden overflow-y-visible bg-white"
+            className="absolute bg-white"
             style={{
               top: bezel,
               left: bezel,
@@ -236,27 +238,27 @@ export function LandingPageDeviceFrame({ device, children, className }: Props) {
             data-lp-device-screen-w={screen.width}
             data-lp-device-screen-h={screenHeight}
           >
-            {device === 'mobile' ? (
+            {chrome && device === 'mobile' ? (
               <div
                 className="pointer-events-none absolute left-1/2 top-2.5 z-20 h-[28px] w-[110px] -translate-x-1/2 rounded-full bg-black shadow-sm"
                 data-lp-device-notch="1"
                 aria-hidden
               />
-            ) : (
+            ) : chrome ? (
               <div
                 className="pointer-events-none absolute left-1/2 top-2 z-20 h-2 w-2 -translate-x-1/2 rounded-full bg-black/80"
                 data-lp-device-camera="1"
                 aria-hidden
               />
-            )}
+            ) : null}
 
             <div
-              className="mx-auto h-auto w-full max-w-full overflow-x-hidden overflow-y-visible"
+              className="mx-auto h-auto w-full max-w-full"
               data-lp-device-no-inner-scroll="1"
             >
               <div
                 ref={contentRef}
-                className="mx-auto min-h-full w-full max-w-full overflow-x-hidden"
+                className="mx-auto min-h-full w-full max-w-full"
                 data-lp-device-content="1"
                 style={{ width: screen.width, minHeight: screen.height, marginLeft: 'auto', marginRight: 'auto' }}
               >

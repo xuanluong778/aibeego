@@ -11,6 +11,7 @@ import {
   hexWithAlpha,
   parseHexAlpha,
   safeTextBoxMediaUrl,
+  type LandingPageInlineAiPageMeta,
   type LandingPageTextBoxChrome,
   type LandingPageTextBoxVisibility,
 } from '@marketingspa/shared';
@@ -257,6 +258,9 @@ export function LandingPageTextQuickPanel({
   onPickMedia,
   onClose,
   embedded = false,
+  pageId,
+  pageMeta,
+  onSaveTopicHint,
 }: {
   open: boolean;
   block: LandingPageBlock;
@@ -269,6 +273,9 @@ export function LandingPageTextQuickPanel({
   onClose: () => void;
   /** Show Cài đặt khối inside the right inspector. */
   embedded?: boolean;
+  pageId?: string;
+  pageMeta?: LandingPageInlineAiPageMeta | null;
+  onSaveTopicHint?: (hint: string) => void;
 }) {
   const box: LandingPageTextBoxChrome = { ...(textStyle?.box || {}) };
   const [urlOpen, setUrlOpen] = useState(false);
@@ -410,6 +417,9 @@ export function LandingPageTextQuickPanel({
             block={block}
             field={field}
             tone="light"
+            pageId={pageId}
+            pageMeta={pageMeta}
+            onSaveTopicHint={onSaveTopicHint}
             onLive={onLive}
             onCommit={onCommit}
           />

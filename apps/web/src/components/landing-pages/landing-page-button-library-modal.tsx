@@ -89,22 +89,22 @@ export function LandingPageButtonLibraryModal({
       }}
     >
       <div
-        className="flex h-full max-h-[calc(100dvh-1.5rem)] w-full max-w-[1100px] overflow-hidden rounded-xl border border-zinc-700/40 bg-[#1a1d24] shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]"
+        className="flex h-full max-h-[calc(100dvh-1.5rem)] w-full max-w-[1100px] flex-col rounded-xl border border-zinc-700/40 bg-[#1a1d24] shadow-2xl sm:max-h-[calc(100dvh-2.5rem)] sm:flex-row"
         data-lp-button-library-shell
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Left sidebar — matches GetResponse dark nav */}
         <aside
-          className="flex w-[200px] shrink-0 flex-col border-r border-white/5 bg-[#14171e] sm:w-[220px]"
+          className="flex w-full shrink-0 flex-col border-r border-white/5 bg-[#14171e] sm:w-[220px] sm:overflow-y-auto"
           data-lp-button-library-nav
         >
-          <div className="px-4 pb-3 pt-5">
+          <div className="px-4 py-2 sm:pb-3 sm:pt-5">
             <h2 className="text-sm font-bold tracking-[0.14em] text-white">NÚT</h2>
             <p className="mt-1 text-[10px] text-white/40">
               {LP_BUTTON_LIBRARY_TEMPLATES.length} mẫu · kéo thả hoặc chọn
             </p>
           </div>
-          <nav className="flex-1 space-y-0.5 px-2 pb-4">
+          <nav className="flex min-w-0 gap-1 overflow-x-auto px-2 pb-2 sm:flex-1 sm:flex-col sm:space-y-0.5 sm:pb-4">
             <NavItem
               active={category === 'all'}
               label="Tất cả các danh mục"
@@ -127,7 +127,7 @@ export function LandingPageButtonLibraryModal({
           <button
             type="button"
             data-lp-button-library-close
-            className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/80 hover:text-zinc-800"
+            className="absolute right-2 top-1 z-10 inline-flex h-11 w-11 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/80 hover:text-zinc-800"
             title="Đóng"
             aria-label="Đóng"
             onClick={onClose}
@@ -178,7 +178,7 @@ function NavItem({
       data-lp-button-library-cat={label}
       data-lp-button-library-cat-active={active ? '1' : undefined}
       className={cn(
-        'relative flex w-full items-center rounded-md px-3 py-2.5 text-left text-[13px] transition',
+        'relative flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-3 py-2.5 text-left text-[13px] transition sm:w-full',
         active
           ? 'bg-white/10 font-semibold text-white'
           : 'text-white/70 hover:bg-white/5 hover:text-white',

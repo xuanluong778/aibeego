@@ -1,7 +1,7 @@
 'use client';
 
 import type { LandingPageBlock } from '@marketingspa/shared';
-import { elementFromField } from './landing-page-canvas-selection';
+import { elementFromField, isItemImageField } from './landing-page-canvas-selection';
 import type { LandingPageCanvasElementKey } from './landing-page-canvas-ux';
 import { isLandingPageBoxStyle } from './landing-page-box-presets';
 
@@ -50,6 +50,10 @@ export function resolveInspectorContext(
 
   const fieldKey = typeof selectedField === 'string' ? selectedField.trim() : '';
   if (fieldKey) {
+    // Gallery/card image — must win before item: text mapping.
+    if (isItemImageField(fieldKey)) {
+      return { kind: 'image', label: 'Ảnh', dataAttr: 'image' };
+    }
     const derived = elementFromField(fieldKey);
     if (derived === 'cta') {
       return { kind: 'button', label: 'NÚT', dataAttr: 'button' };

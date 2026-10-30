@@ -4,21 +4,14 @@ import {
   PublicLandingPageClient,
   type PublicLandingPayload,
 } from '@/components/landing-pages/public-landing-page-client';
+import { landingPagePublicApiBase } from '@/lib/landing-page-public-api';
 
 export const revalidate = 60;
-
-function apiBase(): string {
-  const raw =
-    process.env.LANDING_PAGE_API_INTERNAL_URL?.trim() ||
-    process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    'http://127.0.0.1:4010';
-  return raw.replace(/\/$/, '');
-}
 
 async function fetchPublic(slug: string): Promise<PublicLandingPayload | null> {
   try {
     const res = await fetch(
-      `${apiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}`,
+      `${landingPagePublicApiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}`,
       { next: { revalidate: 60, tags: [`lp-public-${slug}`] } },
     );
     if (!res.ok) return null;

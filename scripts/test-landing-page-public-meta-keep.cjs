@@ -37,11 +37,11 @@ gate(
     svc.includes('profileAppliedAt:') &&
     svc.includes('lastAiAt:') &&
     svc.includes('clientRevision:') &&
-    svc.includes('themePreset:') &&
-    svc.includes('themeUserLocked:') &&
     svc.includes('gallery:') &&
-    svc.includes('...safeMeta'),
-  'blocklist strips builder provenance keys only',
+    svc.includes('...safeMeta') &&
+    !/themePreset:\s*_themePreset/.test(svc) &&
+    !/themeUserLocked:\s*_themeUserLocked/.test(svc),
+  'blocklist strips builder provenance keys only — keep themePreset for live look',
 );
 
 gate(

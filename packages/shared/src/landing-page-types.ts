@@ -470,6 +470,15 @@ export type LandingPageSpec = {
     /** When true, AI must not overwrite user's theme choice. */
     themeUserLocked?: boolean;
     /**
+     * One-line topic hint for field AI when the page otherwise lacks product/topic signal.
+     * Set from the “Gợi ý AI” clarify prompt — scoped to this website.
+     */
+    aiTopicHint?: string;
+    /** Optional copy tone for inline AI (professional | bold | friendly). */
+    aiTone?: 'professional' | 'bold' | 'friendly' | string;
+    /** Optional page goal override for inline AI (lead | sales | …). */
+    aiPageGoal?: 'lead' | 'sales' | 'signup' | 'consult' | 'event' | string;
+    /**
      * Monotonic client autosave revision (builder concurrency).
      * Server rejects autosaves with a lower revision than stored.
      */

@@ -4265,7 +4265,6 @@ export function LandingPageRenderer({
   }, [tokens.fontFamily, goldStandard, designFamilyAttr]);
 
   useEffect(() => {
-    if (!interactive && mode !== 'preview') return;
     const styles = (spec.meta as { inlineTextStyles?: Record<string, unknown> } | undefined)?.inlineTextStyles;
     if (!styles) return;
     const needsFonts = Object.values(styles).some((s) => {
@@ -4275,7 +4274,7 @@ export function LandingPageRenderer({
     if (needsFonts) {
       void import('./landing-page-title-presets').then((m) => m.ensureLandingPageTitleFonts());
     }
-  }, [interactive, mode, spec.meta]);
+  }, [spec.meta]);
 
   const htmlDocument =
     typeof spec.meta?.htmlSource === 'string' && spec.meta.htmlSource.trim()

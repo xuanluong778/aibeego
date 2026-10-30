@@ -1,9 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, type ChangeEvent, type CompositionEvent, type FocusEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CompositionEvent, type FocusEvent } from 'react';
 import type { LandingPageBlock } from '@marketingspa/shared';
+import {
+  buildLandingPageInlineAiContext,
+  detectInlineAiMissingTopic,
+  serializeInlineAiContextForApi,
+  type LandingPageInlineAiPageMeta,
+} from '@marketingspa/shared';
 import { InspectorAccordion, InspectorFieldLabel } from './landing-page-inspector-ui';
 import { isButtonLikeTextField } from './landing-page-canvas-ux';
+import { LandingPageTextAiSuggest } from './landing-page-text-ai-suggest';
 
 /** Read editable string for a canvas inline field key (same paths as builder applyNestedBlockField). */
 export function readBlockFieldString(block: LandingPageBlock, field: string): string {
@@ -60,6 +67,10 @@ export function LandingPageInspectorTextContent({
   onLive,
   onCommit,
   tone = 'dark',
+  pageId,
+  pageMeta,
+  hasBusinessProduct,
+  onSaveTopicHint,
 }: {
   block: LandingPageBlock;
   field: string;
@@ -67,16 +78,24 @@ export function LandingPageInspectorTextContent({
   onCommit: (value: string) => void;
   /** Light surface for the left quick-edit drawer. Selection stays while this field is focused. */
   tone?: 'dark' | 'light';
+  /** When set, show ✨ Gợi ý AI under the textarea. */
+  pageId?: string;
+  pageMeta?: LandingPageInlineAiPageMeta | null;
+  /** True when org business profile already has product/service (skip clarify). */
+  hasBusinessProduct?: boolean;
+  onSaveTopicHint?: (hint: string) => void;
 }) {
   const external = readBlockFieldString(block, field);
   const [draft, setDraft] = useState(external);
   const focusedRef = useRef(false);
   const composingRef = useRef(false);
+  const [topicHintOverride, setTopicHintOverride] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(external);
     focusedRef.current = false;
     composingRef.current = false;
+    setTopicHintOverride(null);
   }, [block.id, field]);
 
   useEffect(() => {
@@ -85,6 +104,27 @@ export function LandingPageInspectorTextContent({
   }, [external]);
 
   const label = isButtonLikeTextField(field) ? 'Nhãn nút' : 'Nội dung chữ';
+
+  const aiCtx = useMemo(() => {
+    const meta: LandingPageInlineAiPageMeta = {
+      ...(pageMeta || {}),
+      aiTopicHint: topicHintOverride || pageMeta?.aiTopicHint || null,
+    };
+    return buildLandingPageInlineAiContext({ block, field, pageMeta: meta });
+  }, [block, field, pageMeta, topicHintOverride]);
+
+  const clarifyQuestion = useMemo(() => {
+    if (!aiCtx || !pageId) return null;
+    return detectInlineAiMissingTopic(aiCtx, Boolean(hasBusinessProduct));
+  }, [aiCtx, pageId, hasBusinessProduct]);
+
+  const applyAi = (next: string) => {
+    focusedRef.current = false;
+    composingRef.current = false;
+    setDraft(next);
+    onLive(next);
+    onCommit(next);
+  };
 
   const fields = (
     <>
@@ -125,6 +165,28 @@ export function LandingPageInspectorTextContent({
         onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       />
+      {pageId && aiCtx ? (
+        <LandingPageTextAiSuggest
+          pageId={pageId}
+          fieldKind={aiCtx.fieldKind}
+          blockType={aiCtx.sectionType}
+          value={draft}
+          requestKey={`${pageId}::${block.id}::${field}`}
+          pageGoal={
+            (pageMeta?.aiPageGoal as 'lead' | 'sales' | 'signup' | 'consult' | 'event' | undefined) ||
+            (pageMeta?.pageGoal as 'lead' | 'sales' | 'signup' | 'consult' | 'event' | undefined) ||
+            'lead'
+          }
+          blockContext={serializeInlineAiContextForApi(aiCtx)}
+          clarifyQuestion={clarifyQuestion}
+          tone={tone}
+          onApply={applyAi}
+          onSaveTopicHint={(hint) => {
+            setTopicHintOverride(hint);
+            onSaveTopicHint?.(hint);
+          }}
+        />
+      ) : null}
       {tone === 'dark' ? (
         <p className="text-[10px] opacity-40">Cập nhật realtime trên canvas. Double-click canvas để sửa trực tiếp.</p>
       ) : (

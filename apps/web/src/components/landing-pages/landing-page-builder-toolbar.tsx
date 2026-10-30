@@ -7,6 +7,7 @@ import {
   Redo2,
   Save,
   Smartphone,
+  SlidersHorizontal,
   Tablet,
   Undo2,
   Upload,
@@ -34,6 +35,11 @@ type Props = {
   onRedo: () => void;
   onSave: () => void;
   onPublish: () => void;
+  /**
+   * Persist + publish current canvas, then open the public URL.
+   * A plain /p/slug link would show the last publishedSpec, not the look just saved.
+   */
+  onViewLive?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
   /** In-flight publish request — disables double submit. */
@@ -42,6 +48,7 @@ type Props = {
   pageStatus?: string | null;
   /** Public slug for post-publish affordance. */
   publicSlug?: string | null;
+  onOpenPanel?: () => void;
 };
 
 function Tip({ label, children }: { label: string; children: ReactNode }) {
@@ -64,12 +71,16 @@ function IconBtn({
   disabled,
   onClick,
   children,
+  testId,
+  className = '',
 }: {
   label: string;
   active?: boolean;
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
+  testId?: string;
+  className?: string;
 }) {
   return (
     <Tip label={label}>
@@ -79,10 +90,12 @@ function IconBtn({
         aria-label={label}
         disabled={disabled}
         onClick={onClick}
+        data-lp-toolbar-btn={testId}
         className={
-          'inline-flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-[10px] text-white/90 transition [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ' +
-          'hover:bg-white/10 disabled:pointer-events-none disabled:opacity-40 ' +
-          (active ? 'bg-white/15 text-white ring-1 ring-emerald-300/50' : '')
+          'inline-flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-[10px] text-white transition ' +
+          'hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 ' +
+          (active ? 'bg-white/15 text-white ring-1 ring-emerald-300/50' : 'text-white/95') +
+          ' ' + className
         }
       >
         {children}
@@ -93,7 +106,7 @@ function IconBtn({
 
 /**
  * Fixed builder chrome row — sits under the app header, above the canvas.
- * No floating white panels; compact icon controls + orange Publish.
+ * 3-column flex: Back | Preview+Devices | Undo/Redo/Save+Publish — never overlap.
  */
 export function LandingPageBuilderToolbar({
   viewport,
@@ -109,11 +122,13 @@ export function LandingPageBuilderToolbar({
   onRedo,
   onSave,
   onPublish,
+  onViewLive,
   canUndo = true,
   canRedo = true,
   publishing = false,
   pageStatus = null,
   publicSlug = null,
+  onOpenPanel,
 }: Props) {
   const centerInCanvas = alignToCanvas && !hideBack && !previewOn && inspectorDocked;
   const isPublished = (pageStatus || '').toUpperCase() === 'PUBLISHED';
@@ -141,27 +156,29 @@ export function LandingPageBuilderToolbar({
       onWheel={blockToolbarWheel}
       onWheelCapture={blockToolbarWheel}
       className={
-        // sticky + shrink-0: even if an ancestor leaks scroll, toolbar stays under header chrome
-        'sticky top-0 flex h-11 w-full min-w-0 shrink-0 touch-pan-x items-center justify-center overflow-y-hidden overscroll-y-none border-b border-white/10 bg-[#0A3D30] px-1.5 sm:px-2 ' +
-        (previewOn ? 'z-[200] ' : 'z-40 ') +
-        // Match builder grid: canvas | gap-2 | inspector 240px → shift center to canvas mid
-        (centerInCanvas ? 'lg:pr-[calc(240px+0.5rem)]' : '')
+        'sticky top-0 z-40 grid h-24 w-full min-w-0 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-2 items-center gap-x-1 border-b border-white/10 bg-[#0A3D30] px-1.5 sm:flex sm:h-12 sm:gap-1 sm:px-2 ' +
+        (previewOn ? 'z-[200] ' : '') +
+        ''
       }
       role="toolbar"
       aria-label="Landing page builder toolbar"
     >
+      {/* Left: back */}
+      <div className="col-start-1 row-start-1 flex shrink-0 items-center" data-lp-toolbar-back>
+        {!hideBack ? (
+          <IconBtn label="Quay lại" onClick={onBack} testId="back">
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
+          </IconBtn>
+        ) : (
+          <span className="inline-block w-9" aria-hidden />
+        )}
+      </div>
+
+      {/* Center: preview + devices */}
       <div
-        className="flex min-w-0 max-w-full items-center justify-center gap-0.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-1"
+        className="col-span-3 col-start-1 row-start-2 flex min-w-0 flex-1 items-center justify-center gap-0.5 sm:gap-1"
         data-lp-toolbar-center
       >
-        {!hideBack ? (
-          <div className="flex shrink-0 items-center" data-lp-toolbar-back>
-            <IconBtn label="Quay lại" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
-            </IconBtn>
-          </div>
-        ) : null}
-
         <div
           className="flex h-9 shrink-0 items-center gap-1.5 px-1 sm:gap-2 sm:px-1.5"
           data-lp-preview-toggle
@@ -181,15 +198,10 @@ export function LandingPageBuilderToolbar({
             data-state={previewOn ? 'on' : 'off'}
             onClick={() => onPreviewChange(!previewOn)}
             className={
-              'relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors ' +
-              // OFF = neutral gray track; ON = active green track
+              'relative my-3 h-[22px] w-[40px] shrink-0 rounded-full transition-colors before:absolute before:-inset-y-3 before:inset-x-0 ' +
               (previewOn ? 'bg-emerald-400' : 'bg-zinc-400/80')
             }
           >
-            {/*
-              Knob position (LTR, explicit left — not transform-only):
-              OFF → left (2px); ON → right (20px).
-            */}
             <span
               data-lp-preview-knob={previewOn ? 'right' : 'left'}
               aria-hidden
@@ -206,6 +218,7 @@ export function LandingPageBuilderToolbar({
             label="Desktop"
             active={viewport === 'desktop'}
             onClick={() => onViewportChange('desktop')}
+            testId="desktop"
           >
             <Monitor className="h-4 w-4" strokeWidth={1.75} />
           </IconBtn>
@@ -213,6 +226,7 @@ export function LandingPageBuilderToolbar({
             label="Tablet"
             active={viewport === 'tablet'}
             onClick={() => onViewportChange('tablet')}
+            testId="tablet"
           >
             <Tablet className="h-[18px] w-[18px]" strokeWidth={1.75} />
           </IconBtn>
@@ -220,58 +234,82 @@ export function LandingPageBuilderToolbar({
             label="Mobile"
             active={viewport === 'mobile'}
             onClick={() => onViewportChange('mobile')}
+            testId="mobile"
           >
             <Smartphone className="h-3.5 w-3.5" strokeWidth={1.75} />
           </IconBtn>
         </div>
+      </div>
 
-        <div className="flex shrink-0 items-center gap-0.5">
-          <IconBtn label="Undo" disabled={!canUndo} onClick={onUndo}>
-            <Undo2 className="h-4 w-4" strokeWidth={1.75} />
+      {/* Right: history + save + publish — never absolute-overlaid */}
+      <div
+        className="col-span-2 col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-0.5 sm:gap-1"
+        data-lp-toolbar-actions
+      >
+        {onOpenPanel && !previewOn ? (
+          <IconBtn label="Mở bảng thuộc tính" onClick={onOpenPanel} testId="inspector" className="xl:hidden">
+            <SlidersHorizontal className="h-4 w-4" />
           </IconBtn>
-          <IconBtn label="Redo" disabled={!canRedo} onClick={onRedo}>
-            <Redo2 className="h-4 w-4" strokeWidth={1.75} />
+        ) : null}
+        <div className="flex shrink-0 items-center gap-0.5" data-lp-toolbar-history>
+          <IconBtn
+            label="Undo (Ctrl+Z)"
+            disabled={!canUndo}
+            onClick={onUndo}
+            testId="undo"
+          >
+            <Undo2 className="h-4 w-4" strokeWidth={2} />
           </IconBtn>
-          <IconBtn label="Lưu" disabled={saving} onClick={onSave}>
+          <IconBtn
+            label="Redo (Ctrl+Y)"
+            disabled={!canRedo}
+            onClick={onRedo}
+            testId="redo"
+          >
+            <Redo2 className="h-4 w-4" strokeWidth={2} />
+          </IconBtn>
+          <IconBtn
+            label="Lưu"
+            disabled={saving}
+            onClick={onSave}
+            testId="save"
+            className="enabled:hover:text-[#FF6B00] enabled:focus-visible:text-[#FF6B00]"
+          >
             <Save className="h-4 w-4" strokeWidth={1.75} />
           </IconBtn>
         </div>
-      </div>
 
-      <div
-        className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 sm:right-2"
-        data-lp-toolbar-publish
-      >
-        {isPublished && publicSlug && !publishing ? (
-          <a
-            href={`/p/${publicSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden h-9 items-center rounded-[10px] border border-white/20 px-2.5 text-[12px] font-medium text-white/90 transition hover:bg-white/10 sm:inline-flex"
-            data-lp-public-link
-            title="Mở trang công khai"
+        <div className="flex shrink-0 items-center gap-1.5 pl-0.5" data-lp-toolbar-publish>
+          {isPublished && publicSlug && !publishing ? (
+            <button
+              type="button"
+              onClick={() => onViewLive?.()}
+              className="hidden h-11 items-center rounded-[10px] border border-white/20 px-2.5 text-[12px] font-medium text-white/90 transition hover:bg-white/10 xl:inline-flex"
+              data-lp-public-link
+              title="Xuất bản bản đang lưu rồi mở trang công khai"
+            >
+              Xem live
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onPublish}
+            disabled={publishing}
+            className={
+              'inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[10px] px-2.5 text-[13px] font-semibold text-white transition sm:px-3 disabled:cursor-wait disabled:opacity-70 ' +
+              (isPublished && !publishing
+                ? 'bg-emerald-600 hover:bg-emerald-500'
+                : 'bg-[#F97316] hover:bg-[#ea6c0c]')
+            }
+            data-lp-publish-btn
+            data-lp-publish-state={publishing ? 'busy' : isPublished ? 'published' : 'draft'}
+            title={publishTitle}
+            aria-label={publishLabel}
           >
-            Xem live
-          </a>
-        ) : null}
-        <button
-          type="button"
-          onClick={onPublish}
-          disabled={publishing}
-          className={
-            'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] font-semibold text-white transition sm:px-3 disabled:cursor-wait disabled:opacity-70 ' +
-            (isPublished && !publishing
-              ? 'bg-emerald-600 hover:bg-emerald-500'
-              : 'bg-[#F97316] hover:bg-[#ea6c0c]')
-          }
-          data-lp-publish-btn
-          data-lp-publish-state={publishing ? 'busy' : isPublished ? 'published' : 'draft'}
-          title={publishTitle}
-          aria-label={publishLabel}
-        >
-          <Upload className="h-3.5 w-3.5" strokeWidth={2} />
-          <span className="hidden sm:inline">{publishLabel}</span>
-        </button>
+            <Upload className="h-3.5 w-3.5" strokeWidth={2} />
+            <span className="hidden sm:inline">{publishLabel}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

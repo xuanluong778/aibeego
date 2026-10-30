@@ -168,7 +168,7 @@ export function LandingPageSectionLibraryModal({
           <button
             type="button"
             data-lp-section-library-close
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
             title="Đóng"
             aria-label="Đóng"
             onClick={onClose}

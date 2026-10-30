@@ -1,46 +1,148 @@
 {
   "bundles": [
     {
-      "id": "release-toolbar-scroll-Sj-wNU0Q4rAx",
-      "buildId": "Sj-wNU0Q4rAxUy1IBBB6v",
-      "gitSha": "7754b13",
-      "label": "release-toolbar-scroll",
-      "path": "deploy/aibeego-vps/bundles/release-toolbar-scroll-Sj-wNU0Q4rAx",
-      "archivedAt": "2026-10-27T07:39:59.114Z"
+      "id": "release-lp-text-ew-grow-S7vXlJlYrg3q",
+      "buildId": "S7vXlJlYrg3qVgqP4w8IB",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-ew-grow",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-ew-grow-S7vXlJlYrg3q",
+      "archivedAt": "2026-10-29T04:20:19.677Z"
     },
     {
-      "id": "release-text-typo-OkAajqCaE0zK",
-      "buildId": "OkAajqCaE0zKQl1jsIyss",
-      "gitSha": "f07a066",
-      "label": "release-text-typo",
-      "path": "deploy/aibeego-vps/bundles/release-text-typo-OkAajqCaE0zK",
-      "archivedAt": "2026-10-27T07:25:05.836Z"
+      "id": "release-lp-text-wrap-fJX4QiLCB04B",
+      "buildId": "fJX4QiLCB04BTWSf_cVQ6",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-wrap",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-wrap-fJX4QiLCB04B",
+      "archivedAt": "2026-10-29T03:42:33.191Z"
     },
     {
-      "id": "release-text-inspector-XDCVJYYhNJUR",
-      "buildId": "XDCVJYYhNJURqeaBiaGVO",
-      "gitSha": "0885a49",
-      "label": "release-text-inspector",
-      "path": "deploy/aibeego-vps/bundles/release-text-inspector-XDCVJYYhNJUR",
-      "archivedAt": "2026-10-27T07:16:46.097Z"
+      "id": "release-lp-text-ns-h-dXaXI8q8RrUF",
+      "buildId": "dXaXI8q8RrUFV7vVk7kVS",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-ns-h",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-ns-h-dXaXI8q8RrUF",
+      "archivedAt": "2026-10-29T03:32:45.801Z"
     },
     {
-      "id": "release-publish-ux-WvAOmp3-9OpR",
-      "buildId": "WvAOmp3-9OpR4nYsl9kb3",
-      "gitSha": "5448be9",
-      "label": "release-publish-ux",
-      "path": "deploy/aibeego-vps/bundles/release-publish-ux-WvAOmp3-9OpR",
-      "archivedAt": "2026-10-27T06:55:57.122Z"
+      "id": "release-lp-text-scale-p6ptH8uZUQLh",
+      "buildId": "p6ptH8uZUQLhxToAoz83x",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-scale",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-scale-p6ptH8uZUQLh",
+      "archivedAt": "2026-10-29T03:24:55.744Z"
     },
     {
-      "id": "release-dnd-fix-K_XJRJ7p_Pa5",
-      "buildId": "K_XJRJ7p_Pa5YPWLsijae",
-      "gitSha": "585279d",
-      "label": "release-dnd-fix",
-      "path": "deploy/aibeego-vps/bundles/release-dnd-fix-K_XJRJ7p_Pa5",
-      "archivedAt": "2026-10-27T05:49:16.719Z",
-      "qaCommit": "585279d",
-      "qaNote": "Artifact built/QAd for DnD+Footer fix; tip commit 585279d"
+      "id": "release-lp-text-box-resize-eKomKLTB0cvF",
+      "buildId": "eKomKLTB0cvF3hc7CS5t4",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-box-resize",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-box-resize-eKomKLTB0cvF",
+      "archivedAt": "2026-10-29T03:16:48.625Z"
+    },
+    {
+      "id": "release-builder-toolbar-right-nlvAc_dqozVJ",
+      "buildId": "nlvAc_dqozVJ4TYO3Ua1K",
+      "gitSha": "bb42e88",
+      "label": "release-builder-toolbar-right",
+      "path": "deploy/aibeego-vps/bundles/release-builder-toolbar-right-nlvAc_dqozVJ",
+      "archivedAt": "2026-10-28T09:47:14.232Z"
+    },
+    {
+      "id": "release-builder-toolbar-right-xCt9p1SpXUdp",
+      "buildId": "xCt9p1SpXUdp-zn84ba6r",
+      "gitSha": "bb42e88",
+      "label": "release-builder-toolbar-right",
+      "path": "deploy/aibeego-vps/bundles/release-builder-toolbar-right-xCt9p1SpXUdp",
+      "archivedAt": "2026-10-28T09:39:18.680Z"
+    },
+    {
+      "id": "release-builder-hide-zoom-6GpBShq5LUeg",
+      "buildId": "6GpBShq5LUeg024Lra0Gn",
+      "gitSha": "bb42e88",
+      "label": "release-builder-hide-zoom",
+      "path": "deploy/aibeego-vps/bundles/release-builder-hide-zoom-6GpBShq5LUeg",
+      "archivedAt": "2026-10-28T08:37:15.283Z"
+    },
+    {
+      "id": "release-builder-responsive-XpywRRvleQRR",
+      "buildId": "XpywRRvleQRRDnv6Hy0TH",
+      "gitSha": "bb42e88",
+      "label": "release-builder-responsive",
+      "path": "deploy/aibeego-vps/bundles/release-builder-responsive-XpywRRvleQRR",
+      "archivedAt": "2026-10-28T08:19:43.706Z"
+    },
+    {
+      "id": "release-element-border-contrast-8G1XedRwwsUU",
+      "buildId": "8G1XedRwwsUUHgVMxNIIa",
+      "gitSha": "bb42e88",
+      "label": "release-element-border-contrast",
+      "path": "deploy/aibeego-vps/bundles/release-element-border-contrast-8G1XedRwwsUU",
+      "archivedAt": "2026-10-28T06:32:01.034Z"
+    },
+    {
+      "id": "release-lp-live-parity-Kbqnnlzab1Mo",
+      "buildId": "Kbqnnlzab1Mo3BUP50jz3",
+      "gitSha": "bb42e88",
+      "label": "release-lp-live-parity",
+      "path": "deploy/aibeego-vps/bundles/release-lp-live-parity-Kbqnnlzab1Mo",
+      "archivedAt": "2026-10-27T16:34:54.815Z"
+    },
+    {
+      "id": "release-section-list-scroll-Hu7i9KV1UDhA",
+      "buildId": "Hu7i9KV1UDhAB6F8Kk9mT",
+      "gitSha": "bb42e88",
+      "label": "release-section-list-scroll",
+      "path": "deploy/aibeego-vps/bundles/release-section-list-scroll-Hu7i9KV1UDhA",
+      "archivedAt": "2026-10-27T16:21:52.705Z"
+    },
+    {
+      "id": "release-hide-sidebar-ai-cv0UhAQLenzo",
+      "buildId": "cv0UhAQLenzotWO9NXPKE",
+      "gitSha": "bb42e88",
+      "label": "release-hide-sidebar-ai",
+      "path": "deploy/aibeego-vps/bundles/release-hide-sidebar-ai-cv0UhAQLenzo",
+      "archivedAt": "2026-10-27T16:07:23.884Z"
+    },
+    {
+      "id": "release-lp-ai-click-cxYYBCYuMR6m",
+      "buildId": "cxYYBCYuMR6mIyXRWZf7w",
+      "gitSha": "bb42e88",
+      "label": "release-lp-ai-click",
+      "path": "deploy/aibeego-vps/bundles/release-lp-ai-click-cxYYBCYuMR6m",
+      "archivedAt": "2026-10-27T15:50:20.537Z"
+    },
+    {
+      "id": "release-lp-text-ai-b9vPEzJCSOuP",
+      "buildId": "b9vPEzJCSOuPWaC4tmiBX",
+      "gitSha": "bb42e88",
+      "label": "release-lp-text-ai",
+      "path": "deploy/aibeego-vps/bundles/release-lp-text-ai-b9vPEzJCSOuP",
+      "archivedAt": "2026-10-27T15:20:26.086Z"
+    },
+    {
+      "id": "release-flow-section-h-UUv8gfCv_kWe",
+      "buildId": "UUv8gfCv_kWeWpgTzBZRX",
+      "gitSha": "bb42e88",
+      "label": "release-flow-section-h",
+      "path": "deploy/aibeego-vps/bundles/release-flow-section-h-UUv8gfCv_kWe",
+      "archivedAt": "2026-10-27T14:40:36.290Z"
+    },
+    {
+      "id": "release-section-resize-k2swrDizAH4v",
+      "buildId": "k2swrDizAH4v33Mu4PS7z",
+      "gitSha": "bb42e88",
+      "label": "release-section-resize",
+      "path": "deploy/aibeego-vps/bundles/release-section-resize-k2swrDizAH4v",
+      "archivedAt": "2026-10-27T14:28:12.677Z"
+    },
+    {
+      "id": "release-undo-ctrlz-btUtPkBv98RW",
+      "buildId": "btUtPkBv98RWJGRezlENm",
+      "gitSha": "bb42e88",
+      "label": "release-undo-ctrlz",
+      "path": "deploy/aibeego-vps/bundles/release-undo-ctrlz-btUtPkBv98RW",
+      "archivedAt": "2026-10-27T14:17:21.505Z"
     },
     {
       "id": "rollback-1b5032b-cb7dOatf6l-M",
@@ -49,14 +151,6 @@
       "label": "rollback-1b5032b",
       "path": "deploy/aibeego-vps/bundles/rollback-1b5032b-cb7dOatf6l-M",
       "archivedAt": "2026-10-27T03:52:34.820Z"
-    },
-    {
-      "id": "release-973fd6e-nohCJ_P34fZa",
-      "buildId": "nohCJ_P34fZaEe_lVZjrp",
-      "gitSha": "1817cda",
-      "label": "release-973fd6e",
-      "path": "deploy/aibeego-vps/bundles/release-973fd6e-nohCJ_P34fZa",
-      "archivedAt": "2026-10-25T17:26:25.789Z"
     }
   ]
 }

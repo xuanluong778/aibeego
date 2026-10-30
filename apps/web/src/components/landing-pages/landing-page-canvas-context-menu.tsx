@@ -217,8 +217,8 @@ export function LpCanvasAiQuickPopover({
     <div
       ref={panelRef}
       data-lp-ai-quick-popover="1"
-      className="fixed z-[90] w-[min(300px,calc(100vw-1rem))] overflow-hidden rounded-lg border border-white/15 bg-zinc-950 p-3 shadow-2xl"
-      style={{ left: pos.x, top: pos.y }}
+      className="fixed z-[90] max-h-[calc(100dvh-1rem)] w-[min(300px,calc(100vw-1rem))] overflow-y-auto rounded-lg border border-white/15 bg-zinc-950 p-3 shadow-2xl"
+      style={{ left: pos.x, top: pos.y, maxHeight: `calc(100dvh - ${pos.y}px - 8px)` }}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-xs font-semibold text-white/90">✨ AI nhanh</div>
@@ -464,7 +464,7 @@ export function LandingPageCanvasContextMenu({
 
           <ContextMenuSub>
             <ContextMenuSubTrigger data-lp-cm="layer">Lớp</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
+            <ContextMenuSubContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto">
               <ContextMenuItem
                 disabled={editDisabled}
                 onSelect={() => {
@@ -488,7 +488,7 @@ export function LandingPageCanvasContextMenu({
 
           <ContextMenuSub>
             <ContextMenuSubTrigger data-lp-cm="align">Căn chỉnh</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
+            <ContextMenuSubContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto">
               <ContextMenuItem
                 disabled={editDisabled}
                 onSelect={() => {

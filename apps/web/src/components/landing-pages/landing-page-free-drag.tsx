@@ -256,8 +256,15 @@ export function useFreeGuidesPublisher() {
 }
 
 export type FreeDragCommitPayload = {
-  positionMode: 'free';
-  freeLayout: LandingPageFreeLayout;
+  /**
+   * `free` — absolute/offset freeLayout commit.
+   * `flow` — stay in document flow; persist height as style.minHeight only
+   * (flow section N/S resize must not promote to free or the chrome jumps).
+   */
+  positionMode: 'free' | 'flow';
+  freeLayout?: LandingPageFreeLayout;
+  /** Flow section height (px) — written to block.style.minHeight. */
+  flowMinHeight?: number;
   /** When viewport is tablet/mobile, caller may store under responsiveFreeLayout. */
   viewport: 'desktop' | 'tablet' | 'mobile';
 };
@@ -279,23 +286,31 @@ type LpFreeDragHost = HTMLElement & {
 
 /** free-id → beginDrag (survives shell ref timing; used by vertical Move toolbar). */
 const freeDragBeginByFreeId = new Map<string, (e: ReactPointerEvent | PointerEvent) => void>();
+/** free-id → arm pending drag (body hold-to-move; click still selects). */
+const freeDragArmByFreeId = new Map<string, (e: ReactPointerEvent | PointerEvent) => void>();
 
 function registerFreeDragBegin(
   el: HTMLElement | null | undefined,
   begin: ((e: ReactPointerEvent | PointerEvent) => void) | null,
+  arm?: ((e: ReactPointerEvent | PointerEvent) => void) | null,
 ) {
   if (!el) return;
   const host = el as LpFreeDragHost;
   const freeId = el.getAttribute('data-lp-free-id');
   if (begin) {
     host.__lpBeginFreeDrag = begin;
-    if (freeId) freeDragBeginByFreeId.set(freeId, begin);
+    if (freeId) {
+      freeDragBeginByFreeId.set(freeId, begin);
+      if (arm) freeDragArmByFreeId.set(freeId, arm);
+      else freeDragArmByFreeId.delete(freeId);
+    }
     return;
   }
   if (host.__lpBeginFreeDrag) delete host.__lpBeginFreeDrag;
   if (freeId && freeDragBeginByFreeId.get(freeId) && !host.__lpBeginFreeDrag) {
     // Only drop map entry when this host cleared its own handler.
     freeDragBeginByFreeId.delete(freeId);
+    freeDragArmByFreeId.delete(freeId);
   }
 }
 
@@ -337,6 +352,18 @@ export function beginFreeDragByFreeId(
   const begin = freeDragBeginByFreeId.get(freeId);
   if (!begin) return false;
   begin(e);
+  return true;
+}
+
+/** Arm hold-to-move (threshold) — used by LeadForm body drag when already selected. */
+export function armFreeDragByFreeId(
+  freeId: string | null | undefined,
+  e: ReactPointerEvent | PointerEvent,
+): boolean {
+  if (!freeId) return false;
+  const arm = freeDragArmByFreeId.get(freeId) || freeDragBeginByFreeId.get(freeId);
+  if (!arm) return false;
+  arm(e);
   return true;
 }
 
@@ -614,20 +641,21 @@ function clearLegacySlotFlowReserves(root?: HTMLElement | null) {
 export function readCanvasPointerScale(fromEl: HTMLElement | null): number {
   if (!fromEl || typeof window === 'undefined') return 1;
   let node: HTMLElement | null = fromEl;
+  let scale = 1;
   while (node) {
     const t = getComputedStyle(node).transform;
     if (t && t !== 'none') {
       try {
         const m = new DOMMatrixReadOnly(t);
         const sx = Math.hypot(m.a, m.b);
-        if (sx > 0.05 && Number.isFinite(sx)) return sx;
+        if (sx > 0 && Number.isFinite(sx)) scale *= sx;
       } catch {
         /* ignore */
       }
     }
     node = node.parentElement;
   }
-  return 1;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
 /**
@@ -773,6 +801,9 @@ export function syncCanvasFreeReserve(
  */
 function applyParentSectionLiveFit(fromEl: HTMLElement | null) {
   if (!fromEl) return;
+  // Never fit the section against itself mid-resize — that clamps grow-taller
+  // back to content height and makes N/S handles feel broken.
+  if (fromEl.getAttribute('data-lp-section-chrome') === '1') return;
   const section = fromEl.closest('[data-lp-section-chrome="1"]') as HTMLElement | null;
   if (!section) return;
   const scale = readCanvasPointerScale(section);
@@ -848,7 +879,11 @@ export function useFreeDragBox({
       el.style.margin = '';
       if (!layoutRef.current?.width) el.style.width = '';
       // Text hug / no locked height: always clear imperative height after gesture.
-      if (el.getAttribute('data-lp-text-hug') === '1' || !layoutRef.current?.height) {
+      // Keep locked text-box height (inlineTextStyles.height / --lp-text-box-height).
+      if (
+        el.getAttribute('data-lp-heading-height-locked') !== '1' &&
+        (el.getAttribute('data-lp-text-hug') === '1' || !layoutRef.current?.height)
+      ) {
         el.style.height = '';
         el.style.minHeight = '';
       }
@@ -858,6 +893,8 @@ export function useFreeDragBox({
 
   const detachWindow = useRef<(() => void) | null>(null);
   const cancelerRef = useRef<(() => void) | null>(null);
+  /** Timestamp of last user resize — suppress auto grow-back that undoes shrink. */
+  const lastUserResizeAtRef = useRef(0);
 
   const finish = useCallback(
     (commit: boolean) => {
@@ -881,6 +918,15 @@ export function useFreeDragBox({
       } catch {
         /* ignore */
       }
+      // Flow-section height resize: keep minHeight through clearTransform so React
+      // does not flash back to content height before the history commit paints.
+      const flowResizeCommit =
+        Boolean(commit) &&
+        s.kind === 'resize' &&
+        s.mode === 'offset' &&
+        !layoutRef.current &&
+        s.el?.getAttribute('data-lp-section-chrome') === '1';
+      const flowHPending = Math.round(s.lastH);
       clearTransform();
       // If we temporarily absolute-positioned a flow box but cancel, restore.
       if (!commit && !layoutRef.current) {
@@ -889,9 +935,21 @@ export function useFreeDragBox({
         s.el.style.top = '';
         s.el.style.width = '';
         s.el.style.height = '';
+        s.el.style.minHeight = '';
         s.el.style.zIndex = '';
         // Drop drag-temp spacers — otherwise they look like undeletable empty sections.
         if (s.mode !== 'offset') syncCanvasFreeReserve(s.el);
+      }
+      if (flowResizeCommit) {
+        // Stay in document flow — only lock the author-chosen height.
+        s.el.style.position = '';
+        s.el.style.left = '';
+        s.el.style.top = '';
+        s.el.style.width = '';
+        s.el.style.height = '';
+        s.el.style.minHeight = `${Math.max(56, flowHPending)}px`;
+        s.el.style.zIndex = '';
+        s.el.style.transform = '';
       }
       sessionRef.current = null;
       setDragging(false);
@@ -899,13 +957,25 @@ export function useFreeDragBox({
       publishGuidesRef.current?.(EMPTY_GUIDES);
       emitFreeDragFrame();
       if (!commit) return;
+      if (s.kind === 'resize') lastUserResizeAtRef.current = performance.now();
+      // Flow section N/S resize: persist minHeight only — never promote to free
+      // (absolute freeLayout pulls the section out of flow → jump + overlap).
+      if (flowResizeCommit) {
+        onCommitRef.current({
+          positionMode: 'flow',
+          flowMinHeight: Math.max(56, flowHPending),
+          viewport: viewportRef.current,
+        });
+        return;
+      }
       // Keep document-flow spacer in sync with the visual box so sections don't overlap.
       let flowH = Math.round(s.lastH);
       const flowW = Math.round(s.lastW);
-      // Absolute sections: grow height to fit live content (incl. absolute/transform
-      // children). scrollHeight/offsetHeight miss overflow and leave the next
-      // section painted underneath — use the same content-union measure as fit.
-      if (s.mode !== 'offset' && s.el) {
+      // Absolute sections after MOVE/ROTATE: grow height to fit live content so the
+      // next section is not painted underneath. Never do this after RESIZE — the
+      // user just chose lastH; forcing contentH snaps the box back (jump) and can
+      // no-op pushHistory so Undo stays disabled.
+      if (s.mode !== 'offset' && s.el && s.kind !== 'resize') {
         const scale = readCanvasPointerScale(s.el);
         const contentH =
           measureSectionContentHeightCss(s.el, scale) + SECTION_CONTENT_FIT_PADDING;
@@ -913,7 +983,7 @@ export function useFreeDragBox({
       }
       const textHug = s.el?.getAttribute('data-lp-text-hug') === '1';
       // Move/rotate: size was locked at session start (getBoundingClientRect / prior layout).
-      // Resize: lastW/lastH were mutated by handles only.
+      // Resize: lastW/lastH were mutated by handles only — commit them as-is.
       // Text hug: omit height — selection must follow content, not a locked frame.
       onCommitRef.current({
         positionMode: 'free',
@@ -955,9 +1025,9 @@ export function useFreeDragBox({
     };
   }, [finish]);
 
-  // Grow-only content sync (sections only): measure painted content (incl.
-  // transform/absolute children) — offsetHeight alone misses overflow and lets
-  // the next section paint underneath.
+  // Grow-only content sync (sections only): repair frames that are clearly too
+  // short for painted content. Large threshold + skip right after user resize
+  // so a deliberate shrink is not immediately undone (jump + Undo no-op).
   useEffect(() => {
     if (mode === 'offset') return;
     if (dragging) return;
@@ -966,11 +1036,13 @@ export function useFreeDragBox({
     if (!el) return;
     const raf = requestAnimationFrame(() => {
       if (sessionRef.current || pendingRef.current) return;
+      if (performance.now() - lastUserResizeAtRef.current < 1200) return;
       const scale = readCanvasPointerScale(el);
       const needed =
         measureSectionContentHeightCss(el, scale) + SECTION_CONTENT_FIT_PADDING;
       const committed = Math.round(layout.height || 0);
-      if (needed > committed + 2) {
+      // Only rescue severe clipping — small deltas are intentional authoring.
+      if (needed > committed + 48) {
         onCommitRef.current({
           positionMode: 'free',
           freeLayout: { ...layout, height: needed, reserveHeight: needed },
@@ -987,7 +1059,11 @@ export function useFreeDragBox({
       clientX: number,
       clientY: number,
       shiftKey: boolean,
-      opts?: { preserveBoxSize?: boolean },
+      opts?: {
+        preserveBoxSize?: boolean;
+        preferPaintedOrigin?: boolean;
+        forceMode?: 'absolute' | 'offset';
+      },
     ) => void
   >(() => undefined);
 
@@ -1280,7 +1356,17 @@ export function useFreeDragBox({
       clientX: number,
       clientY: number,
       shiftKey: boolean,
-      opts?: { preserveBoxSize?: boolean; allowWhileEditing?: boolean },
+      opts?: {
+        preserveBoxSize?: boolean;
+        allowWhileEditing?: boolean;
+        /** Use live painted left/top so resize/move never jumps when freeLayout drifted. */
+        preferPaintedOrigin?: boolean;
+        /**
+         * Override hook mode for this gesture. Flow section resize MUST use
+         * offset so the shell stays in document flow (absolute = jump).
+         */
+        forceMode?: 'absolute' | 'offset';
+      },
     ) => {
       if (!enabledRef.current) return;
       const el = shellRef.current;
@@ -1307,7 +1393,7 @@ export function useFreeDragBox({
       const surfaceRect = surfaceEl.getBoundingClientRect();
       const surfaceCss = surfaceLayoutSize(surfaceEl, canvasScale);
       const box = readRect(el, surfaceRect, canvasScale);
-      const useOffset = modeRef.current === 'offset';
+      const useOffset = (opts?.forceMode ?? modeRef.current) === 'offset';
       const preserveBoxSize = opts?.preserveBoxSize === true;
 
       const siblingEls = Array.from(
@@ -1387,10 +1473,17 @@ export function useFreeDragBox({
         el.style.boxSizing = 'border-box';
         el.style.margin = '';
         el.style.zIndex = '30';
-        // Text hug: never lock height during drag — box must follow glyphs.
+        // Text hug: don't lock free-layout height during move — unless the text
+        // box itself has a persisted height from the 8-handle resize chrome.
         if (el.getAttribute('data-lp-text-hug') === '1') {
-          el.style.height = 'auto';
-          el.style.minHeight = '0';
+          if (el.getAttribute('data-lp-heading-height-locked') === '1') {
+            const lockedH = el.style.getPropertyValue('--lp-text-box-height');
+            if (lockedH) el.style.height = lockedH;
+            el.style.minHeight = 'max-content';
+          } else {
+            el.style.height = 'auto';
+            el.style.minHeight = '0';
+          }
         } else {
           el.style.height = `${dragH}px`;
           el.style.minHeight = `${dragH}px`;
@@ -1400,13 +1493,23 @@ export function useFreeDragBox({
         // Legacy shrink-on-move removed — resize handles own size changes.
         void preserveBoxSize;
 
-        originX = currentLayout?.x ?? Math.max(0, box.left);
-        originY = currentLayout?.y ?? Math.max(0, box.top);
-        // After hugging a centered LeadForm/button card, pin origin to the card
-        // so the absolute shell matches what the user sees (not full-bleed left=0).
-        if (isFormShell || (isButtonShell && !currentLayout)) {
-          originX = Math.max(0, Math.round(box.left));
-          originY = Math.max(0, Math.round(box.top));
+        const paintedX = Math.max(0, Math.round(box.left));
+        const paintedY = Math.max(0, Math.round(box.top));
+        const layoutX = currentLayout?.x;
+        const layoutY = currentLayout?.y;
+        // Prefer painted origin when layout drifted (or caller asked) — otherwise
+        // setting left/top from stale freeLayout jumps the section on pointerdown.
+        const layoutDrifted =
+          layoutX == null ||
+          layoutY == null ||
+          Math.abs(layoutX - paintedX) > 2 ||
+          Math.abs(layoutY - paintedY) > 2;
+        if (opts?.preferPaintedOrigin || layoutDrifted || isFormShell || (isButtonShell && !currentLayout)) {
+          originX = paintedX;
+          originY = paintedY;
+        } else {
+          originX = layoutX;
+          originY = layoutY;
         }
 
         // Room to move on both axes — expand virtual canvas beyond short article height.
@@ -1560,7 +1663,10 @@ export function useFreeDragBox({
     const beginFromHandle = (e: ReactPointerEvent | PointerEvent) => {
       beginDrag(e as ReactPointerEvent, { force: true, immediate: true });
     };
-    registerFreeDragBegin(el, beginFromHandle);
+    const armFromBody = (e: ReactPointerEvent | PointerEvent) => {
+      beginDrag(e as ReactPointerEvent, { force: true, immediate: false });
+    };
+    registerFreeDragBegin(el, beginFromHandle, armFromBody);
     return () => {
       const host = el as LpFreeDragHost;
       const freeId = el.getAttribute('data-lp-free-id');
@@ -1568,6 +1674,7 @@ export function useFreeDragBox({
       if (freeId && freeDragBeginByFreeId.get(freeId) === beginFromHandle) {
         freeDragBeginByFreeId.delete(freeId);
       }
+      if (freeId) freeDragArmByFreeId.delete(freeId);
     };
   });
 
@@ -1580,12 +1687,21 @@ export function useFreeDragBox({
       e.stopPropagation();
       pendingRef.current = null;
       attachWindow(e.pointerId);
+      // Flow section (no freeLayout): resize in offset mode so we never pin
+      // position:absolute mid-gesture (that yanked the section out of flow).
+      const flowSectionResize =
+        !layoutRef.current && el.getAttribute('data-lp-section-chrome') === '1';
       // Preserve current section box — do not shrink full-bleed width on resize start.
-      startSession(e.pointerId, e.clientX, e.clientY, e.shiftKey, { preserveBoxSize: true });
+      startSession(e.pointerId, e.clientX, e.clientY, e.shiftKey, {
+        preserveBoxSize: true,
+        preferPaintedOrigin: true,
+        ...(flowSectionResize ? { forceMode: 'offset' as const } : null),
+      });
       const s = sessionRef.current;
       if (!s) return;
       s.kind = 'resize';
       s.handle = handle;
+      lastUserResizeAtRef.current = performance.now();
       s.el.setAttribute('data-lp-free-resizing', '1');
       s.el.style.cursor = resizeHandleCursor(handle);
       s.el.style.height = `${s.height}px`;
@@ -1667,7 +1783,29 @@ export function useFreeDragBox({
           rotate: sessionRef.current.lastRotate,
         }
       : null;
-  const shellStyle = freeLayoutStyle(layout, dragging, mode, live);
+  // During flow-section resize there is no freeLayout — still emit a React style
+  // from live geometry so parent re-renders do not snap minHeight back to 56.
+  const sessMode = dragging ? sessionRef.current?.mode : undefined;
+  const shellStyle =
+    freeLayoutStyle(layout, dragging, mode, live) ??
+    (dragging && live && sessMode === 'offset'
+      ? ({
+          position: 'relative',
+          height: live.height,
+          minHeight: live.height,
+          ...(live.width > 0 ? { width: live.width, maxWidth: 'none' as const } : null),
+          boxSizing: 'border-box',
+          ...(live.x || live.y
+            ? {
+                transform: `translate3d(${live.x}px, ${live.y}px, 0)${
+                  live.rotate ? ` rotate(${normalizeRotate(live.rotate)}deg)` : ''
+                }`,
+              }
+            : live.rotate
+              ? { transform: `rotate(${normalizeRotate(live.rotate)}deg)` }
+              : null),
+        } as CSSProperties)
+      : undefined);
 
   return {
     shellRef,

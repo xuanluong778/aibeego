@@ -32,6 +32,7 @@ import {
   selectLandingPageTemplate,
   type LandingPageDoctorReport,
   type LandingPageUrlSummary,
+  CREDIT_FEATURE_CODES,
   hashInlineAiFieldContent,
   isBusinessProfileEmpty,
   markLandingPageAiSources,
@@ -56,6 +57,7 @@ import { RateLimitService } from '../common/services/rate-limit.service';
 import { LeadsService } from '../leads/leads.service';
 import { AutomationEngineService } from '../crm/automation-engine.service';
 import { LandingPageAiService } from './landing-page-ai.service';
+import { CreditService, isInsufficientCredits } from '../credit/credit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
 import {
@@ -134,6 +136,7 @@ export class LandingPagesService implements OnModuleInit {
     private readonly leads: LeadsService,
     private readonly automation: AutomationEngineService,
     private readonly ai: LandingPageAiService,
+    private readonly credit: CreditService,
   ) {}
 
   private purgeIdemMap(map: Map<string, IdemEntry<unknown>>) {
@@ -317,7 +320,7 @@ export class LandingPagesService implements OnModuleInit {
   /**
    * Public/Preview surface: keep render-critical meta (inlineTextStyles,
    * responsiveInlineTextStyles, elementFreeLayouts, elementHidden, elementLocked,
-   * layout, category, …) and only strip builder provenance.
+   * layout, category, themePreset, …) and only strip builder provenance.
    * Shared by getPublicBySlug + getPublicByPreviewToken to avoid drift.
    */
   private toPublicSpec(parsed: LandingPageSpec): LandingPageSpec {
@@ -333,8 +336,6 @@ export class LandingPagesService implements OnModuleInit {
       lastAiAt: _lastAiAt,
       clientRevision: _clientRevision,
       lastAutosaveRequestId: _lastAutosaveRequestId,
-      themePreset: _themePreset,
-      themeUserLocked: _themeUserLocked,
       gallery: _gallery,
       ...safeMeta
     } = metaIn as typeof metaIn & Record<string, unknown>;
@@ -343,8 +344,6 @@ export class LandingPagesService implements OnModuleInit {
     void _lastAiAt;
     void _clientRevision;
     void _lastAutosaveRequestId;
-    void _themePreset;
-    void _themeUserLocked;
     void _gallery;
     const hasSafe = Object.keys(safeMeta).length > 0;
     const { meta: _meta, ...rest } = parsed as LandingPageSpec & { meta?: unknown };
@@ -1365,7 +1364,8 @@ export class LandingPagesService implements OnModuleInit {
     await this.assertPage(user.organizationId, pageId);
     const started = Date.now();
     const content = dto.currentContent || '';
-    const contentHash = hashInlineAiFieldContent(content);
+    const blockContext = dto.blockContext || '';
+    const contentHash = hashInlineAiFieldContent(`${content}\n${blockContext}`);
 
     // Cost / abuse guards
     this.rateLimit.assertWithinLimit(
@@ -1416,20 +1416,62 @@ export class LandingPagesService implements OnModuleInit {
         profile = null;
       }
     }
-    const out = await this.ai.suggestField(
-      {
-        action: dto.action as LandingPageInlineAiRequest['action'],
-        fieldKind: dto.fieldKind as LandingPageInlineAiRequest['fieldKind'],
-        currentContent: content,
-        blockType: (dto.blockType || 'Hero') as LandingPageInlineAiRequest['blockType'],
-        pageGoal: (dto.pageGoal || 'lead') as LandingPageInlineAiRequest['pageGoal'],
-        blockContext: dto.blockContext || '',
-        useBusinessProfile: dto.useBusinessProfile !== false,
-      },
-      profile,
-    );
 
-    // Minimal usage log for future credit/quota metering (no raw content).
+    const request: LandingPageInlineAiRequest = {
+      action: dto.action as LandingPageInlineAiRequest['action'],
+      fieldKind: dto.fieldKind as LandingPageInlineAiRequest['fieldKind'],
+      currentContent: content,
+      blockType: (dto.blockType || 'Hero') as LandingPageInlineAiRequest['blockType'],
+      pageGoal: (dto.pageGoal || 'lead') as LandingPageInlineAiRequest['pageGoal'],
+      blockContext,
+      useBusinessProfile: dto.useBusinessProfile !== false,
+    };
+
+    const skipOpenAi =
+      shouldSkipOpenAiInlineSuggest(content) && !blockContext.trim() && !profile?.productService?.trim();
+
+    let out: {
+      result: { options: [string, string, string]; fieldKind: string; action: string; schemaVersion: string; mode: string };
+      source: 'ai' | 'fallback';
+      warning?: string;
+    };
+
+    if (skipOpenAi) {
+      out = await this.ai.suggestField(request, profile);
+    } else {
+      try {
+        const paid = await this.credit.runPaidFeature({
+          organizationId: user.organizationId,
+          featureCode: CREDIT_FEATURE_CODES.LANDING_PAGE_INLINE_AI,
+          // Matches seed default; DB CreditFeaturePricing overrides when present.
+          amount: 2,
+          referenceId: `lp.inline-ai:${pageId}:${user.id}:${randomUUID()}`,
+          reason: 'Landing page field AI suggest',
+          metadata: {
+            pageId,
+            fieldKind: dto.fieldKind,
+            action: dto.action,
+            blockType: dto.blockType || 'Hero',
+          },
+          fn: async (ctx) => {
+            ctx.markProviderStarted();
+            return this.ai.suggestFieldStrict(request, profile);
+          },
+        });
+        out = { result: paid.result, source: 'ai' };
+      } catch (err) {
+        if (isInsufficientCredits(err)) throw err;
+        this.logger.warn(`Inline AI paid path failed, fallback: ${String(err)}`);
+        out = await this.ai.suggestField(request, profile);
+        if (!out.warning) {
+          out = {
+            ...out,
+            warning: err instanceof Error ? err.message : 'AI tạm lỗi — dùng fallback',
+          };
+        }
+      }
+    }
+
     this.logger.log(
       JSON.stringify({
         event: 'lp_inline_ai_usage',
@@ -1442,7 +1484,7 @@ export class LandingPagesService implements OnModuleInit {
         source: out.source,
         contentHash,
         contentLen: content.length,
-        skippedOpenAi: shouldSkipOpenAiInlineSuggest(content),
+        skippedOpenAi: skipOpenAi,
         latencyMs: Date.now() - started,
       }),
     );

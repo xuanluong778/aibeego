@@ -56,14 +56,14 @@ const ux = read('apps/web/src/components/landing-pages/landing-page-canvas-ux.ts
 
 gate(
   'CHROME_ACCEPTS_RESIZING_CALLBACK',
-  /onResizingChange\?: \(active: boolean\) => void;/.test(ux) &&
-    /function HeadingBoxResizeChrome\(\{[\s\S]{0,120}onResizingChange,/.test(ux),
+  /onResizingChange\?: \(active: boolean, meta\?: \{ scaleTypography\?: boolean \}\) => void;/.test(ux) &&
+    /function HeadingBoxResizeChrome\(\{[\s\S]{0,280}onResizingChange,/.test(ux),
   'HeadingBoxResizeChrome takes an onResizingChange prop, destructured so it can actually be called (not just typed)',
 );
 
 gate(
   'CHROME_FIRES_TRUE_ON_GESTURE_START',
-  /document\.documentElement\.setAttribute\('data-lp-heading-box-resizing', '1'\);\s*onResizingChange\?\.\(true\);/.test(
+  /document\.documentElement\.setAttribute\('data-lp-heading-box-resizing', '1'\);\s*onResizingChange\?\.\(true/.test(
     ux,
   ),
   'onHandleDown fires onResizingChange(true) right when the gesture starts (alongside the existing data-lp-heading-box-resizing marker)',
@@ -71,7 +71,7 @@ gate(
 
 gate(
   'CHROME_FIRES_FALSE_BEFORE_COMMIT_SAME_BATCH',
-  /onResizingChange\?\.\(false\);\s*if \(!el \|\| !s\) return;\s*el\.removeAttribute\('data-lp-heading-resizing'\);[\s\S]{0,200}onCommitBox\(\{/.test(
+  /onResizingChange\?\.\(false\);\s*if \(!el \|\| !s\) return;\s*el\.removeAttribute\('data-lp-heading-resizing'\);[\s\S]{0,600}onCommitBox\(\{/.test(
     ux,
   ),
   'onResizingChange(false) fires in the same synchronous handler as onCommitBox — both land in one React batch, so the next render never shows the pre-drag stale size even for a frame',
@@ -80,15 +80,13 @@ gate(
 gate(
   'INLINE_EDITABLE_HOLDS_BOX_RESIZING_STATE',
   /const \[boxResizing, setBoxResizing\] = useState\(false\);/.test(ux) &&
-    ux.includes('onResizingChange={setBoxResizing}'),
+    ux.includes('onResizingChange={(active, meta) => {'),
   'InlineEditable declares the state and wires it into the chrome it renders',
 );
 
 gate(
   'DECLARATIVE_OVERRIDE_SKIPPED_WHILE_RESIZING',
-  /\.\.\.\(boxResizing\s*\? null\s*: boxWidth\s*\?[\s\S]{0,400}\.\.\.\(boxResizing\s*\? null\s*: boxHeight\s*\?[\s\S]{0,300}\.\.\.\(boxResizing \? null : \{ overflow: 'visible' \}\)/.test(
-    ux,
-  ),
+  /\.\.\.\(boxResizing\s*\?\s*null\s*:\s*\{[\s\S]{0,400}height: boxHeight/.test(ux),
   "the wrap span's width/height/overflow object is entirely omitted while boxResizing is true, instead of being unconditionally recomputed from (stale, pre-drag) boxWidth/boxHeight on every render — same 'let the live gesture own the DOM' pattern already used by freeLayoutStyle's dragging branch",
 );
 

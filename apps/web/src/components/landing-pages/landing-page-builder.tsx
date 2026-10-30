@@ -4,12 +4,14 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   LANDING_PAGE_THEME_PRESETS,
   LANDING_PAGE_THEMES,
@@ -44,6 +46,7 @@ import {
 import { LandingPageRenderer } from './landing-page-renderer';
 import { replaceHtmlBody } from './landing-page-html-isolate';
 import { LandingPageDeviceFrame } from './landing-page-device-frame';
+import { LandingPagePreviewViewport } from './landing-page-preview-viewport';
 import {
   LandingPageCanvasZoomLayer,
   handleCanvasZoomWheel,
@@ -107,7 +110,6 @@ import {
   type LpCanvasClipboardStyle,
 } from './landing-page-canvas-context-menu';
 import { LandingPageImageField } from './landing-page-image-field';
-import { LandingPageAiMenu } from './landing-page-ai-menu';
 import { LandingPageBuilderToolbar } from './landing-page-builder-toolbar';
 import { useRouter } from 'next/navigation';
 import {
@@ -157,6 +159,7 @@ import {
 import {
   applyMarqueeSelection,
   applySelectionClick,
+  isItemImageField,
   isSectionLevelElement,
   isTextToolbarTarget,
   lpSelectionKey,
@@ -191,8 +194,11 @@ type InspectorTab = 'content' | 'design' | 'advanced' | 'add';
  */
 function preferInspectorDesignTab(target: LpSelectionTarget): boolean {
   if (isTextToolbarTarget(target)) return false;
+  // Card/gallery image → Content (Đổi ảnh), not Design box settings.
+  if (isItemImageField(target.field)) return false;
   const el = target.element;
   if (el === 'image') return true;
+  if (el === 'form') return true; // Form colors live on Design
   if (typeof el === 'string' && el.startsWith('grid:')) return true;
   return false;
 }
@@ -506,7 +512,23 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const selectedBlockId = selectedId;
   const selectedElement = (primaryTarget?.element ?? 'section') as LandingPageCanvasElementKey;
 
-  function selectCanvas(next: LandingPageCanvasSelection, opts?: LpSelectOptions) {
+  /** Layers list click: select + scroll, do not steal the add-components panel. */
+  const keepAddPanelOnSelectRef = useRef(false);
+
+  function scrollCanvasToSection(blockId: string) {
+    const el = document.querySelector(
+      `[data-lp-canvas-root] [data-lp-block-id="${CSS.escape(blockId)}"][data-lp-section-chrome="1"]`,
+    ) as HTMLElement | null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }
+
+  function selectCanvas(
+    next: LandingPageCanvasSelection,
+    opts?: LpSelectOptions & { keepAddPanel?: boolean },
+  ) {
+    const keepAddPanel = opts?.keepAddPanel === true;
+    keepAddPanelOnSelectRef.current = keepAddPanel;
     const element = (parseElementKey(next.element) || next.element || 'section') as LandingPageCanvasElementKey;
     const target = normalizeLpSelectionTarget({
       blockId: next.blockId,
@@ -514,6 +536,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       field: next.field,
     });
     setCanvasSelection((prev) => applySelectionClick(prev.ids, prev.primaryId, target, opts));
+    if (keepAddPanel) {
+      requestAnimationFrame(() => scrollCanvasToSection(target.blockId));
+      return;
+    }
     openInspectorOnSelectRef.current?.();
     const textField = inspectorTextFieldKey(target.element, target.field);
     const textBlock = specRef.current.blocks.find((block) => block.id === target.blockId);
@@ -523,7 +549,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       (resolveInspectorContext(textBlock, target.element, textField).kind === 'text' ||
         resolveInspectorContext(textBlock, target.element, textField).kind === 'button')
     ) {
-      setInspectorPanelOpen(true);
+      if (inspectorDesktop) setInspectorPanelOpen(true);
       setInspectorRailSurface('element');
       setInspectorTab('content');
     }
@@ -533,12 +559,23 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       !target.field &&
       !target.element.startsWith('item:trust-icon-')
     ) {
-      setInspectorPanelOpen(true);
+      if (inspectorDesktop) setInspectorPanelOpen(true);
+      setInspectorRailSurface('element');
+      setInspectorTab('design');
+    }
+    if (isItemImageField(target.field) || target.element === 'image') {
+      if (inspectorDesktop) setInspectorPanelOpen(true);
+      setInspectorRailSurface('element');
+      setInspectorTab('content');
+    }
+    // LeadForm → Design (màu form). Fields/CRM stay on Content.
+    if (target.element === 'form') {
+      if (inspectorDesktop) setInspectorPanelOpen(true);
       setInspectorRailSurface('element');
       setInspectorTab('design');
     }
     if (element === 'section' || element === 'section-background') {
-      setInspectorPanelOpen(true);
+      if (inspectorDesktop) setInspectorPanelOpen(true);
       setInspectorRailSurface('element');
       setInspectorTab('content');
     }
@@ -551,7 +588,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     else selectCanvas({ blockId: id, element: 'section' });
   }
   const inspectorPanelRef = useRef<HTMLElement | null>(null);
+  /** First live keystroke / slider tick already pushed a history snapshot for this gesture. */
   const inlineHistStarted = useRef(false);
+  /** Continuous inspector controls (color/slider) coalesce into one undo step. */
+  const gestureHistStarted = useRef(false);
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -617,6 +657,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       setInspectorPanelOpen(false);
       return;
     }
+    // Layers list: highlight + scroll only — keep THÊM THÀNH PHẦN / Section panel.
+    if (keepAddPanelOnSelectRef.current) {
+      keepAddPanelOnSelectRef.current = false;
+      return;
+    }
     setInspectorPanelOpen(true);
     setInspectorRailSurface('element');
   }, [primarySelectedId, useInspectorRail]);
@@ -645,17 +690,25 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const [addPanelInitial, setAddPanelInitial] = useState<{
     rootMode?: 'add' | 'layers';
     addTab?: 'elements' | 'presets';
+    subView?: 'root' | 'text' | 'button' | 'graphics' | 'icon' | 'forms' | 'social';
   }>({});
   const [mediaOpen, setMediaOpen] = useState(false);
   const textBoxMediaRef = useRef<((url: string) => void) | null>(null);
   const sectionMediaRef = useRef<((url: string) => void) | null>(null);
   const [sectionLibraryOpen, setSectionLibraryOpen] = useState(false);
+  /** Insert position from sidebar→canvas drop while user picks a preset in the rail. */
+  const pickerInsertPosRef = useRef<LpSidebarInsertPos | null>(null);
 
   const openRightAddComponents = useCallback(
-    (opts?: { rootMode?: 'add' | 'layers'; addTab?: 'elements' | 'presets' }) => {
+    (opts?: {
+      rootMode?: 'add' | 'layers';
+      addTab?: 'elements' | 'presets';
+      subView?: 'root' | 'text' | 'button' | 'graphics' | 'icon' | 'forms' | 'social';
+    }) => {
       setAddPanelInitial({
         rootMode: opts?.rootMode || 'add',
         addTab: opts?.addTab || 'elements',
+        subView: opts?.subView || 'root',
       });
       setAddPanelNonce((n) => n + 1);
       if (inspectorDesktop && inspectorMode === 'docked') {
@@ -663,10 +716,25 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         setInspectorPanelOpen(true);
       } else {
         setInspectorTab('add');
+        setInspectorPanelOpen(true);
       }
     },
     [inspectorDesktop, inspectorMode],
   );
+
+  function openAddPickerFromDrop(
+    picker: 'text' | 'button' | 'forms' | 'graphics' | 'icon' | 'social' | 'media',
+    pos?: LpSidebarInsertPos | null,
+  ) {
+    pickerInsertPosRef.current = pos ?? null;
+    if (picker === 'media') {
+      setMediaOpen(true);
+      setSaveMsg('Chọn ảnh trong thư viện để chèn vào vị trí thả');
+      return;
+    }
+    openRightAddComponents({ rootMode: 'add', addTab: 'elements', subView: picker });
+    setSaveMsg('Chọn một mẫu bên phải để chèn vào vị trí thả');
+  }
 
   useEffect(() => {
     if (!sidebarOpenRequest) return;
@@ -678,6 +746,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const sectionLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
   const [buttonLibraryOpen, setButtonLibraryOpen] = useState(false);
   const buttonLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
+  useEffect(() => {
+    // Release the drawer's focus trap before opening a library above it.
+    if (!inspectorDesktop && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen)) {
+      setInspectorPanelOpen(false);
+    }
+  }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen]);
   /** In-memory clipboards for canvas context menu (reuse dup/update — no new persist model). */
   const blockClipboardRef = useRef<LandingPageBlock | null>(null);
   const styleClipboardRef = useRef<LpCanvasClipboardStyle | null>(null);
@@ -701,7 +775,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
    * Autosave stays paused (never force-overwrites) until resolveSaveConflict() runs. */
   const saveConflictRef = useRef(false);
   const specRef = useRef(spec);
-  specRef.current = spec;
+  // A pending text transition can leave React state behind the live draft.
+  // Unrelated renders (device switch, selection) must not overwrite that draft.
+  useLayoutEffect(() => { specRef.current = spec; }, [spec]);
   const canvasSelectionRef = useRef(canvasSelection);
   canvasSelectionRef.current = canvasSelection;
   const selectedIdRef = useRef(selectedId);
@@ -787,10 +863,27 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   const pushHistory = useCallback((next: LandingPageSpec) => {
     // Always snapshot latest live draft from ref — never stale React closure.
-    historyRef.current.push(cloneSpec(specRef.current));
+    // Sync specRef immediately so rapid back-to-back edits (slider/color) do not
+    // push duplicate pre-edit snapshots before React re-renders.
+    const prev = specRef.current;
+    // Skip no-op pushes (e.g. color onChange + onBlur committing the same value).
+    // Duplicate snapshots make Undo look broken — first pop restores an identical draft.
+    try {
+      if (JSON.stringify(prev) === JSON.stringify(next)) {
+        inlineHistStarted.current = false;
+        gestureHistStarted.current = false;
+        return;
+      }
+    } catch {
+      /* fall through and push */
+    }
+    historyRef.current.push(cloneSpec(prev));
     if (historyRef.current.length > 50) historyRef.current.shift();
     futureRef.current = [];
+    inlineHistStarted.current = false;
+    gestureHistStarted.current = false;
     revisionRef.current += 1;
+    specRef.current = next;
     setSpec(next);
     dirtyRef.current = true;
     setHistoryNav({ undo: true, redo: false });
@@ -864,6 +957,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     else setCanvasSelection({ ids: [], primaryId: null });
     historyRef.current = [];
     futureRef.current = [];
+    inlineHistStarted.current = false;
+    gestureHistStarted.current = false;
     setHistoryNav({ undo: false, redo: false });
     dirtyRef.current = Boolean(upgraded);
     // Seed from stored meta — resetting to 0 makes every save STALE vs DB and hangs "Đang lưu…".
@@ -997,21 +1092,50 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     };
   }, [fullscreenPreview]);
 
-  const onPreviewChange = useCallback((on: boolean) => {
-    setFullscreenPreview(on);
+  const flushCanvasEdit = useCallback(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest('[data-lp-inline-editing="1"], [data-lp-inspector]')) active.blur();
+    setSpec(specRef.current);
   }, []);
+
+  const changeViewport = useCallback((next: Viewport) => {
+    flushCanvasEdit();
+    setViewport(next);
+  }, [flushCanvasEdit]);
+
+  const onPreviewChange = useCallback((on: boolean) => {
+    flushCanvasEdit();
+    setFullscreenPreview(on);
+  }, [flushCanvasEdit]);
 
   const canvasScrollRef = useRef<HTMLDivElement>(null);
 
   floatingPosRef.current = floatingPosition;
 
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
+    const mq = window.matchMedia('(min-width: 1280px)');
     const sync = () => setInspectorDesktop(mq.matches);
     sync();
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
   }, []);
+
+  useEffect(() => {
+    // Initial editor view only; rotation and subsequent device switches keep the user's choice.
+    setViewport(window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1280 ? 'tablet' : 'desktop');
+  }, []);
+
+  const [builderChromeTop, setBuilderChromeTop] = useState(112);
+  useEffect(() => {
+    const canvas = canvasScrollRef.current;
+    if (!canvas) return;
+    const sync = () => setBuilderChromeTop(canvas.getBoundingClientRect().top);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(canvas);
+    window.addEventListener('resize', sync);
+    return () => { observer.disconnect(); window.removeEventListener('resize', sync); };
+  }, [page, fullscreenPreview]);
 
   // Mobile: force docked (no floating/drag).
   useEffect(() => {
@@ -1213,6 +1337,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const safeId = selectedBlockId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const root = inspectorPanelRef.current.querySelector(`[data-inspector-block-id="${safeId}"]`);
     if (!(root instanceof HTMLElement)) return;
+    if (isItemImageField(primaryTarget?.field) || selectedElement === 'image') {
+      const imgField = root.querySelector('[data-lp-image-field]') as HTMLElement | null;
+      if (imgField) {
+        imgField.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+    }
     const field =
       selectedElement === 'headline' ||
       selectedElement === 'subheadline' ||
@@ -1233,7 +1364,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       }
     }
     root.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [selectedBlockId, selectedElement, isButtonInspector, isIconInspector]);
+  }, [selectedBlockId, selectedElement, primaryTarget?.field, isButtonInspector, isIconInspector]);
 
   const persist = useCallback(
     async (
@@ -1484,11 +1615,50 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   // effect (see BUG-15) — spec/blocks changes already flow down as its props, so no
   // separate imperative re-sync is needed here.
 
+  /** Blur inspector fields so local drafts (hex/slider) resync after undo/redo. */
+  function blurInspectorEditors() {
+    if (typeof document === 'undefined') return;
+    const ae = document.activeElement as HTMLElement | null;
+    if (!ae?.closest) return;
+    if (ae.closest('[data-lp-inspector], [data-lp-section-settings]')) {
+      ae.blur();
+    }
+  }
+
   const undo = useCallback(() => {
-    const prev = historyRef.current.pop();
-    if (!prev) return;
+    // Skip identical snapshots left by duplicate commits so one Undo always
+    // restores a visibly different draft when history has a real prior state.
+    let prev: LandingPageSpec | undefined;
+    const currentSnap = (() => {
+      try {
+        return JSON.stringify(specRef.current);
+      } catch {
+        return null;
+      }
+    })();
+    while (historyRef.current.length) {
+      prev = historyRef.current.pop();
+      if (!prev) break;
+      if (!currentSnap) break;
+      try {
+        if (JSON.stringify(prev) !== currentSnap) break;
+      } catch {
+        break;
+      }
+      prev = undefined;
+    }
+    if (!prev) {
+      setHistoryNav({ undo: historyRef.current.length > 0, redo: futureRef.current.length > 0 });
+      return;
+    }
+    // Blur first (sync): inspector onBlur must not run after setSpec and re-apply
+    // the draft that Undo just removed.
+    blurInspectorEditors();
     futureRef.current.push(cloneSpec(specRef.current));
+    inlineHistStarted.current = false;
+    gestureHistStarted.current = false;
     revisionRef.current += 1;
+    specRef.current = prev;
     setSpec(prev);
     setHtmlNode(null);
     dirtyRef.current = true;
@@ -1498,17 +1668,48 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const redo = useCallback(() => {
     const next = futureRef.current.pop();
     if (!next) return;
+    blurInspectorEditors();
     historyRef.current.push(cloneSpec(specRef.current));
+    inlineHistStarted.current = false;
+    gestureHistStarted.current = false;
     revisionRef.current += 1;
+    specRef.current = next;
     setSpec(next);
     setHtmlNode(null);
     dirtyRef.current = true;
     setHistoryNav({ undo: true, redo: futureRef.current.length > 0 });
   }, []);
 
-  // Builder shortcuts (Undo/Redo/Deselect/Delete) — never intercept when typing in form fields.
+  // Keep latest undo/redo in refs so the capture-phase listener never goes stale.
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  undoRef.current = undo;
+  redoRef.current = redo;
+
+  // Builder shortcuts (Undo/Redo/Deselect/Delete).
+  // Capture phase + Ctrl/Cmd+Z/Y always drive builder history — even when focus is
+  // in inspector inputs. Native field undo desyncs from draftSpec and looks broken.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      const key = (e.key || '').toLowerCase();
+      const code = e.code || '';
+      const isZ = key === 'z' || code === 'KeyZ';
+      const isY = key === 'y' || code === 'KeyY';
+      if (meta && (isZ || isY)) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Ctrl+Z → undo; Ctrl+Shift+Z / Ctrl+Y → redo
+        if (isY || (isZ && e.shiftKey)) redoRef.current();
+        else undoRef.current();
+        return;
+      }
+      if (e.key === 'Escape' && document.querySelector('[data-lp-inspector-drawer]')) {
+        setInspectorPanelOpen(false);
+        return;
+      }
+      // Let modal/menu dismissal run before the canvas handles deselection.
+      if (e.key === 'Escape' && document.querySelector('[data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal], [role="menu"][data-state="open"]')) return;
       if (isEditableKeyboardTarget(e.target)) return;
       if ((e.target as HTMLElement | null)?.closest?.('[data-lp-inline-editing="1"]')) return;
       if (document.querySelector('[data-lp-html-document][data-lp-inline-editing="1"]')) return;
@@ -1533,8 +1734,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         if (!keys.length) return;
         const sectionIds: string[] = [];
         const nested: LpSelectionTarget[] = [];
-        for (const key of keys) {
-          const parsed = parseLpSelectionKey(key);
+        for (const selKey of keys) {
+          const parsed = parseLpSelectionKey(selKey);
           if (!parsed) continue;
           const norm = normalizeLpSelectionTarget(parsed);
           if (isSectionLevelElement(norm.element)) sectionIds.push(norm.blockId);
@@ -1549,22 +1750,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         if (sectionIds.length) canvasActionRef.current.removeBlocks(sectionIds);
         return;
       }
-      const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return;
-      const key = e.key.toLowerCase();
-      if (key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-        return;
-      }
-      if (key === 'y' || (key === 'z' && e.shiftKey)) {
-        e.preventDefault();
-        redo();
-      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undo, redo, fullscreenPreview]);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [fullscreenPreview]);
 
   function isSectionLocked(blockId: string): boolean {
     return specRef.current.blocks.find((b) => b.id === blockId)?.locked === true;
@@ -1580,7 +1769,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     return false;
   }
 
-  function updateBlock(id: string, patch: Partial<LandingPageBlock>) {
+  function updateBlock(
+    id: string,
+    patch: Partial<LandingPageBlock>,
+    opts?: { coalesce?: boolean },
+  ) {
     const keys = Object.keys(patch);
     // Allow unlock/lock itself; every other patch is blocked while locked.
     const onlyLockToggle = keys.length === 1 && keys[0] === 'locked';
@@ -1591,7 +1784,28 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       ...current,
       blocks: current.blocks.map((b) => (b.id === id ? ({ ...b, ...patch } as LandingPageBlock) : b)),
     };
-    pushHistory(markLandingPageUserEdits(next, keys.map((f) => `${id}.${f}`)));
+    const marked = markLandingPageUserEdits(next, keys.map((f) => `${id}.${f}`));
+    // Slider/color drag: one history snapshot for the whole gesture (pointerup ends it).
+    if (opts?.coalesce) {
+      if (!gestureHistStarted.current) {
+        historyRef.current.push(cloneSpec(current));
+        if (historyRef.current.length > 50) historyRef.current.shift();
+        futureRef.current = [];
+        gestureHistStarted.current = true;
+        setHistoryNav({ undo: true, redo: false });
+      }
+      revisionRef.current += 1;
+      specRef.current = marked;
+      setSpec(marked);
+      dirtyRef.current = true;
+      return;
+    }
+    pushHistory(marked);
+  }
+
+  /** End a coalesce gesture so the next edit starts a fresh undo step. */
+  function endUpdateBlockGesture() {
+    gestureHistStarted.current = false;
   }
 
   /** Inspector free-layout edits must target the active viewport (tablet/mobile overrides). */
@@ -1710,7 +1924,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       const idx = blocks.findIndex((b) => b.id === pos.blockId);
       return idx >= 0 ? idx : blocks.length;
     }
-    if (pos?.mode === 'after') {
+    if (pos?.mode === 'after' || pos?.mode === 'inside') {
+      // inside: keep near host section in the list; freeLayout owns visual place.
       const idx = blocks.findIndex((b) => b.id === pos.blockId);
       return idx >= 0 ? idx + 1 : blocks.length;
     }
@@ -1719,6 +1934,37 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       if (idx >= 0) return idx + 1;
     }
     return blocks.length;
+  }
+
+  /** True when drop should place a free layer at the pointer (not a flow section row). */
+  function shouldInsertAsFreeLayer(pos?: LpSidebarInsertPos): boolean {
+    if (!pos) return false;
+    // Mid-section drop → float at cursor. Edge before/after → new row (intentional).
+    if (pos.mode === 'inside') return true;
+    // Empty canvas / root drop with pointer coords.
+    if (
+      pos.mode === 'end' &&
+      typeof pos.clientX === 'number' &&
+      typeof pos.clientY === 'number' &&
+      Number.isFinite(pos.clientX) &&
+      Number.isFinite(pos.clientY)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function resolveFreeLayerLayout(
+    blocks: LandingPageBlock[],
+    pos?: LpSidebarInsertPos,
+    size?: { width?: number; height?: number },
+  ): LandingPageFreeLayout {
+    const base = resolveTextLayerFreeLayout(blocks, pos);
+    return {
+      ...base,
+      ...(size?.width ? { width: size.width } : null),
+      ...(size?.height ? { height: size.height } : null),
+    };
   }
 
   /** Insert a title text layer — free section at drop pointer (canvas-local). */
@@ -1828,18 +2074,25 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 360, height: 160 })
+      : undefined;
     const block = {
       ...defaultBlock('Benefits'),
       type: 'Benefits' as const,
       headline: '',
       subheadline: '',
-      spacing: 'sm' as const,
+      spacing: (asFree ? 'none' : 'sm') as 'none' | 'sm',
       items: preset.lines.map((title) => ({
         id: uid('item'),
         title,
         description: '',
         icon: preset.bullet,
       })),
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout }
+        : null),
     };
     blocks.splice(insertAt, 0, block);
     const stylePatches: Record<string, LandingPageInlineTextStyle> = {};
@@ -1878,6 +2131,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 220, height: 52 })
+      : undefined;
     const block = {
       ...defaultBlock('CTA'),
       type: 'CTA' as const,
@@ -1888,6 +2145,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       ctaUrl: '#lead-form',
       spacing: 'none' as const,
       style: { ...preset.style },
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout }
+        : null),
     };
     blocks.splice(insertAt, 0, block);
     // Typography extras (fontFamily / italic / underline / transform) live in
@@ -1934,6 +2194,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 160, height: 160 })
+      : undefined;
     const style = {
       ...preset.style,
       ...(preset.id.startsWith('frame-') || preset.style.lpFrame ? { lpFrame: true } : {}),
@@ -1949,6 +2213,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       imageUrl: null as string | null,
       spacing: 'none' as const,
       style,
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout }
+        : null),
     };
     blocks.splice(insertAt, 0, block);
     pushHistory(
@@ -1966,6 +2233,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 420, height: 480 })
+      : undefined;
     const block = {
       ...defaultBlock('LeadForm'),
       type: 'LeadForm' as const,
@@ -1975,6 +2246,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       footerText: preset.footerText || '',
       successMessage: 'Cảm ơn bạn! Chúng tôi sẽ liên hệ sớm.',
       formTheme: { ...preset.formTheme },
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout, spacing: 'none' as const }
+        : null),
       fields: preset.fields.map((row) => ({
         ...row,
         id: uid('fld'),
@@ -1996,19 +2270,26 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 320, height: 56 })
+      : undefined;
     const icon = navIconForVariant(preset.variant);
     const block = {
       ...defaultBlock('Benefits'),
       type: 'Benefits' as const,
       headline: '',
       subheadline: '',
-      spacing: 'sm' as const,
+      spacing: (asFree ? 'none' : 'sm') as 'none' | 'sm',
       items: preset.labels.map((title) => ({
         id: uid('item'),
         title,
         description: '',
         icon,
       })),
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout }
+        : null),
     };
     blocks.splice(insertAt, 0, block);
     pushHistory(
@@ -2041,6 +2322,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const gallery = defaultBlock('Gallery') as LandingPageBlock & {
       items: Array<Record<string, unknown>>;
+      positionMode?: 'free' | 'flow';
+      freeLayout?: LandingPageFreeLayout;
+      spacing?: string;
     };
     if (Array.isArray(gallery.items) && gallery.items[0]) {
       gallery.items = [
@@ -2051,6 +2335,16 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           title: alt || 'Hình ảnh',
         },
       ];
+    }
+    const asFree = shouldInsertAsFreeLayer(pos);
+    if (asFree) {
+      const freeLayout = resolveFreeLayerLayout(current.blocks, pos, {
+        width: 420,
+        height: 280,
+      });
+      gallery.positionMode = 'free';
+      gallery.freeLayout = freeLayout;
+      gallery.spacing = 'none';
     }
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
@@ -2151,6 +2445,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         return;
       case 'button-library-open':
         openButtonLibrary(pos);
+        return;
+      case 'add-picker-open':
+        openAddPickerFromDrop(payload.picker, pos);
         return;
       default:
         return;
@@ -2318,7 +2615,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       }
     }
 
-    // No suitable selection — add Gallery with this image.
+    // No suitable selection — add Gallery with this image (honor drop insert pos).
+    const dropPos = pickerInsertPosRef.current;
+    pickerInsertPosRef.current = null;
+    if (dropPos) {
+      insertMediaGalleryAt({ url, name: item.name }, dropPos);
+      setMediaOpen(false);
+      return;
+    }
     const gallery = defaultBlock('Gallery') as LandingPageBlock & {
       items: Array<Record<string, unknown>>;
     };
@@ -2426,9 +2730,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
     const style = { ...((block.style || {}) as Record<string, unknown>) };
     const curMin = Number.parseFloat(String(style.minHeight || '0')) || 0;
-    // Allow shrink when a prior bad free-surface snap inflated minHeight (mega-section).
     if (needed <= curMin + 1 && needed >= curMin - 1) return;
-    const nextMin = needed;
+    // Grow to fit content. Never shrink author N/S grow unless minHeight is
+    // grossly inflated (legacy free-surface snap mega-section heal).
+    if (needed < curMin - 1 && curMin <= 2400) return;
+    const nextMin = needed < curMin - 1 ? Math.min(needed, 2400) : needed;
     // Live DOM heal so overlapping drop targets clear before the next paint.
     shell.style.minHeight = `${nextMin}px`;
     if (Math.abs(nextMin - curMin) <= 1) return;
@@ -2882,6 +3188,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       if (historyRef.current.length > 50) historyRef.current.shift();
       futureRef.current = [];
       inlineHistStarted.current = true;
+      setHistoryNav({ undo: true, redo: false });
     }
     const next = applyNestedBlockField(current, id, field, value);
     const marked = markLandingPageUserEdits(next, [`${id}.${field}`]);
@@ -2894,13 +3201,19 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   function updateBlockFieldCommit(id: string, field: string, value: string) {
     if (!guardSectionUnlocked(id)) return;
     // History snapshot already taken at first live keystroke (if any).
+    if (!inlineHistStarted.current) {
+      historyRef.current.push(cloneSpec(specRef.current));
+      if (historyRef.current.length > 50) historyRef.current.shift();
+      futureRef.current = [];
+      setHistoryNav({ undo: true, redo: false });
+    }
     inlineHistStarted.current = false;
     const current = specRef.current;
     const next = applyNestedBlockField(current, id, field, value);
     const marked = markLandingPageUserEdits(next, [`${id}.${field}`]);
     revisionRef.current += 1;
     specRef.current = marked;
-    startTransition(() => setSpec(marked));
+    setSpec(marked);
     dirtyRef.current = true;
   }
 
@@ -3832,14 +4145,45 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   function commitBlockFreeLayout(
     blockId: string,
     payload: {
-      positionMode: 'free';
-      freeLayout: LandingPageFreeLayout;
+      positionMode: 'free' | 'flow';
+      freeLayout?: LandingPageFreeLayout;
+      flowMinHeight?: number;
       viewport: Viewport;
     },
   ) {
     if (!guardSectionUnlocked(blockId, 'Section đang khóa — mở khóa trước khi kéo')) return;
     const current = specRef.current;
     const prevBlock = current.blocks.find((b) => b.id === blockId);
+    // Flow section height resize — stay in document flow; only persist minHeight.
+    if (payload.positionMode === 'flow') {
+      if (!prevBlock) return;
+      const nextMin = Math.max(56, Math.round(payload.flowMinHeight || 0));
+      const style = { ...((prevBlock.style || {}) as Record<string, unknown>) };
+      const curMin = Number.parseFloat(String(style.minHeight || '0')) || 0;
+      if (Math.abs(nextMin - curMin) <= 1) return;
+      const shell = document.querySelector(
+        `[data-lp-block-id="${CSS.escape(blockId)}"][data-lp-section-chrome="1"]`,
+      ) as HTMLElement | null;
+      if (shell) {
+        shell.style.minHeight = `${nextMin}px`;
+        shell.style.height = '';
+      }
+      pushHistory(
+        markLandingPageUserEdits(
+          {
+            ...current,
+            blocks: current.blocks.map((b) =>
+              b.id === blockId
+                ? ({ ...b, style: { ...style, minHeight: `${nextMin}px` } } as LandingPageBlock)
+                : b,
+            ),
+          },
+          [`${blockId}.style.minHeight`],
+        ),
+      );
+      return;
+    }
+    if (!payload.freeLayout) return;
     const prevLayout = prevBlock
       ? resolveFreeLayoutForViewport(
           prevBlock.positionMode,
@@ -3876,7 +4220,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     },
   ) {
     if (!guardSectionUnlocked(blockId)) return;
-    if (payload.viewport === 'mobile') return;
     const key = `${blockId}::${field}`;
     const current = specRef.current;
     const block = current.blocks.find((b) => b.id === blockId);
@@ -4099,6 +4442,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const merged = {
       ...prev,
       width: payload.width,
+      height: Math.max(28, Math.round(payload.height)),
       ...(payload.scaleTypography &&
       typeof payload.fontSize === 'number' &&
       payload.fontSize > 0
@@ -4109,8 +4453,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           }
         : null),
     } as LandingPageInlineTextStyle & Record<string, unknown>;
-    // Text hug: never lock a taller empty frame from prior geometric height commits.
-    delete merged.height;
     const freeLayoutHug = {
       x: payload.freeLayout.x,
       y: payload.freeLayout.y,
@@ -4521,7 +4863,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       onItemFreeLayoutCommit: (blockId, itemId, payload) =>
         canvasActionRef.current.commitItemFreeLayout(blockId, itemId, payload),
       getElementFreeLayout: (blockId, field) => {
-        if (viewport === 'mobile') return null;
         const block = specRef.current.blocks.find((b) => b.id === blockId);
         // Text-layer sections own position via section.freeLayout — never paint a
         // second element translate (double transform / cross-section overlap).
@@ -4582,12 +4923,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     );
   }
 
-  async function publish() {
-    if (publishing) return;
+  async function publish(): Promise<string | null> {
+    if (publishing) return null;
     if (saveConflictRef.current) {
       setPublishPublicPath(null);
       setSaveMsg('Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi publish');
-      return;
+      return null;
     }
     setPublishing(true);
     setPublishPublicPath(null);
@@ -4600,7 +4941,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             ? 'Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi publish'
             : 'Không lưu kịp trước publish — thử lại',
         );
-        return;
+        return null;
       }
       let updated: PagePayload;
       try {
@@ -4612,7 +4953,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         setSaveMsg(
           e instanceof Error ? e.message : 'Publish thất bại — bản công khai chưa đổi',
         );
-        return;
+        return null;
       }
       setPage(updated);
       clearLocalLandingDraft(pageId);
@@ -4624,9 +4965,16 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           ? 'Đã xuất bản thành công'
           : 'Đã xuất bản. Cache trang công khai chưa làm mới — tải lại sau ít phút',
       );
+      return updated.slug || null;
     } finally {
       setPublishing(false);
     }
+  }
+
+  async function viewLive() {
+    const slug = await publish();
+    if (!slug || typeof window === 'undefined') return;
+    window.open(`/p/${encodeURIComponent(slug)}?v=${Date.now()}`, '_blank', 'noopener,noreferrer');
   }
 
   async function applyBusinessProfile(force: boolean) {
@@ -4801,7 +5149,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
+      className="relative flex h-full min-h-0 min-w-0 flex-col"
       data-lp-builder-root
       data-lp-builder-vertical-toolbars="1"
       data-lp-inspector-mode={inspectorMode}
@@ -4810,13 +5158,17 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       data-lp-no-double-scroll="1"
       style={{
         // App header h-16 (4rem) + LP toolbar h-11 (2.75rem)
-        ['--builder-chrome-offset' as string]: '6.75rem',
-        ['--builder-top-offset' as string]: '6.75rem',
+        ['--builder-chrome-offset' as string]: `${builderChromeTop}px`,
+        ['--builder-top-offset' as string]: `${builderChromeTop}px`,
         ['--lp-toolbar-h' as string]: '2.75rem',
         ['--builder-left-offset' as string]:
           'calc(var(--app-sidebar-width, 16rem) + 1.5rem)',
       }}
     >
+      <style>{`
+        body:has([data-lp-inspector-drawer], [data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal]) [data-lp-floating-toolbar] { visibility: hidden; }
+        body:has([data-lp-builder-root]) [data-lp-free-drag-handle], [data-lp-builder-root] [data-lp-resize-handle], [data-lp-builder-root] [data-lp-rotate-handle] { touch-action: none; }
+      `}</style>
       {!fullscreenPreview ? (
         <LandingPageBuilderToolbar
           viewport={viewport}
@@ -4829,13 +5181,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           inspectorDocked={inspectorMode === 'docked' || !inspectorDesktop}
           onBack={() => router.push('/landing-pages/pages')}
           onPreviewChange={onPreviewChange}
-          onViewportChange={setViewport}
+          onViewportChange={changeViewport}
+          onOpenPanel={() => setInspectorPanelOpen(open => !open)}
           onUndo={undo}
           onRedo={redo}
           canUndo={historyNav.undo}
           canRedo={historyNav.redo}
-          onSave={() => void persist(spec, page.name, { manual: true })}
+          onSave={() => { flushCanvasEdit(); void persist(specRef.current, page.name, { manual: true }); }}
           onPublish={() => void publish()}
+          onViewLive={() => void viewLive()}
         />
       ) : null}
 
@@ -4858,10 +5212,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       {actionBarMounted && (saveConflict || pendingLocalDraft) && !fullscreenPreview
         ? createPortal(
             <div
-              className="fixed bottom-4 left-1/2 z-[58] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-amber-500/40 bg-zinc-950 px-3 py-2 text-xs shadow-lg"
+              className="fixed bottom-4 left-1/2 z-[58] flex w-[min(40rem,calc(100vw-1rem))] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-zinc-950 px-3 py-2 text-xs shadow-lg"
               data-lp-save-conflict-toast
             >
-              <span className="text-amber-200">
+              <span className="min-w-0 flex-1 basis-full break-words text-amber-200 sm:basis-auto">
                 {saveMsg || 'Có bản mới hơn ở nơi khác'}
               </span>
               <Button
@@ -4959,38 +5313,45 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 viewport={viewport}
                 previewOn
                 saving={saving}
+                publishing={publishing}
+                pageStatus={page.status}
+                publicSlug={page.slug}
                 onBack={() => router.push('/landing-pages/pages')}
                 onPreviewChange={onPreviewChange}
-                onViewportChange={setViewport}
+                onViewportChange={changeViewport}
                 onUndo={undo}
                 onRedo={redo}
                 canUndo={historyNav.undo}
                 canRedo={historyNav.redo}
-                onSave={() => void persist(spec, page.name, { manual: true })}
+                onSave={() => { flushCanvasEdit(); void persist(specRef.current, page.name, { manual: true }); }}
                 onPublish={() => void publish()}
+                onViewLive={() => void viewLive()}
               />
               <div
-                className="relative z-0 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white [transform:translateZ(0)]"
+                className="relative z-0 min-h-0 flex-1 overflow-auto overscroll-contain bg-white [transform:translateZ(0)]"
                 data-lp-preview-canvas="1"
                 data-lp-preview-full-canvas="1"
                 data-lp-canvas-scroll="1"
+                data-lp-viewport={viewport}
               >
-                <div
-                  className={
-                    viewport === 'mobile'
-                      ? 'mx-auto min-h-full w-full max-w-[390px]'
-                      : viewport === 'tablet'
-                        ? 'mx-auto min-h-full w-full max-w-[768px]'
-                        : 'mx-auto min-h-full w-full max-w-full'
-                  }
-                >
+                <LandingPageCanvasZoomLayer>
+                  {viewport === 'desktop' ? (
+                  <LandingPagePreviewViewport>
                   <LandingPageRenderer
                     spec={spec}
                     viewport={viewport}
                     mode="preview"
                     className="mx-auto w-full"
                   />
-                </div>
+                  </LandingPagePreviewViewport>
+                  ) : (
+                  <LandingPageDeviceFrame device={viewport} chrome={false}>
+                    <LandingPagePreviewViewport>
+                      <LandingPageRenderer spec={spec} viewport={viewport} mode="preview" className="mx-auto w-full" />
+                    </LandingPagePreviewViewport>
+                  </LandingPageDeviceFrame>
+                  )}
+                </LandingPageCanvasZoomLayer>
               </div>
             </div>,
             document.body,
@@ -5102,10 +5463,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           // and overscroll-none blocks wheel chaining — same dead-wheel symptom as desktop.
           // Rail mode: reserve a right spacer so fixed Inspector does not cover the LP preview
           // (editor viewport only — does not mutate freeLayout / zoom store / device viewport).
-          'grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-2 overflow-hidden overscroll-none max-[767px]:touch-pan-y lg:grid-rows-[minmax(0,1fr)] ' +
+          'relative grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-2 overscroll-none ' +
           (useInspectorRail
-            ? 'lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-x-0'
-            : 'lg:grid-cols-[minmax(0,1fr)]')
+            ? 'grid-cols-[minmax(0,1fr)_auto] gap-x-0'
+            : 'grid-cols-[minmax(0,1fr)]')
         }
         data-lp-builder-layout
         data-lp-fixed-panels="1"
@@ -5174,8 +5535,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           ref={canvasScrollRef}
           className={
             'relative z-0 h-full min-h-0 min-w-0 max-h-full overflow-y-auto overscroll-contain rounded-lg border border-white/10 bg-neutral-950/40 p-3 [transform:translateZ(0)] ' +
-            (viewport === 'desktop' ? 'overflow-x-auto ' : 'overflow-x-hidden ') +
-            'max-[767px]:pb-24 max-[767px]:touch-pan-y ' +
+            'overflow-x-auto ' +
             LP_THIN_SCROLL
           }
           data-lp-canvas-scroll
@@ -5185,7 +5545,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           data-lp-mobile-touch-safe={viewport === 'mobile' ? '1' : undefined}
           data-lp-canvas-scroll-mode="internal"
           data-lp-toolbar-anchor="1"
-          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}
           onWheel={(e) => {
             handleCanvasZoomWheel(e);
           }}
@@ -5249,6 +5609,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               }}
             >
               {viewport === 'desktop' ? (
+                <LandingPagePreviewViewport>
                 <LandingPageRenderer
                   spec={spec}
                   viewport={viewport}
@@ -5266,8 +5627,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                     htmlPatchRef.current = patch;
                   }}
                 />
+                </LandingPagePreviewViewport>
               ) : (
                 <LandingPageDeviceFrame device={viewport}>
+                  <LandingPagePreviewViewport>
                   <LandingPageRenderer
                     spec={spec}
                     viewport={viewport}
@@ -5285,6 +5648,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       htmlPatchRef.current = patch;
                     }}
                   />
+                  </LandingPagePreviewViewport>
                 </LandingPageDeviceFrame>
               )}
             </LandingPageCanvasContextMenu>
@@ -5313,16 +5677,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         ) : null}
 
         <div
-          ref={setDockedInspectorHost}
           className={
             !inspectorDesktop
-              ? // Tablet/mobile: this IS the real portal host for the interactive
-                // Inspector (see portal target below) — must stay clickable and
-                // visible to assistive tech. It sits in-flow below the canvas
-                // (single-column grid below `lg`), so cap its height to a fixed
-                // share of the viewport (own internal scroll) instead of forcing
-                // 100dvh, which would assume it starts at the viewport top.
-                'relative min-h-0 min-w-0 h-[70vh] max-h-[70vh]'
+              ? // Compact inspector uses a modal drawer, without reserving canvas height.
+                'hidden'
               : inspectorMode === 'docked'
                 ? // Desktop docked: layout spacer for fixed portal Inspector.
                   // Width tracks panel open/close so canvas scrollport shrinks —
@@ -5345,9 +5703,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         />
         {(actionBarMounted && inspectorDesktop
           ? document.body
-          : !inspectorDesktop
-            ? dockedInspectorHost
-            : null)
+          : !inspectorDesktop ? dockedInspectorHost : null)
           ? createPortal(
         <div
           className={useInspectorRail ? 'pointer-events-auto flex flex-row-reverse items-stretch gap-2' : undefined}
@@ -5359,10 +5715,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             useInspectorRail
               ? {
                   position: 'fixed',
-                  top: 'var(--builder-top-offset, 6.75rem)',
+                  top: builderChromeTop,
                   right: '0.75rem',
-                  height: 'calc(100dvh - var(--builder-top-offset, 6.75rem) - 0.5rem)',
-                  maxHeight: 'calc(100dvh - var(--builder-top-offset, 6.75rem) - 0.5rem)',
+                  height: `calc(100dvh - ${builderChromeTop}px - 0.5rem)`,
+                  maxHeight: `calc(100dvh - ${builderChromeTop}px - 0.5rem)`,
                   zIndex: 56,
                 }
               : { display: 'contents' }
@@ -5379,7 +5735,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           className={
             inspectorDesktop
               ? 'flex min-w-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0A3D30] shadow-2xl'
-              : 'flex h-full max-h-full min-h-0 w-full max-w-[360px] min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-transparent'
+              : 'flex h-full max-h-full min-h-0 w-full min-w-0 flex-col rounded-lg border border-white/10 bg-[#0A3D30]'
           }
           data-lp-inspector
           data-lp-inspector-fixed="1"
@@ -5441,7 +5797,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             }
             onPointerDown={onInspectorDragPointerDown}
           >
-            {useInspectorRail ? (
+            {useInspectorRail || !inspectorDesktop ? (
               <>
                 <div
                   className="min-w-0 flex-1 truncate text-sm font-semibold text-white"
@@ -5455,7 +5811,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   data-lp-inspector-close
                   title="Đóng panel"
                   aria-label="Đóng panel"
-                  className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-xs text-white/80 hover:bg-white/10"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/15 text-xs text-white/80 hover:bg-white/10"
                   onClick={(e) => {
                     e.stopPropagation();
                     setInspectorPanelOpen(false);
@@ -5494,18 +5850,22 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 { id: 'design' as const, label: 'Thiết kế' },
                 { id: 'content' as const, label: 'Nội dung' },
                 { id: 'advanced' as const, label: 'Nâng cao' },
+                { id: 'page-theme' as const, label: 'Tổng thể' },
               ] as const
             ).map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 data-lp-inspector-tab-btn={tab.id}
-                className={`flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-medium transition ${
-                  inspectorTab === tab.id
+                className={`min-h-11 min-w-0 flex-1 rounded-md px-1 py-1.5 text-[11px] font-medium transition ${
+                  (tab.id === 'page-theme' ? inspectorRailSurface === 'page-theme' : inspectorRailSurface !== 'page-theme' && inspectorTab === tab.id)
                     ? 'bg-white/15 text-white'
                     : 'text-white/55 hover:bg-white/5 hover:text-white/80'
                 }`}
-                onClick={() => setInspectorTab(tab.id)}
+                onClick={() => {
+                  setInspectorRailSurface(tab.id === 'page-theme' ? 'page-theme' : 'element');
+                  if (tab.id !== 'page-theme') setInspectorTab(tab.id);
+                }}
               >
                 {tab.label}
               </button>
@@ -5539,22 +5899,51 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               key={addPanelNonce}
               initialRootMode={addPanelInitial.rootMode}
               initialAddTab={addPanelInitial.addTab}
+              initialSubView={addPanelInitial.subView}
               onAddBlock={addBlock}
               onAddBlocks={addBlocks}
               onOpenMediaLibrary={() => setMediaOpen(true)}
               onOpenSectionLibrary={() => openSectionLibrary(null)}
               onOpenButtonLibrary={() => openButtonLibrary(null)}
-              onInsertTitlePreset={insertTitlePreset}
-              onInsertParagraphPreset={insertParagraphPreset}
-              onInsertListPreset={insertListPreset}
-              onInsertButtonPreset={insertButtonPreset}
-              onInsertButtonGroupPreset={insertButtonGroupPreset}
-              onInsertBoxPreset={insertBoxPreset}
-              onInsertFormPreset={insertFormPreset}
+              onInsertTitlePreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertTitlePreset(preset, pos);
+              }}
+              onInsertParagraphPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertParagraphPreset(preset, pos);
+              }}
+              onInsertListPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertListPreset(preset, pos);
+              }}
+              onInsertButtonPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertButtonPreset(preset, pos);
+              }}
+              onInsertButtonGroupPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertButtonGroupPreset(preset, pos);
+              }}
+              onInsertBoxPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertBoxPreset(preset, pos);
+              }}
+              onInsertFormPreset={(preset) => {
+                const pos = pickerInsertPosRef.current ?? undefined;
+                pickerInsertPosRef.current = null;
+                insertFormPreset(preset, pos);
+              }}
               blocks={spec.blocks}
               selectedBlockId={selectedId}
               onSelectBlock={(id) => {
-                selectCanvas({ blockId: id, element: 'section' });
+                selectCanvas({ blockId: id, element: 'section' }, { keepAddPanel: true });
               }}
               onReorderBlocks={(fromIndex, toIndex) => {
                 const moving = spec.blocks[fromIndex];
@@ -5571,41 +5960,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               }}
               onDupBlock={dupBlock}
               onRemoveBlock={removeBlock}
-              aiMenu={
-                <LandingPageAiMenu
-                  placement="sidebar"
-                  pageId={pageId}
-                  pageName={page.name}
-                  spec={spec}
-                  selectedBlock={selected}
-                  doctorBusy={doctorBusy}
-                  disabled={saving}
-                  onApplySpec={(next, note) => {
-                    pushHistory(sanitizeLandingPageDraftSpec(next));
-                    setSaveMsg(note);
-                  }}
-                  onApplyBlockFields={(blockId, patch, note) => {
-                    const keys = Object.keys(patch).map((f) => `${blockId}.${f}`);
-                    const current = specRef.current;
-                    const next = {
-                      ...current,
-                      blocks: current.blocks.map((b) =>
-                        b.id === blockId ? ({ ...b, ...patch } as LandingPageBlock) : b,
-                      ),
-                    };
-                    pushHistory(markLandingPageFieldSources(next, keys, 'ai'));
-                    setSaveMsg(note);
-                  }}
-                  onOpenSectionPresets={() => {
-                    openRightAddComponents({ rootMode: 'add', addTab: 'presets' });
-                  }}
-                  onPageDoctor={() => void runPageDoctor()}
-                />
-              }
             />
           ) : null}
 
-          {useInspectorRail && inspectorRailSurface === 'page-theme' ? (
+          {inspectorRailSurface === 'page-theme' ? (
             <LandingPageInspectorGlobalDesign
               spec={spec}
               productName={page?.name}
@@ -5907,6 +6265,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   block={selected}
                   pageId={pageId}
                   onUpdateBlock={updateBlock}
+                  onEndGesture={endUpdateBlockGesture}
                   onPickImage={() => {
                     const blockId = selected.id;
                     sectionMediaRef.current = (url) => {
@@ -5941,6 +6300,32 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                     <LandingPageInspectorTextContent
                       block={selected}
                       field={field}
+                      pageId={pageId}
+                      pageMeta={{
+                        category:
+                          typeof spec.meta?.category === 'string' ? spec.meta.category : null,
+                        conversionGoal:
+                          typeof spec.meta?.conversionGoal === 'string'
+                            ? spec.meta.conversionGoal
+                            : null,
+                        pageGoal:
+                          typeof spec.meta?.aiPageGoal === 'string' ? spec.meta.aiPageGoal : null,
+                        tone: typeof spec.meta?.aiTone === 'string' ? spec.meta.aiTone : null,
+                        aiTopicHint:
+                          typeof spec.meta?.aiTopicHint === 'string' ? spec.meta.aiTopicHint : null,
+                      }}
+                      onSaveTopicHint={(hint) => {
+                        const current = specRef.current;
+                        pushHistory(
+                          markLandingPageUserEdits(
+                            {
+                              ...current,
+                              meta: { ...(current.meta || {}), aiTopicHint: hint },
+                            },
+                            ['meta.aiTopicHint'],
+                          ),
+                        );
+                      }}
                       onLive={(value) =>
                         canvasActionRef.current.updateBlockFieldLive(selected.id, field, value)
                       }
@@ -6007,7 +6392,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                     </>
                   );
                 }
-                if (ctx.kind === 'card') return null;
+                if (ctx.kind === 'card' || ctx.kind === 'image') return null;
                 if (ctx.kind === 'text' || isItemEl) {
                   return (
                     <InspectorEmptyHint>
@@ -6082,7 +6467,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 />
               ) : null}
 
-              {isItemEl && 'items' in selected ? (
+              {(ctx.kind === 'image' || ctx.kind === 'card') && isItemEl && 'items' in selected ? (
                 (() => {
                   const itemId = String(el).slice(5);
                   const items = (
@@ -6096,10 +6481,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   ).items || [];
                   const item = items.find((it) => it.id === itemId);
                   if (!item) return null;
+                  // Image selection: always show replace. Card box: only when card has an image.
+                  if (ctx.kind === 'card' && !item.imageUrl && !isItemImageField(primaryTarget?.field)) {
+                    return null;
+                  }
                   return (
                     <LandingPageImageField
                       pageId={pageId}
-                      label="Đổi ảnh card"
+                      label="Đổi ảnh"
                       imageUrl={item.imageUrl}
                       imageStyle={item.imageStyle}
                       onChange={({ imageUrl, imageStyle }) => {
@@ -6115,6 +6504,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
               {ctx.kind === 'form' ? (
                 <div className="space-y-2" data-lp-inspector-form>
+                  <p className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[10px] leading-snug text-white/55">
+                    Màu nền / chữ / nút: tab <strong className="text-white/80">Thiết kế</strong>. Giữ
+                    kéo form trên canvas để di chuyển.
+                  </p>
                   <LandingPageLeadFormFieldsInspector
                     block={selected as import('@marketingspa/shared').LandingPageLeadFormBlock}
                     onChange={(fields) =>
@@ -6123,19 +6516,18 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       } as Partial<LandingPageBlock>)
                     }
                   />
-                  <div className="rounded border border-white/10 p-2" data-lp-inspector-crm>
-                    <LeadFormCrmInspector
-                      block={selected as import('@marketingspa/shared').LandingPageLeadFormBlock}
-                      onChange={(crm) =>
-                        updateBlock(selected.id, {
-                          crm,
-                        } as Partial<LandingPageBlock>)
-                      }
-                    />
-                  </div>
-                  <p className="text-[10px] opacity-40">
-                    Nhãn / placeholder cũng có thể sửa bằng double-click trên canvas.
-                  </p>
+                  <InspectorAccordion title="CRM (Lead)" data-lp="form-crm" defaultOpen={false}>
+                    <div data-lp-inspector-crm>
+                      <LeadFormCrmInspector
+                        block={selected as import('@marketingspa/shared').LandingPageLeadFormBlock}
+                        onChange={(crm) =>
+                          updateBlock(selected.id, {
+                            crm,
+                          } as Partial<LandingPageBlock>)
+                        }
+                      />
+                    </div>
+                  </InspectorAccordion>
                 </div>
               ) : null}
 
@@ -6282,6 +6674,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             <LandingPageInspectorDesignTab
               selected={selected}
               selectedElement={selectedElement}
+              selectedField={primaryTarget?.field}
               viewport={viewport}
               resolvedFreeLayout={resolvedSelectedFreeLayout}
               onPatchFreeLayout={
@@ -6725,7 +7118,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       historyRef.current.push(cloneSpec(specRef.current));
                       if (historyRef.current.length > 50) historyRef.current.shift();
                       futureRef.current = [];
-                      setSpec(sanitizeLandingPageDraftSpec(restored));
+                      inlineHistStarted.current = false;
+                      gestureHistStarted.current = false;
+                      const cleaned = sanitizeLandingPageDraftSpec(restored);
+                      specRef.current = cleaned;
+                      setSpec(cleaned);
+                      setHistoryNav({ undo: true, redo: false });
                       revisionRef.current = readClientRevision(restored);
                       ackedRevisionRef.current = readClientRevision(restored);
                       dirtyRef.current = false;
@@ -6782,6 +7180,23 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           : null}
       </div>
       ) : null}
+      <Dialog.Root open={!inspectorDesktop && inspectorPanelOpen && !fullscreenPreview} onOpenChange={setInspectorPanelOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[54] bg-black/40" />
+          <Dialog.Content
+            className="fixed inset-x-2 bottom-2 z-[55] h-[min(75dvh,40rem)] max-h-[calc(100dvh-1rem)] rounded-xl bg-[#0A3D30] text-white shadow-2xl outline-none sm:left-auto sm:top-2 sm:h-auto sm:w-[360px]"
+            data-lp-inspector-drawer="1"
+            onCloseAutoFocus={event => {
+              event.preventDefault();
+              document.querySelector<HTMLButtonElement>('[data-lp-toolbar-btn="inspector"]')?.focus({ preventScroll: true });
+            }}
+            aria-describedby={undefined}
+          >
+            <Dialog.Title className="sr-only">Bảng thuộc tính Landing Page Builder</Dialog.Title>
+            <div ref={setDockedInspectorHost} className="h-full min-h-0 min-w-0" />
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

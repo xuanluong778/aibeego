@@ -85,11 +85,27 @@ export function parseLpSelectionKey(key: string): LpSelectionTarget | null {
   return { blockId, element: (rest || 'section') as LandingPageCanvasElementKey };
 }
 
+/** Card/gallery image selection — distinct from bare `item:id` (the box). */
+export function isItemImageField(field?: string | null): boolean {
+  return Boolean(field && /^itemImage:.+/.test(field));
+}
+
+export function itemImageField(itemId: string): string {
+  return `itemImage:${itemId}`;
+}
+
+export function itemIdFromItemImageField(field: string): string | null {
+  const m = /^itemImage:(.+)$/.exec(field);
+  return m?.[1] || null;
+}
+
 export function elementFromField(field: string): LandingPageCanvasElementKey {
   if (field === 'ctaLabel') return 'cta';
   if (field === 'headline' || field === 'subheadline' || field === 'body') return field;
   const trust = /^trustPoint:(\d+)$/.exec(field);
   if (trust?.[1] != null) return `item:trust-${trust[1]}`;
+  const img = /^itemImage:(.+)$/.exec(field);
+  if (img?.[1]) return `item:${img[1]}`;
   const m =
     /^(?:itemTitle|itemDesc|itemQuestion|itemAnswer|itemQuote|itemAuthor|planName|planPrice|planCta|fieldLabel):(.+)$/.exec(
       field,
@@ -111,6 +127,8 @@ export function isSectionToolbarElement(el?: LandingPageCanvasElementKey | null)
 
 export function isTextToolbarTarget(target: LpSelectionTarget): boolean {
   if (target.element === 'image') return false;
+  // Card image field is content-image, not editable text.
+  if (isItemImageField(target.field)) return false;
   // Any inline text field (trustPoint:N, itemTitle:…, headline, …) shows the quick toolbar.
   // Check field BEFORE section rejection — a stale elementFromField used to map
   // trustPoint → 'section', which hid the toolbar despite a valid field selection.

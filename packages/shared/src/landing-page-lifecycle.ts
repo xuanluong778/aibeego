@@ -179,6 +179,92 @@ function clampText(input: unknown, max: number, mode: LandingPageSanitizeMode = 
   return raw.slice(0, max);
 }
 
+/** CSS token values — strip tags, keep length bounded. Empty → omit so normalize fills defaults. */
+function clampTokenCss(input: unknown, max: number): string | undefined {
+  if (typeof input !== 'string') return undefined;
+  const t = input.replace(/<\/style/gi, '').trim().slice(0, max);
+  return t || undefined;
+}
+
+function clampTokenNumber(input: unknown): number | undefined {
+  if (typeof input !== 'number' || !Number.isFinite(input)) return undefined;
+  return input;
+}
+
+/**
+ * Persist the full visual token set (density, type scale, shadows, …).
+ * Old sanitizer only copied 12 color/font fields so live/public looked like a
+ * different theme than the builder canvas.
+ */
+function sanitizePersistedThemeTokens(
+  tokensIn: Record<string, unknown>,
+  preset: (typeof LANDING_PAGE_THEME_PRESETS)[LandingPageTheme],
+  theme: LandingPageTheme,
+) {
+  const density =
+    tokensIn.density === 'compact' ||
+    tokensIn.density === 'spacious' ||
+    tokensIn.density === 'comfortable'
+      ? tokensIn.density
+      : undefined;
+  const imageTreatment =
+    tokensIn.imageTreatment === 'editorial' ||
+    tokensIn.imageTreatment === 'product-flat' ||
+    tokensIn.imageTreatment === 'illustration' ||
+    tokensIn.imageTreatment === 'photo-real'
+      ? tokensIn.imageTreatment
+      : undefined;
+  return normalizeLandingPageThemeTokens(
+    {
+      primary: clampText(tokensIn.primary ?? preset.primary, 48, 'persist') || preset.primary,
+      secondary: clampText(tokensIn.secondary ?? preset.secondary, 48, 'persist') || preset.secondary,
+      background: clampText(tokensIn.background ?? preset.background, 48, 'persist') || preset.background,
+      surface: clampText(tokensIn.surface ?? preset.surface, 48, 'persist') || preset.surface,
+      text: clampText(tokensIn.text ?? preset.text, 48, 'persist') || preset.text,
+      muted: clampText(tokensIn.muted ?? preset.muted, 48, 'persist') || preset.muted,
+      fontFamily: clampText(tokensIn.fontFamily ?? preset.fontFamily, 120, 'persist') || preset.fontFamily,
+      radius: clampText(tokensIn.radius ?? preset.radius, 16, 'persist') || preset.radius,
+      accent: clampTokenCss(tokensIn.accent, 48),
+      border: clampTokenCss(tokensIn.border, 48),
+      button: clampTokenCss(tokensIn.button, 48),
+      gradient: clampTokenCss(tokensIn.gradient, 240),
+      shadow: clampTokenCss(tokensIn.shadow, 160),
+      canvas: clampTokenCss(tokensIn.canvas, 48),
+      surfaceAlt: clampTokenCss(tokensIn.surfaceAlt, 48),
+      textMuted: clampTokenCss(tokensIn.textMuted, 48),
+      containerWidth: clampTokenCss(tokensIn.containerWidth, 32),
+      textWidth: clampTokenCss(tokensIn.textWidth, 32),
+      sectionSpacing: clampTokenCss(tokensIn.sectionSpacing, 32),
+      fontSizeSm: clampTokenCss(tokensIn.fontSizeSm, 32),
+      fontSizeMd: clampTokenCss(tokensIn.fontSizeMd, 32),
+      fontSizeLg: clampTokenCss(tokensIn.fontSizeLg, 32),
+      fontSizeXl: clampTokenCss(tokensIn.fontSizeXl, 32),
+      fontSize2xl: clampTokenCss(tokensIn.fontSize2xl, 32),
+      fontSizeHero: clampTokenCss(tokensIn.fontSizeHero, 80),
+      imageRadius: clampTokenCss(tokensIn.imageRadius, 32),
+      imageAspect: clampTokenCss(tokensIn.imageAspect, 32),
+      buttonRadius: clampTokenCss(tokensIn.buttonRadius, 48),
+      buttonStyle: clampTokenCss(tokensIn.buttonStyle, 32),
+      density,
+      radiusSm: clampTokenCss(tokensIn.radiusSm, 48),
+      radiusMd: clampTokenCss(tokensIn.radiusMd, 48),
+      radiusLg: clampTokenCss(tokensIn.radiusLg, 48),
+      radiusPill: clampTokenCss(tokensIn.radiusPill, 16),
+      shadowSm: clampTokenCss(tokensIn.shadowSm, 160),
+      shadowMd: clampTokenCss(tokensIn.shadowMd, 160),
+      shadowLg: clampTokenCss(tokensIn.shadowLg, 160),
+      fontWeightHeading: clampTokenNumber(tokensIn.fontWeightHeading),
+      fontWeightBody: clampTokenNumber(tokensIn.fontWeightBody),
+      lineHeightHeading: clampTokenNumber(tokensIn.lineHeightHeading),
+      lineHeightBody: clampTokenNumber(tokensIn.lineHeightBody),
+      imageTreatment,
+      iconSurface: clampTokenCss(tokensIn.iconSurface, 160),
+      iconColor: clampTokenCss(tokensIn.iconColor, 48),
+    },
+    theme,
+  );
+}
+
 function safeUrl(input: unknown): string | null {
   const raw = typeof input === 'string' ? input.trim() : '';
   if (!raw) return null;
@@ -514,24 +600,7 @@ export function sanitizeLandingPageSpec(
     metaIn?.responsiveInlineTextStyles,
   );
 
-  const normalizedTokens = normalizeLandingPageThemeTokens(
-    {
-      primary: clampText(tokensIn.primary ?? preset.primary, 48, 'persist') || preset.primary,
-      secondary: clampText(tokensIn.secondary ?? preset.secondary, 48, 'persist') || preset.secondary,
-      background: clampText(tokensIn.background ?? preset.background, 48, 'persist') || preset.background,
-      surface: clampText(tokensIn.surface ?? preset.surface, 48, 'persist') || preset.surface,
-      text: clampText(tokensIn.text ?? preset.text, 48, 'persist') || preset.text,
-      muted: clampText(tokensIn.muted ?? preset.muted, 48, 'persist') || preset.muted,
-      fontFamily: clampText(tokensIn.fontFamily ?? preset.fontFamily, 120, 'persist') || preset.fontFamily,
-      radius: clampText(tokensIn.radius ?? preset.radius, 16, 'persist') || preset.radius,
-      accent: typeof tokensIn.accent === 'string' ? tokensIn.accent.slice(0, 48) : undefined,
-      border: typeof tokensIn.border === 'string' ? tokensIn.border.slice(0, 48) : undefined,
-      button: typeof tokensIn.button === 'string' ? tokensIn.button.slice(0, 48) : undefined,
-      gradient: typeof tokensIn.gradient === 'string' ? tokensIn.gradient.slice(0, 240) : undefined,
-      shadow: typeof tokensIn.shadow === 'string' ? tokensIn.shadow.slice(0, 160) : undefined,
-    },
-    theme,
-  );
+  const normalizedTokens = sanitizePersistedThemeTokens(tokensIn, preset, theme);
 
   return {
     version: 1,

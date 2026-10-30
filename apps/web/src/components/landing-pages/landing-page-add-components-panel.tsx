@@ -129,12 +129,12 @@ export type LandingPageAddComponentsPanelProps = {
   onReorderBlocks?: (fromIndex: number, toIndex: number) => void;
   onDupBlock?: (id: string) => void;
   onRemoveBlock?: (id: string) => void;
-  /** AI menu (from left sidebar) */
-  aiMenu?: ReactNode;
   /** Open on layers when launched from external request */
   initialRootMode?: RootMode;
   /** @deprecated bottom Phần tử/Section mẫu tabs removed — presets → mở thư viện Phần */
   initialAddTab?: 'elements' | 'presets';
+  /** Open a preset picker after drag-drop from canvas (text / forms / …). */
+  initialSubView?: SubView;
 };
 
 const EMBEDDED_PRESET_CLASS =
@@ -159,12 +159,12 @@ export function LandingPageAddComponentsPanel({
   onReorderBlocks,
   onDupBlock,
   onRemoveBlock,
-  aiMenu,
   initialRootMode = 'add',
   initialAddTab,
+  initialSubView = 'root',
 }: LandingPageAddComponentsPanelProps) {
   const [rootMode, setRootMode] = useState<RootMode>(initialRootMode);
-  const [subView, setSubView] = useState<SubView>('root');
+  const [subView, setSubView] = useState<SubView>(initialSubView);
   const [textTab, setTextTab] = useState<TextPresetTab>('title');
   const [buttonTab, setButtonTab] = useState<ButtonPresetTab>('buttons');
   const dragIndex = useRef<number | null>(null);
@@ -175,6 +175,13 @@ export function LandingPageAddComponentsPanel({
       onOpenSectionLibrary();
     }
   }, [initialAddTab, onOpenSectionLibrary]);
+
+  useEffect(() => {
+    if (initialSubView && initialSubView !== 'root') {
+      setRootMode('add');
+      setSubView(initialSubView);
+    }
+  }, [initialSubView]);
 
   function runQuick(card: QuickCard) {
     switch (card.kind) {
@@ -414,55 +421,87 @@ export function LandingPageAddComponentsPanel({
   }
 
   function renderComponentCard(card: QuickCard) {
-    const libraryDrag =
-      card.kind === 'section-library'
-        ? ('section-library' as const)
-        : card.kind === 'button' && onOpenButtonLibrary
-          ? ('button-library' as const)
-          : null;
-    const blockDragType =
-      card.kind === 'block' && card.blockType
-        ? card.blockType
-        : card.kind === 'forms'
-          ? ('LeadForm' as const)
-          : null;
-    const canDrag = Boolean(libraryDrag || blockDragType);
+    const dropHint = 'Thả vào canvas → hiện mẫu để chọn';
+    let dragKind: 'section-library' | 'button-library' | 'block-type' | 'picker' | undefined;
+    let onDragStart: ((e: DragEvent<HTMLButtonElement>) => void) | undefined;
+
+    if (card.kind === 'section-library') {
+      dragKind = 'section-library';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'section-library-open' }, 'Thư viện Section', {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'button' && onOpenButtonLibrary) {
+      dragKind = 'button-library';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'button-library-open' }, 'Thư viện Nút', {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'button' && onInsertButtonPreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'button' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'text' && onInsertTitlePreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'text' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'forms' && onInsertFormPreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'forms' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'forms') {
+      dragKind = 'block-type';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'block-type', type: 'LeadForm' }, card.label, {
+          subtitle: 'Thả vào canvas để chèn form',
+        });
+    } else if (card.kind === 'graphics' && onInsertBoxPreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'graphics' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'icon' && onInsertBoxPreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'icon' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'social' && onInsertBoxPreset) {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'social' }, card.label, {
+          subtitle: dropHint,
+        });
+    } else if (card.kind === 'media') {
+      dragKind = 'picker';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'media' }, card.label, {
+          subtitle: 'Thả vào canvas → mở thư viện ảnh',
+        });
+    } else if (card.kind === 'block' && card.blockType) {
+      dragKind = 'block-type';
+      onDragStart = (e) =>
+        beginSidebarPresetDrag(e, { kind: 'block-type', type: card.blockType! }, card.label, {
+          subtitle: 'Thả vào canvas để chèn',
+        });
+    }
+
+    const canDrag = Boolean(onDragStart);
     return (
       <ComponentCard
         key={card.id}
         card={card}
-        dragKind={
-          libraryDrag === 'section-library'
-            ? 'section-library'
-            : libraryDrag === 'button-library'
-              ? 'button-library'
-              : blockDragType
-                ? 'block-type'
-                : undefined
-        }
+        dragKind={dragKind}
         onClick={() => runQuick(card)}
         draggable={canDrag}
-        onDragStart={
-          libraryDrag === 'section-library'
-            ? (e) =>
-                beginSidebarPresetDrag(e, { kind: 'section-library-open' }, 'Thư viện Section', {
-                  subtitle: 'Thả vào canvas để chọn mẫu',
-                })
-            : libraryDrag === 'button-library'
-              ? (e) =>
-                  beginSidebarPresetDrag(e, { kind: 'button-library-open' }, 'Thư viện Nút', {
-                    subtitle: 'Thả vào canvas để chọn mẫu',
-                  })
-              : blockDragType
-                ? (e) =>
-                    beginSidebarPresetDrag(
-                      e,
-                      { kind: 'block-type', type: blockDragType },
-                      card.label,
-                      { subtitle: 'Thả vào section trên canvas để chèn' },
-                    )
-                : undefined
-        }
+        onDragStart={onDragStart}
       />
     );
   }
@@ -476,15 +515,6 @@ export function LandingPageAddComponentsPanel({
       data-lp-add-root-mode={rootMode}
       data-lp-add-components-theme="light"
     >
-      {aiMenu ? (
-        <div
-          className="shrink-0 border-b border-slate-200 bg-white px-2 py-1.5 [&_button]:text-zinc-800"
-          data-lp-add-components-ai
-        >
-          {aiMenu}
-        </div>
-      ) : null}
-
       <div
         className="shrink-0 border-b border-slate-200 bg-white px-2 py-1.5"
         data-lp-add-root-tabs
@@ -520,7 +550,7 @@ export function LandingPageAddComponentsPanel({
               setSubView('root');
             }}
           >
-            Danh sách ({blocks?.length ?? 0})
+            Section ({blocks?.length ?? 0})
           </button>
         </div>
       </div>
@@ -536,6 +566,8 @@ export function LandingPageAddComponentsPanel({
               {blocks.map((b, index) => (
                 <li
                   key={b.id}
+                  data-lp-layer-id={b.id}
+                  data-lp-layer-type={b.type}
                   draggable={Boolean(onReorderBlocks)}
                   onDragStart={() => {
                     dragIndex.current = index;
@@ -557,10 +589,26 @@ export function LandingPageAddComponentsPanel({
                     {!b.enabled ? ' (ẩn)' : ''}
                     {b.locked ? ' 🔒' : ''}
                   </span>
+                  {onReorderBlocks ? (['up', 'down'] as const).map((direction) => (
+                    <button
+                      key={direction}
+                      type="button"
+                      aria-label={direction === 'up' ? 'Đưa block lên' : 'Đưa block xuống'}
+                      data-lp-layer-move={direction}
+                      disabled={b.locked || (direction === 'up' ? index === 0 : index === blocks.length - 1)}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onReorderBlocks(index, index + (direction === 'up' ? -1 : 1));
+                      }}
+                    >
+                      {direction === 'up' ? '↑' : '↓'}
+                    </button>
+                  )) : null}
                   {onDupBlock ? (
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      className="min-h-11 rounded px-1.5 text-[10px] text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDupBlock(b.id);
@@ -572,7 +620,7 @@ export function LandingPageAddComponentsPanel({
                   {onRemoveBlock ? (
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-[10px] text-red-600/80 hover:bg-red-50 hover:text-red-700"
+                      className="min-h-11 rounded px-1.5 text-[10px] text-red-600/80 hover:bg-red-50 hover:text-red-700"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemoveBlock(b.id);
@@ -639,7 +687,7 @@ function ComponentCard({
   onClick: () => void;
   draggable?: boolean;
   onDragStart?: (e: DragEvent<HTMLButtonElement>) => void;
-  dragKind?: 'section-library' | 'button-library' | 'block-type';
+  dragKind?: 'section-library' | 'button-library' | 'block-type' | 'picker';
 }) {
   return (
     <button
@@ -664,13 +712,9 @@ function ComponentCard({
         onClick();
       }}
       title={
-        dragKind === 'button-library'
-          ? `${card.label} — kéo thả hoặc click để mở thư viện nút`
-          : dragKind === 'section-library'
-            ? `${card.label} — kéo thả hoặc click để mở thư viện`
-            : dragKind === 'block-type'
-              ? `${card.label} — kéo thả vào canvas hoặc click để chèn`
-              : card.label
+        dragKind
+          ? `${card.label} — giữ kéo vào canvas để chọn mẫu, hoặc click`
+          : card.label
       }
     >
       <span

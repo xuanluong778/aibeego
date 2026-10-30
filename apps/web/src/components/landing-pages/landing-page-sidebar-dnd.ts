@@ -54,14 +54,54 @@ export type LpSidebarPresetPayload =
   /** Open Section Library modal — insert position resolved on drop / click. */
   | { kind: 'section-library-open' }
   /** Open Button Library modal — insert position resolved on drop / click. */
-  | { kind: 'button-library-open' };
+  | { kind: 'button-library-open' }
+  /** Open right-rail picker (presets) after drop so user can click a template. */
+  | {
+      kind: 'add-picker-open';
+      picker: 'text' | 'button' | 'forms' | 'graphics' | 'icon' | 'social' | 'media';
+    };
 
 export type LpSidebarInsertPos =
   | { mode: 'after-selected'; clientX?: number; clientY?: number }
   | { mode: 'before'; blockId: string; clientX?: number; clientY?: number }
   | { mode: 'after'; blockId: string; clientX?: number; clientY?: number }
+  /** Drop onto section body — place free content at pointer (not a new flow row). */
+  | { mode: 'inside'; blockId: string; clientX?: number; clientY?: number }
   | { mode: 'start'; clientX?: number; clientY?: number }
   | { mode: 'end'; clientX?: number; clientY?: number };
+
+/** Payloads that become free-floating layers on canvas (not full-width section rows). */
+export function isSidebarFreeLayerPayload(payload: LpSidebarPresetPayload): boolean {
+  return (
+    payload.kind === 'title' ||
+    payload.kind === 'paragraph' ||
+    payload.kind === 'list' ||
+    payload.kind === 'button' ||
+    payload.kind === 'button-group' ||
+    payload.kind === 'box' ||
+    payload.kind === 'form' ||
+    payload.kind === 'add-picker-open' ||
+    payload.kind === 'media' ||
+    payload.kind === 'button-library-open'
+  );
+}
+
+/** Edge band (px) for before/after section row insert; middle = inside. */
+export const LP_SECTION_DROP_EDGE_PX = 18;
+
+export function resolveSectionDropMode(
+  clientY: number,
+  sectionRect: DOMRect,
+  preferInside: boolean,
+): 'before' | 'after' | 'inside' {
+  const topBand = sectionRect.top + LP_SECTION_DROP_EDGE_PX;
+  const bottomBand = sectionRect.bottom - LP_SECTION_DROP_EDGE_PX;
+  if (clientY <= topBand) return 'before';
+  if (clientY >= bottomBand) return 'after';
+  if (preferInside) return 'inside';
+  // Full section inserts (Gallery / Video / …): mid → nearer edge.
+  return clientY < sectionRect.top + sectionRect.height / 2 ? 'before' : 'after';
+}
 
 export function isSidebarPresetDrag(types: readonly string[] | DOMStringList): boolean {
   const list = Array.from(types as ArrayLike<string>);
@@ -76,6 +116,21 @@ export function parseSidebarPresetPayload(raw: string): LpSidebarPresetPayload |
       if (!data.presetId || !Array.isArray(data.types) || data.types.length === 0) return null;
     }
     if (data.kind === 'section-library-open' || data.kind === 'button-library-open') return data;
+    if (data.kind === 'add-picker-open') {
+      const p = (data as { picker?: string }).picker;
+      if (
+        p === 'text' ||
+        p === 'button' ||
+        p === 'forms' ||
+        p === 'graphics' ||
+        p === 'icon' ||
+        p === 'social' ||
+        p === 'media'
+      ) {
+        return data;
+      }
+      return null;
+    }
     return data;
   } catch {
     return null;
@@ -98,12 +153,17 @@ export function beginSidebarPresetDrag(
   if (typeof document === 'undefined') return;
 
   const isLibraryOpen =
-    payload.kind === 'section-library-open' || payload.kind === 'button-library-open';
+    payload.kind === 'section-library-open' ||
+    payload.kind === 'button-library-open' ||
+    payload.kind === 'add-picker-open';
   if (payload.kind === 'section-library-open') {
     document.body.setAttribute('data-lp-dragging-section-library', '1');
   }
   if (payload.kind === 'button-library-open') {
     document.body.setAttribute('data-lp-dragging-button-library', '1');
+  }
+  if (payload.kind === 'add-picker-open') {
+    document.body.setAttribute('data-lp-dragging-add-picker', payload.picker);
   }
 
   // Mark source so the post-drag synthetic click does not double-insert / double-open.
@@ -114,8 +174,9 @@ export function beginSidebarPresetDrag(
       src.removeEventListener('dragend', onDragEnd);
       document.body.removeAttribute('data-lp-dragging-section-library');
       document.body.removeAttribute('data-lp-dragging-button-library');
+      document.body.removeAttribute('data-lp-dragging-add-picker');
       // Close left overlays AFTER drop handlers finish.
-      // Libraries open on DROP only — never close/open them from dragend.
+      // Libraries / pickers open on DROP only — never close/open them from dragend.
       if (!isLibraryOpen) {
         window.setTimeout(() => requestCloseSidebarOverlay(), 120);
       }
@@ -137,6 +198,9 @@ export function beginSidebarPresetDrag(
   }
   if (payload.kind === 'button-library-open') {
     ghost.setAttribute('data-lp-button-library-drag', '1');
+  }
+  if (payload.kind === 'add-picker-open') {
+    ghost.setAttribute('data-lp-add-picker-drag', payload.picker);
   }
   const title = document.createElement('div');
   title.textContent = previewLabel.slice(0, 48) || 'Thêm block';
@@ -167,10 +231,13 @@ export function beginSidebarPresetDrag(
     background:
       payload.kind === 'section-preset' ||
       payload.kind === 'section-library-open' ||
-      payload.kind === 'button-library-open'
+      payload.kind === 'button-library-open' ||
+      payload.kind === 'add-picker-open'
         ? payload.kind === 'button-library-open'
           ? '#ea580c'
-          : '#7c3aed'
+          : payload.kind === 'add-picker-open'
+            ? '#0284c7'
+            : '#7c3aed'
         : '#0f172a',
     color: '#fff',
     fontSize: '12px',

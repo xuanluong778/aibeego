@@ -76,6 +76,16 @@ const round = sanitizeLandingPagePersistSpec({
 const saved = round.meta.inlineTextStyles['hero1::headline'];
 assert(saved.fontSize === 36 && saved.fontWeight === 'bold' && saved.color === '#111111', 'font fields survive save');
 assert(saved.box.shadow.x === -12 && saved.box.padding.l === 4 && saved.box.visibility === 'mobile', 'box survives save');
+const sized = sanitizeLandingPagePersistSpec({
+  theme: 'MODERN',
+  blocks: [{ id: 'hero1', type: 'Hero', enabled: true, headline: 'Xin chào' }],
+  meta: { inlineTextStyles: { 'hero1::headline': { width: 320, height: 140, fontSize: 24 } } },
+});
+assert(
+  sized.meta.inlineTextStyles['hero1::headline'].width === 320 &&
+    sized.meta.inlineTextStyles['hero1::headline'].height === 140,
+  'text box width/height survive persist sanitizer',
+);
 assert(sanitizeTextBoxChrome({ mediaUrl: 'javascript:alert(1)' })?.mediaUrl == null, 'reject script urls');
 
 if (process.exitCode) process.exit(process.exitCode);

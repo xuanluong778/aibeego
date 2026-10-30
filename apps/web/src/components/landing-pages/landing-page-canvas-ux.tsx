@@ -27,6 +27,7 @@ import { applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChro
 import {
   FreeDragHandle,
   FreeTransformChrome,
+  armFreeDragByFreeId,
   cancelAllFreeDrags,
   freeLayoutStyle,
   isPlausibleFreeLayout,
@@ -36,8 +37,10 @@ import {
 } from './landing-page-free-drag';
 import {
   LP_SIDEBAR_PRESET_MIME,
+  isSidebarFreeLayerPayload,
   isSidebarPresetDrag,
   parseSidebarPresetPayload,
+  resolveSectionDropMode,
 } from './landing-page-sidebar-dnd';
 import { SectionBackgroundToolbar } from './landing-page-section-background-toolbar';
 import { SectionSettingsStack } from './landing-page-section-bg-layer';
@@ -50,6 +53,7 @@ import {
   isSectionLevelElement,
   isSectionToolbarElement,
   isTextToolbarTarget,
+  itemImageField,
   lpSelectionKey,
   normalizeClientRect,
   normalizeLpSelectionTarget,
@@ -140,8 +144,9 @@ export type LandingPageCanvasHandlers = {
   onFreeLayoutCommit?: (
     blockId: string,
     payload: {
-      positionMode: 'free';
-      freeLayout: import('@marketingspa/shared').LandingPageFreeLayout;
+      positionMode: 'free' | 'flow';
+      freeLayout?: import('@marketingspa/shared').LandingPageFreeLayout;
+      flowMinHeight?: number;
       viewport: 'desktop' | 'tablet' | 'mobile';
     },
   ) => void;
@@ -426,6 +431,8 @@ export function elementKeyForField(field: string): LandingPageCanvasElementKey {
   if (field === 'headline' || field === 'subheadline') return field;
   const trust = /^trustPoint:(\d+)$/.exec(field);
   if (trust?.[1] != null) return `item:trust-${trust[1]}`;
+  const img = /^itemImage:(.+)$/.exec(field);
+  if (img?.[1]) return `item:${img[1]}`;
   // itemTitle:xyz / planName:xyz / fieldLabel:xyz → item:xyz selection
   const m = /^(?:itemTitle|itemDesc|itemQuestion|itemAnswer|itemQuote|itemAuthor|planName|planPrice|planCta|fieldLabel):(.+)$/.exec(
     field,
@@ -519,11 +526,15 @@ export function useCanvasElementFreeDrag({
   const bindShellRef = (node: HTMLElement | null) => {
     freeDrag.shellRef.current = node as HTMLDivElement | null;
     if (contentHug && node) {
-      // Clear any leftover imperative height from a prior free-drag session.
-      // React style objects that omit `height` do not wipe prior el.style.height.
-      node.style.height = '';
-      node.style.minHeight = '';
-      node.style.maxHeight = '';
+      // Clear leftover free-drag height — but never wipe a locked text-box height.
+      const heightLocked =
+        node.getAttribute('data-lp-heading-height-locked') === '1' ||
+        node.hasAttribute('data-lp-heading-height-live');
+      if (!heightLocked) {
+        node.style.height = '';
+        node.style.minHeight = '';
+        node.style.maxHeight = '';
+      }
       node.style.overflow = '';
     }
   };
@@ -924,6 +935,14 @@ function SelectableShellInteractive({
     selectedElement === 'section-background' ||
     selectedElement === 'form';
   const showTransformChrome = Boolean(sectionPrimary && freeEnabled && isSectionTransformTarget);
+  // Flow section author height (N/S resize) — must live on chrome, not only the
+  // inner <section>, or grow snaps back and FreeTransformChrome measures wrong.
+  const flowMinHeightPx = (() => {
+    if (layout) return 0;
+    const raw = (surfaceBlock?.style as { minHeight?: unknown } | undefined)?.minHeight;
+    const n = Number.parseFloat(String(raw || '0'));
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  })();
 
   return (
     <div
@@ -946,7 +965,10 @@ function SelectableShellInteractive({
       style={
         freeDrag.shellStyle ||
         // Empty / short flow sections still need a hit target for click + Delete.
-        (!layout ? { minHeight: 56 } : undefined)
+        // Prefer persisted style.minHeight so N/S grow sticks after commit.
+        (!layout
+          ? { minHeight: Math.max(56, flowMinHeightPx || 0) }
+          : undefined)
       }
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -1011,7 +1033,18 @@ function SelectableShellInteractive({
               if (preset) {
                 e.currentTarget.setAttribute('data-lp-preset-drop', '1');
                 const rect = e.currentTarget.getBoundingClientRect();
-                const edge = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                // Prefer inside for free-layer MIME (text/button/box) — mid-body drop.
+                // Full section types still use before/after bands.
+                const rawPeek = (() => {
+                  try {
+                    return e.dataTransfer.getData(LP_SIDEBAR_PRESET_MIME);
+                  } catch {
+                    return '';
+                  }
+                })();
+                const peeked = rawPeek ? parseSidebarPresetPayload(rawPeek) : null;
+                const preferInside = peeked ? isSidebarFreeLayerPayload(peeked) : true;
+                const edge = resolveSectionDropMode(e.clientY, rect, preferInside);
                 e.currentTarget.setAttribute('data-lp-drop-edge', edge);
               }
             }
@@ -1033,9 +1066,11 @@ function SelectableShellInteractive({
           ? (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const edge =
-                (e.currentTarget.getAttribute('data-lp-drop-edge') as 'before' | 'after' | null) ||
-                'before';
+              const edgeAttr = e.currentTarget.getAttribute('data-lp-drop-edge') as
+                | 'before'
+                | 'after'
+                | 'inside'
+                | null;
               e.currentTarget.removeAttribute('data-lp-drop-over');
               e.currentTarget.removeAttribute('data-lp-preset-drop');
               e.currentTarget.removeAttribute('data-lp-drop-edge');
@@ -1060,13 +1095,36 @@ function SelectableShellInteractive({
                     );
                     return;
                   }
-                  // Text/shape presets: keep drop client point so insert lands under the cursor.
-                  handlers.onInsertSidebarPreset(
-                    payload,
-                    edge === 'after'
-                      ? { mode: 'after', blockId, clientX: e.clientX, clientY: e.clientY }
-                      : { mode: 'before', blockId, clientX: e.clientX, clientY: e.clientY },
+                  // Recompute from payload — dragover cannot read MIME in most browsers.
+                  void edgeAttr;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const edge = resolveSectionDropMode(
+                    e.clientY,
+                    rect,
+                    isSidebarFreeLayerPayload(payload),
                   );
+                  const pos =
+                    edge === 'inside'
+                      ? {
+                          mode: 'inside' as const,
+                          blockId,
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        }
+                      : edge === 'after'
+                        ? {
+                            mode: 'after' as const,
+                            blockId,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                          }
+                        : {
+                            mode: 'before' as const,
+                            blockId,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                          };
+                  handlers.onInsertSidebarPreset(payload, pos);
                 }
                 return;
               }
@@ -1082,7 +1140,7 @@ function SelectableShellInteractive({
           : isSectionMultiChrome
             ? `relative z-[1] outline outline-1 outline-dashed ${buttonLike ? 'outline-offset-0' : 'outline-offset-2'} outline-[#F97316]/55 data-[lp-preset-drop=1]:outline-dashed data-[lp-preset-drop=1]:outline-violet-500`
           : `relative cursor-pointer ${buttonLike ? 'outline-offset-0' : 'outline-offset-2'} [@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/45 data-[lp-drop-over=1]:outline data-[lp-drop-over=1]:outline-2 data-[lp-drop-over=1]:outline-dashed data-[lp-drop-over=1]:outline-[#F97316]/70 data-[lp-preset-drop=1]:outline-violet-500 data-[lp-preset-drop=1]:bg-violet-500/5`) +
-        ' before:pointer-events-none after:pointer-events-none data-[lp-drop-edge=before]:before:absolute data-[lp-drop-edge=before]:before:inset-x-2 data-[lp-drop-edge=before]:before:top-0 data-[lp-drop-edge=before]:before:z-20 data-[lp-drop-edge=before]:before:h-1 data-[lp-drop-edge=before]:before:rounded-full data-[lp-drop-edge=before]:before:bg-violet-500 data-[lp-drop-edge=before]:before:content-[""] data-[lp-drop-edge=after]:after:absolute data-[lp-drop-edge=after]:after:inset-x-2 data-[lp-drop-edge=after]:after:bottom-0 data-[lp-drop-edge=after]:after:z-20 data-[lp-drop-edge=after]:after:h-1 data-[lp-drop-edge=after]:after:rounded-full data-[lp-drop-edge=after]:after:bg-violet-500 data-[lp-drop-edge=after]:after:content-[""]' +
+        ' before:pointer-events-none after:pointer-events-none data-[lp-drop-edge=before]:before:absolute data-[lp-drop-edge=before]:before:inset-x-2 data-[lp-drop-edge=before]:before:top-0 data-[lp-drop-edge=before]:before:z-20 data-[lp-drop-edge=before]:before:h-1 data-[lp-drop-edge=before]:before:rounded-full data-[lp-drop-edge=before]:before:bg-violet-500 data-[lp-drop-edge=before]:before:content-[""] data-[lp-drop-edge=after]:after:absolute data-[lp-drop-edge=after]:after:inset-x-2 data-[lp-drop-edge=after]:after:bottom-0 data-[lp-drop-edge=after]:after:z-20 data-[lp-drop-edge=after]:after:h-1 data-[lp-drop-edge=after]:after:rounded-full data-[lp-drop-edge=after]:after:bg-violet-500 data-[lp-drop-edge=after]:after:content-[""] data-[lp-drop-edge=inside]:bg-violet-500/10 data-[lp-drop-edge=inside]:outline data-[lp-drop-edge=inside]:outline-2 data-[lp-drop-edge=inside]:outline-dashed data-[lp-drop-edge=inside]:outline-violet-500' +
         (buttonLike && !layout ? ' w-fit max-w-full' : '') +
         (buttonLike ? ' leading-none' : '') +
         (designClassName ? ` ${designClassName}` : '')
@@ -1445,9 +1503,10 @@ function FloatingToolbar({
 
 function isLeadFormInteractiveTarget(t: HTMLElement | null): boolean {
   if (!t?.closest) return false;
+  // Inputs / editable labels — keep for typing. Empty chrome / padding is free to drag.
   return Boolean(
-    t.closest('[data-lp-inline-field]') ||
-      t.closest('input, textarea, select, button'),
+    t.closest('[data-lp-inline-field],[data-lp-inline-editing="1"]') ||
+      t.closest('input, textarea, select, button, a, label'),
   );
 }
 
@@ -1459,6 +1518,7 @@ export function ElementChrome({
   children,
   className = '',
   blockStyle,
+  field,
 }: {
   blockId: string;
   element: LandingPageCanvasElementKey;
@@ -1468,16 +1528,31 @@ export function ElementChrome({
   className?: string;
   /** Publish path: element Custom CSS when handlers absent. */
   blockStyle?: Record<string, unknown> | null;
+  /**
+   * Disambiguates nested targets (e.g. card image vs card box).
+   * Auto: kind=image + item:id → itemImage:id so image and box select separately.
+   */
+  field?: string;
 }) {
-  const layoutField = `__element:${element}`;
+  const selectField =
+    field ||
+    (kind === 'image' &&
+    typeof element === 'string' &&
+    element.startsWith('item:') &&
+    !element.startsWith('item:trust-')
+      ? itemImageField(element.slice(5))
+      : undefined);
+  const layoutField = selectField ? `__element:${selectField}` : `__element:${element}`;
   const selected = Boolean(
     handlers &&
-      (handlers.isSelected?.({ blockId, element }) ??
-        (handlers.selection?.blockId === blockId && handlers.selection.element === element)),
+      (handlers.isSelected?.({ blockId, element, field: selectField }) ??
+        (handlers.selection?.blockId === blockId &&
+          handlers.selection.element === element &&
+          (handlers.selection.field || undefined) === (selectField || undefined))),
   );
   const isPrimary = Boolean(
     handlers &&
-      (handlers.isPrimarySelected?.({ blockId, element }) ?? selected),
+      (handlers.isPrimarySelected?.({ blockId, element, field: selectField }) ?? selected),
   );
   const {
     freeDrag,
@@ -1533,6 +1608,7 @@ export function ElementChrome({
       ref={bindShellRef}
       data-lp-element-id={`${blockId}::${element}`}
       data-lp-element-kind={kind}
+      data-lp-element-field={selectField || undefined}
       data-lp-element-selected={selected ? '1' : '0'}
       data-lp-element-primary={isPrimary ? '1' : '0'}
       data-lp-free-child="1"
@@ -1561,8 +1637,11 @@ export function ElementChrome({
         if (e.button !== 0) return;
         if (isFormChrome && isLeadFormInteractiveTarget(e.target as HTMLElement)) return;
         e.stopPropagation();
-        // Body never arms free-drag — Move toolbar icon only.
         pointerRef.current = { x: e.clientX, y: e.clientY, moved: false };
+        // LeadForm: hold-drag moves the section shell (absolute free), not only Move icon.
+        if (isFormChrome && isPrimary) {
+          armFreeDragByFreeId(blockId, e);
+        }
       }}
       onPointerMove={(e) => {
         const p = pointerRef.current;
@@ -1579,7 +1658,7 @@ export function ElementChrome({
         if (!p || p.moved) return;
         e.preventDefault();
         e.stopPropagation();
-        handlers.onSelect({ blockId, element }, { shiftKey: e.shiftKey });
+        handlers.onSelect({ blockId, element, field: selectField }, { shiftKey: e.shiftKey });
       }}
       onClick={(e) => {
         e.preventDefault();
@@ -1593,12 +1672,12 @@ export function ElementChrome({
           liveAngle={freeDrag.liveAngle}
           onResizePointerDown={(handle: FreeResizeHandle, e) => {
             e.stopPropagation();
-            handlers.onSelect({ blockId, element });
+            handlers.onSelect({ blockId, element, field: selectField });
             freeDrag.beginResize(handle, e);
           }}
           onRotatePointerDown={(e) => {
             e.stopPropagation();
-            handlers.onSelect({ blockId, element });
+            handlers.onSelect({ blockId, element, field: selectField });
             freeDrag.beginRotate(e);
           }}
         />
@@ -1609,13 +1688,13 @@ export function ElementChrome({
 }
 
 /**
- * Text box transform chrome — 8 handles (N/S/E/W/NE/NW/SE/SW).
+ * Text box transform chrome — 8 square handles (N/S/E/W/NE/NW/SE/SW).
  * Snapshot geometry at pointerdown; each frame = applyResizeHandle(start + delta).
  *
- * Handle semantics:
- * - Corner (nw/ne/sw/se): uniform box scale + fontSize/lineHeight scale (typography).
- * - East/West: width only (text reflow) — no font scale.
- * - North/South: height only — no font scale.
+ * - Corner: uniform scale of box + font-size.
+ * - East/West: width only (text reflow), font unchanged.
+ * - North/South: height only, font unchanged — can trim extra empty frame
+ *   down to wrapped content, never clip glyphs.
  */
 function isHeadingCornerHandle(handle: string): handle is 'nw' | 'ne' | 'sw' | 'se' {
   return handle === 'nw' || handle === 'ne' || handle === 'sw' || handle === 'se';
@@ -1711,11 +1790,12 @@ function HeadingBoxResizeChrome({
     lastLineHeight: number | string | undefined;
     captureEl: HTMLElement | null;
     pointerId: number;
+    minContentH: number;
   } | null>(null);
 
   const applyLiveBox = (
     w: number,
-    h: number | 'auto',
+    h: number,
     ox: number,
     oy: number,
     typography?: { fontSize: number; lineHeight?: number | string } | null,
@@ -1724,13 +1804,12 @@ function HeadingBoxResizeChrome({
     const textEl = textRef.current;
     if (!el) return;
     el.style.boxSizing = 'border-box';
-    el.style.width = 'max-content';
-    // Text boxes always hug content vertically — never lock a taller empty frame.
-    el.style.height = 'auto';
+    el.style.setProperty('width', `${Math.max(80, w)}px`, 'important');
+    el.style.height = `${Math.max(28, h)}px`;
     el.style.minHeight = '0';
     el.style.maxHeight = 'none';
     el.style.minWidth = '0';
-    el.style.maxWidth = 'none';
+    el.style.setProperty('max-width', 'none', 'important');
     el.style.overflow = 'visible';
     el.style.display = 'inline-block';
     el.style.whiteSpace = 'normal';
@@ -1738,36 +1817,38 @@ function HeadingBoxResizeChrome({
     el.style.padding = '2px 4px';
     el.style.transform = `translate3d(${ox}px, ${oy}px, 0)`;
     el.setAttribute('data-lp-heading-width-live', String(w));
+    el.setAttribute('data-lp-heading-height-live', String(h));
+    el.setAttribute('data-lp-heading-height-locked', '1');
     el.style.setProperty('--lp-text-box-width', `${w}px`);
-    el.removeAttribute('data-lp-heading-height-live');
+    el.style.setProperty('--lp-text-box-height', `${Math.max(28, h)}px`);
     if (textEl) {
       textEl.style.boxSizing = 'border-box';
       textEl.style.display = 'block';
-      // Width lives on the painted text node (beats custom CSS fit-content !important).
-      textEl.style.setProperty('width', `${w}px`, 'important');
-      textEl.style.setProperty('max-width', 'none', 'important');
+      // Text fills the wrap so glyphs wrap inside the bounding box.
+      textEl.style.setProperty('width', '100%', 'important');
+      textEl.style.setProperty('max-width', '100%', 'important');
+      textEl.style.setProperty('min-width', '0', 'important');
       textEl.style.height = 'auto';
       textEl.style.minHeight = '0';
-      textEl.style.whiteSpace = 'normal';
-      textEl.style.overflowWrap = 'anywhere';
-      textEl.style.wordBreak = 'break-word';
+      textEl.style.setProperty('white-space', 'normal', 'important');
+      textEl.style.setProperty('overflow-wrap', 'anywhere', 'important');
+      textEl.style.setProperty('word-break', 'break-word', 'important');
       textEl.style.overflow = 'visible';
       if (typography) {
-        textEl.style.fontSize = `${typography.fontSize}px`;
+        textEl.style.setProperty('font-size', `${typography.fontSize}px`, 'important');
         if (typography.lineHeight != null) {
-          textEl.style.lineHeight = String(typography.lineHeight);
+          textEl.style.setProperty('line-height', String(typography.lineHeight), 'important');
         }
         el.setAttribute('data-lp-heading-font-live', String(typography.fontSize));
       }
     }
-    void h; // height arg kept for API compat; auto-fit ignores locked heights
   };
 
-  const measureWrapHeight = (scale: number) => {
-    const el = wrapRef.current;
-    if (!el) return 28;
+  const measureTextHeight = (scale: number) => {
+    const textEl = textRef.current;
+    if (!textEl) return 28;
     const scaleSafe = scale > 0.05 ? scale : 1;
-    return Math.max(28, Math.round(el.getBoundingClientRect().height / scaleSafe));
+    return Math.max(28, Math.round(textEl.getBoundingClientRect().height / scaleSafe));
   };
 
   const applyMoveFrame = () => {
@@ -1779,31 +1860,32 @@ function HeadingBoxResizeChrome({
     const dy = (s.pendingY - s.startY) / scale;
     const corner = isHeadingCornerHandle(s.handle);
     const sideEW = s.handle === 'e' || s.handle === 'w';
-    // N/S ignored for text hug — height always follows content.
+    const minH = Math.max(28, s.minContentH);
+    const resized = applyResizeHandle({
+      handle: s.handle,
+      x: s.originX,
+      y: s.originY,
+      width: s.startW,
+      height: s.startH,
+      dx,
+      dy,
+      minW: 80,
+      minH,
+      maxW: s.maxW,
+      maxH: s.maxH,
+    });
 
     let nextW: number;
+    let nextH: number;
     let nextX: number;
     let nextY: number;
     let typography: { fontSize: number; lineHeight?: number | string } | null = null;
 
     if (corner) {
-      // Uniform scale from dominant pointer axis → width + typography; height auto-fits.
-      const proposed = applyResizeHandle({
-        handle: s.handle,
-        x: s.originX,
-        y: s.originY,
-        width: s.startW,
-        height: s.startH,
-        dx,
-        dy,
-        minW: 80,
-        minH: 28,
-        maxW: s.maxW,
-        maxH: s.maxH,
-      });
-      const sx = proposed.width / Math.max(1, s.startW);
-      const sy = proposed.height / Math.max(1, s.startH);
-      const scaleRaw = Math.abs(dx) >= Math.abs(dy) ? sx : sy;
+      const sx = resized.width / Math.max(1, s.startW);
+      const sy = resized.height / Math.max(1, s.startH);
+      let scaleRaw = Math.abs(dx) >= Math.abs(dy) ? sx : sy;
+      if (!Number.isFinite(scaleRaw) || scaleRaw <= 0) scaleRaw = 1;
       let scaleBox = scaleRaw;
       const fontAtScale = s.startFont * scaleBox;
       if (fontAtScale < LP_TEXT_SCALE_FONT_MIN) {
@@ -1813,16 +1895,17 @@ function HeadingBoxResizeChrome({
       }
       nextW = Math.min(s.maxW, Math.max(80, Math.round(s.startW * scaleBox)));
       const scaleFinal = nextW / Math.max(1, s.startW);
+      nextH = Math.max(minH, Math.round(s.startH * scaleFinal));
       nextX = s.originX;
       nextY = s.originY;
       if (s.handle.includes('w')) nextX = s.originX + (s.startW - nextW);
-      if (s.handle.includes('n')) nextY = s.originY; // height hugs — don't shift for phantom height
+      if (s.handle.includes('n')) nextY = s.originY + (s.startH - nextH);
       const fontSize = clampTextScaleFont(s.startFont * scaleFinal);
       const lineHeight = scaleLineHeightValue(s.startLineHeight, scaleFinal);
       typography = { fontSize, lineHeight };
+      s.scaleTypography = true;
       s.lastFont = fontSize;
       s.lastLineHeight = lineHeight;
-      s.scaleTypography = true;
       onLiveTypography?.({ fontSize, lineHeight });
       window.dispatchEvent(
         new CustomEvent('lp-text-box-live-type', {
@@ -1830,30 +1913,19 @@ function HeadingBoxResizeChrome({
         }),
       );
     } else if (sideEW) {
-      const resized = applyResizeHandle({
-        handle: s.handle,
-        x: s.originX,
-        y: s.originY,
-        width: s.startW,
-        height: s.startH,
-        dx,
-        dy,
-        minW: 80,
-        minH: 28,
-        maxW: s.maxW,
-        maxH: s.maxH,
-      });
       nextW = resized.width;
+      nextH = s.startH;
       nextX = resized.x;
       nextY = s.originY;
       s.scaleTypography = false;
       s.lastFont = s.startFont;
       s.lastLineHeight = s.startLineHeight;
     } else {
-      // N/S: keep width; height stays content-driven (no empty frame).
+      // N/S: height only — trim extra empty frame or grow it; never scale font.
       nextW = s.startW;
+      nextH = resized.height;
       nextX = s.originX;
-      nextY = s.originY;
+      nextY = resized.y;
       s.scaleTypography = false;
       s.lastFont = s.startFont;
       s.lastLineHeight = s.startLineHeight;
@@ -1863,11 +1935,18 @@ function HeadingBoxResizeChrome({
     if (nextX < 0) nextX = 0;
     if (nextY < 0) nextY = 0;
 
+    applyLiveBox(nextW, nextH, nextX, nextY, typography);
+    const contentH = measureTextHeight(s.canvasScale);
+    if (nextH < contentH) {
+      if (s.handle.includes('n')) nextY -= contentH - nextH;
+      if (nextY < 0) nextY = 0;
+      nextH = contentH;
+      applyLiveBox(nextW, nextH, nextX, nextY, typography);
+    }
     s.lastW = nextW;
+    s.lastH = nextH;
     s.lastOX = nextX;
     s.lastOY = nextY;
-    applyLiveBox(nextW, 'auto', nextX, nextY, typography);
-    s.lastH = measureWrapHeight(s.canvasScale);
   };
 
   const scheduleMove = (clientX: number, clientY: number) => {
@@ -1906,11 +1985,13 @@ function HeadingBoxResizeChrome({
                 (scale > 0.05 ? scale : 1),
             ),
           );
-    // Content height (ignore locked empty frame from legacy height commits).
-    const startH = Math.max(
+    const paintedH = Math.max(
       28,
-      Math.round((textRect?.height || rect.height) / (scale > 0.05 ? scale : 1)),
+      Math.round((textRect?.height || 0) / (scale > 0.05 ? scale : 1)),
     );
+    const wrapH = Math.max(28, Math.round(rect.height / (scale > 0.05 ? scale : 1)));
+    // Visible frame (may be taller than glyphs from a leftover locked height).
+    const startH = Math.max(paintedH, wrapH, height && height > 0 ? height : 0);
     const originX = freeOffset?.x ?? 0;
     const originY = freeOffset?.y ?? 0;
     const sectionEl =
@@ -1922,9 +2003,7 @@ function HeadingBoxResizeChrome({
     const maxW = sectionRect
       ? Math.max(80, Math.round(sectionRect.width / scaleSafe) - 8)
       : 1200;
-    const maxH = sectionRect
-      ? Math.max(28, Math.round(Math.max(sectionRect.height, 480) / scaleSafe))
-      : 1200;
+    const maxH = 2400;
 
     let startFont = baseFontSize && baseFontSize > 0 ? baseFontSize : 0;
     if (!startFont && textEl) {
@@ -1976,36 +2055,47 @@ function HeadingBoxResizeChrome({
       lastLineHeight: startLineHeight,
       captureEl,
       pointerId: e.pointerId,
+      minContentH: paintedH,
     };
     wrap.setAttribute('data-lp-heading-resizing', '1');
     document.documentElement.setAttribute('data-lp-heading-box-resizing', '1');
     onResizingChange?.(true, { scaleTypography: isHeadingCornerHandle(handle) });
-    applyLiveBox(startW, startH, originX, originY);
+    applyLiveBox(
+      startW,
+      startH,
+      originX,
+      originY,
+      isHeadingCornerHandle(handle)
+        ? { fontSize: startFont, lineHeight: startLineHeight }
+        : null,
+    );
 
-    const onMove = (ev: globalThis.PointerEvent) => {
-      if (!sessionRef.current) return;
-      ev.preventDefault();
-      scheduleMove(ev.clientX, ev.clientY);
-    };
-    const onUp = (ev: globalThis.PointerEvent) => {
+    const pointerId = e.pointerId;
+    let ended = false;
+    const finish = (ev?: globalThis.PointerEvent, commit = true) => {
+      if (ended) return;
+      ended = true;
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('lostpointercapture', onLostCapture, true);
       const s = sessionRef.current;
       if (s?.raf) cancelAnimationFrame(s.raf);
-      if (s) {
+      if (s && commit && ev) {
         s.pendingX = ev.clientX;
         s.pendingY = ev.clientY;
         applyMoveFrame();
       }
       try {
-        s?.captureEl?.releasePointerCapture(ev.pointerId);
+        s?.captureEl?.releasePointerCapture(pointerId);
       } catch {
         /* ignore */
       }
       sessionRef.current = null;
       const el = wrapRef.current;
       document.documentElement.removeAttribute('data-lp-heading-box-resizing');
+      document.body.style.cursor = '';
       window.dispatchEvent(new CustomEvent('lp-heading-box-resize-end'));
       onResizingChange?.(false);
       if (!el || !s) return;
@@ -2015,12 +2105,18 @@ function HeadingBoxResizeChrome({
       el.removeAttribute('data-lp-heading-font-live');
       // Drop live imperative sizing so React + CSS variables own geometry after commit.
       el.style.minWidth = '';
-      el.style.width = '';
-      const textEl = textRef.current;
-      if (textEl) {
-        textEl.style.removeProperty('width');
-        textEl.style.removeProperty('max-width');
+      el.style.removeProperty('width');
+      el.style.removeProperty('max-width');
+      el.style.height = '';
+      el.style.minHeight = '';
+      const liveText = textRef.current;
+      if (liveText) {
+        liveText.style.removeProperty('width');
+        liveText.style.removeProperty('max-width');
+        liveText.style.removeProperty('font-size');
+        liveText.style.removeProperty('line-height');
       }
+      if (!commit) return;
       onCommitBox({
         width: s.lastW,
         height: s.lastH,
@@ -2031,15 +2127,43 @@ function HeadingBoxResizeChrome({
         scaleTypography: s.scaleTypography,
       });
     };
+    const onMove = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      // Missed pointerup (remount / capture loss) — unstick the cursor.
+      if (ev.pointerType === 'mouse' && ev.buttons === 0) {
+        finish(ev, true);
+        return;
+      }
+      if (!sessionRef.current) return;
+      ev.preventDefault();
+      scheduleMove(ev.clientX, ev.clientY);
+    };
+    const onUp = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      finish(ev, true);
+    };
+    const onCancel = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      finish(ev, false);
+    };
+    const onBlur = () => finish(undefined, false);
+    const onLostCapture = (ev: Event) => {
+      const pe = ev as PointerEvent;
+      if (pe.pointerId != null && pe.pointerId !== pointerId) return;
+      if (ended) return;
+      finish(pe, true);
+    };
     window.addEventListener('pointermove', onMove, { passive: false });
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('lostpointercapture', onLostCapture, true);
   };
 
   const handleCls =
-    'pointer-events-auto absolute z-[50] h-2.5 w-2.5 rounded-[2px] border-2 border-[#F97316] bg-white shadow-sm';
+    'pointer-events-auto absolute z-[80] h-2.5 w-2.5 touch-none rounded-[2px] border-2 border-[#F97316] bg-white shadow-sm [@media(pointer:coarse)]:h-5 [@media(pointer:coarse)]:w-5';
 
-  const handles: FreeResizeHandle[] = ['nw', 'ne', 'e', 'se', 'sw', 'w'];
+  const handles: FreeResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
   return (
     <div
@@ -2048,8 +2172,10 @@ function HeadingBoxResizeChrome({
       data-lp-heading-handles="sm"
       data-lp-heading-corner-resizes-box="1"
       data-lp-heading-corner-scales-type="1"
+      data-lp-heading-ns-resizes-height="1"
+      data-lp-heading-8-handles="1"
       data-lp-transform-chrome="1"
-      className="pointer-events-none absolute inset-0 z-[18] overflow-visible"
+      className="pointer-events-none absolute inset-0 z-[40] overflow-visible"
       aria-hidden
     >
       {handles.map((handle) => {
@@ -2070,10 +2196,10 @@ function HeadingBoxResizeChrome({
           pos.transform = `translate(${tx}, ${ty})`;
         }
         const title = isHeadingCornerHandle(handle)
-          ? 'Scale chữ + khung'
+          ? 'Phóng to / thu nhỏ chữ'
           : handle === 'e' || handle === 'w'
-            ? 'Đổi chiều rộng (reflow)'
-            : 'Đổi chiều cao';
+            ? 'Đổi chiều rộng (chữ xuống dòng)'
+            : 'Đổi chiều cao khung';
         return (
           <button
             key={handle}
@@ -2169,7 +2295,14 @@ export function InlineEditable({
   const customCssStyle =
     handlers?.getElementCustomCssStyle?.(blockId, element) ??
     readElementCustomCssStyle(blockStyle, element);
-  const editBorderColor = resolveEditBorderColor(style, textStyle, className);
+  const [editBorderColor, setEditBorderColor] = useState('#000000');
+  // Read after DOM styles apply, including inherited theme and nested card backgrounds.
+  // Recheck while editing so design changes keep the border visible before paint.
+  useLayoutEffect(() => {
+    if (editing && ref.current) {
+      setEditBorderColor(resolveEditBorderColor(ref.current));
+    }
+  });
   const isHeadingField = textRole === 'heading' || field === 'headline';
   /** Text/content boxes (not buttons/labels) get 8-handle resize chrome when selected. */
   const isTextBoxResizable =
@@ -2218,9 +2351,14 @@ export function InlineEditable({
     elementFreeDrag.bindShellRef(node);
     wrapNodeRef.current = node;
     if (isTextBoxResizable && node && !boxResizing) {
-      // Imperative leftover height from free-drag must not outlive React paint.
-      if (node.style.height && node.style.height !== 'auto') node.style.height = 'auto';
-      if (node.style.minHeight && node.style.minHeight !== '0px') node.style.minHeight = '0';
+      const heightLocked =
+        node.getAttribute('data-lp-heading-height-locked') === '1' ||
+        node.hasAttribute('data-lp-heading-height-live');
+      if (!heightLocked) {
+        // Imperative leftover height from free-drag must not outlive React paint.
+        if (node.style.height && node.style.height !== 'auto') node.style.height = 'auto';
+        if (node.style.minHeight && node.style.minHeight !== '0px') node.style.minHeight = '0';
+      }
     }
   };
 
@@ -2312,14 +2450,31 @@ export function InlineEditable({
         {value}
       </Comp>
     );
-    if (!freeStyle && !textBoxChromeActive(textStyle?.box)) return node;
+    const pubWidth =
+      typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : undefined;
+    const pubHeight =
+      typeof textStyle?.height === 'number' && textStyle.height > 0 ? textStyle.height : undefined;
+    if (!freeStyle && !textBoxChromeActive(textStyle?.box) && !pubWidth && !pubHeight) return node;
     return (
       <span
         data-lp-text-box="1"
+        data-lp-text-hug="1"
+        data-lp-heading-resize={isTextBoxResizable ? '1' : undefined}
+        data-lp-heading-width-locked={pubWidth ? '1' : undefined}
+        data-lp-heading-height-locked={pubHeight ? '1' : undefined}
         data-lp-free-child={freeStyle ? '1' : undefined}
         data-lp-free-mode={freeStyle ? 'offset' : undefined}
         data-lp-free-id={freeStyle ? `${blockId}::${field}` : undefined}
-        style={{ ...freeStyle, ...(boxCss as CSSProperties) }}
+        style={{
+          ...freeStyle,
+          ...(boxCss as CSSProperties),
+          ...(pubWidth
+            ? ({ ['--lp-text-box-width' as string]: `${pubWidth}px` } as CSSProperties)
+            : null),
+          ...(pubHeight
+            ? ({ ['--lp-text-box-height' as string]: `${pubHeight}px` } as CSSProperties)
+            : null),
+        }}
         className={fillParent ? 'block w-full' : 'inline-block max-w-full align-top'}
         {...hideAttrs}
       >
@@ -2401,15 +2556,15 @@ export function InlineEditable({
   // Previously gated to heading/headline only — other text showed selection outline
   // but no handles, so mouse drag resize looked broken.
   const showTextBoxResize =
+    Boolean(handlers) &&
     isTextBoxResizable &&
     isPrimary &&
     !locked &&
-    !editing &&
-    !isTouchLike();
+    !editing;
   const textShellStyle = elementFreeDrag.shellStyle;
   const boxWidth = typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : undefined;
-  // Legacy height commits are ignored for paint — height always follows text content.
-  const boxHeight = undefined as number | undefined;
+  const boxHeight =
+    typeof textStyle?.height === 'number' && textStyle.height > 0 ? textStyle.height : undefined;
 
   const textBoxChromeOutline =
     isTextBoxResizable && !editing
@@ -2429,6 +2584,11 @@ export function InlineEditable({
   const textNodeClassName = spaced.textClassName;
   const wrapSpacingClassName = spaced.wrapClassName;
 
+  const selectTextBox = (shiftKey?: boolean) => {
+    handlers.onSelect({ blockId, element, field }, { shiftKey: Boolean(shiftKey) });
+    clearBrowserTextSelection();
+  };
+
   return (
     <span
       ref={bindWrapRef}
@@ -2437,14 +2597,16 @@ export function InlineEditable({
           ? 'relative flex h-full w-full min-w-0'
           : 'relative inline-block align-top') +
         (wrapSpacingClassName ? ` ${wrapSpacingClassName}` : '') +
-        (textBoxChromeOutline ? ` ${textBoxChromeOutline}` : '')
+        (textBoxChromeOutline ? ` ${textBoxChromeOutline}` : '') +
+        (isPrimary && handlers ? ' z-[8] overflow-visible' : '')
       }
       data-lp-inline-wrap={textRole}
       data-lp-inline-empty={!(value || '').trim() && keepEmptyChrome ? '1' : undefined}
       data-lp-heading-resize={isTextBoxResizable ? '1' : undefined}
-      data-lp-heading-auto-height={isTextBoxResizable ? '1' : undefined}
+      data-lp-heading-auto-height={isTextBoxResizable && !boxHeight ? '1' : undefined}
       data-lp-text-hug="1"
       data-lp-heading-width-locked={boxWidth ? '1' : undefined}
+      data-lp-heading-height-locked={boxHeight ? '1' : undefined}
       data-lp-fill-parent={fillParent ? '1' : undefined}
       data-lp-button-hit={fillParent && textRole === 'button' ? '1' : undefined}
       data-lp-cta-body={element === 'cta' || textRole === 'button' ? '1' : undefined}
@@ -2453,7 +2615,7 @@ export function InlineEditable({
       data-lp-free-mode="offset"
       data-lp-element-selected={selected ? '1' : '0'}
       data-lp-element-primary={isPrimary ? '1' : '0'}
-      data-lp-bounding-box={isPrimary ? '1' : '0'}
+      data-lp-bounding-box={isPrimary && !editing ? '1' : '0'}
       data-lp-text-hidden={hidden ? '1' : undefined}
       data-lp-text-locked={locked ? '1' : undefined}
       {...textBoxHideAttrs(textStyle?.box)}
@@ -2463,19 +2625,26 @@ export function InlineEditable({
         ...(keepEmptyChrome && isTextEmpty
           ? { minWidth: '2ch', minHeight: '1.25em' }
           : undefined),
-        // Locked width is applied to the TEXT node via --lp-text-box-width (builder CSS
-        // !important). Wrap stays max-content so selection chrome hugs the painted box
-        // even when custom CSS used width:fit-content on the text.
-        ...(boxWidth
-          ? ({ ['--lp-text-box-width' as string]: `${boxWidth}px` } as CSSProperties)
-          : null),
+        // Locked width lives on the WRAP; the text node is width:100% so glyphs
+        // wrap inside the orange frame instead of spilling past it.
+        // While resizing, skip committed CSS vars — applyLiveBox owns them live.
         ...(boxResizing
           ? null
           : {
-              width: isTextBoxResizable ? 'max-content' : undefined,
-              maxWidth: isTextBoxResizable ? '100%' : undefined,
-              height: 'auto',
-              minHeight: 0,
+              ...(boxWidth
+                ? ({ ['--lp-text-box-width' as string]: `${boxWidth}px` } as CSSProperties)
+                : null),
+              ...(boxHeight
+                ? ({ ['--lp-text-box-height' as string]: `${boxHeight}px` } as CSSProperties)
+                : null),
+              width: isTextBoxResizable
+                ? boxWidth
+                  ? `${boxWidth}px`
+                  : 'max-content'
+                : undefined,
+              maxWidth: isTextBoxResizable ? 'none' : undefined,
+              height: boxHeight ? `${boxHeight}px` : 'auto',
+              minHeight: boxHeight ? 'max-content' : 0,
               maxHeight: 'none',
               minWidth: 0,
               boxSizing: 'border-box',
@@ -2489,6 +2658,56 @@ export function InlineEditable({
               flex: isTextBoxResizable ? '0 0 auto' : undefined,
             }),
         ...(textBoxChromeCss(textStyle?.box) as CSSProperties),
+      }}
+      onPointerDown={(e) => {
+        if (
+          (e.target as HTMLElement | null)?.closest?.(
+            '[data-lp-resize-handle],[data-lp-heading-width-handle],[data-lp-heading-corner-handle],[data-lp-inline-field]',
+          )
+        ) {
+          return;
+        }
+        if (editing) return;
+        if (e.button !== 0) return;
+        pointerRef.current = { x: e.clientX, y: e.clientY, moved: false, t: Date.now() };
+      }}
+      onPointerMove={(e) => {
+        const p = pointerRef.current;
+        if (!p || editing) return;
+        if (Math.abs(e.clientX - p.x) > TAP_MOVE_PX || Math.abs(e.clientY - p.y) > TAP_MOVE_PX) {
+          p.moved = true;
+        }
+      }}
+      onPointerUp={(e) => {
+        if (editing) return;
+        if (
+          (e.target as HTMLElement | null)?.closest?.(
+            '[data-lp-resize-handle],[data-lp-heading-width-handle],[data-lp-heading-corner-handle],[data-lp-inline-field]',
+          )
+        ) {
+          return;
+        }
+        if (elementFreeDrag.consumePointerUpForDrag()) return;
+        const p = pointerRef.current;
+        pointerRef.current = null;
+        if (!p || p.moved) return;
+        stop(e);
+        selectTextBox(e.shiftKey);
+      }}
+      onClick={(e) => {
+        stop(e);
+      }}
+      onDoubleClick={(e) => {
+        if (
+          (e.target as HTMLElement | null)?.closest?.(
+            '[data-lp-resize-handle],[data-lp-heading-width-handle],[data-lp-heading-corner-handle],[data-lp-inline-field]',
+          )
+        ) {
+          return;
+        }
+        e.preventDefault();
+        stop(e);
+        if (!editing && !locked) startEdit({ clientX: e.clientX, clientY: e.clientY });
       }}
     >
       {showTextBoxResize ? (
@@ -2517,7 +2736,6 @@ export function InlineEditable({
               x: next.offsetX,
               y: next.offsetY,
               width: next.width,
-              // Omit height — text wrap hugs content; measured height only for parent reflow.
             };
             if (handlers.onTextBoxResizeCommit) {
               handlers.onTextBoxResizeCommit(blockId, field, {
@@ -2533,7 +2751,7 @@ export function InlineEditable({
             }
             handlers.onTextStyleChange?.(blockId, field, {
               width: next.width,
-              height: undefined,
+              height: next.height,
               ...(next.scaleTypography && next.fontSize
                 ? { fontSize: next.fontSize, lineHeight: next.lineHeight }
                 : null),
@@ -2571,11 +2789,9 @@ export function InlineEditable({
                   : 'outline-offset-2 [@media(hover:hover)]:hover:outline [@media(hover:hover)]:hover:outline-1 [@media(hover:hover)]:hover:outline-dashed [@media(hover:hover)]:hover:outline-[#F97316]/40'
         } ${
           isTextBoxResizable
-            ? boxWidth
-              ? 'block whitespace-normal break-words [overflow-wrap:anywhere] [height:auto] [min-height:0] !m-0'
-              : 'block whitespace-normal break-words [overflow-wrap:anywhere] [height:auto] [min-height:0] [max-width:none] !m-0'
+            ? 'block w-full min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] [height:auto] [min-height:0] [max-width:100%] !m-0'
             : boxWidth
-              ? 'block w-full whitespace-normal break-words [overflow-wrap:anywhere] [max-width:none]'
+              ? 'block w-full min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] [max-width:100%]'
               : ''
         }`}
         style={mergeFieldStyle(
@@ -2586,7 +2802,11 @@ export function InlineEditable({
                 height: 'auto',
                 minHeight: 0,
                 margin: 0,
-                maxWidth: 'none',
+                maxWidth: '100%',
+                width: '100%',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
                 ...emptyChromeStyle,
               }
             : isTextBoxResizable
@@ -2594,8 +2814,12 @@ export function InlineEditable({
                   height: 'auto',
                   minHeight: 0,
                   margin: 0,
-                  maxWidth: 'none',
-                  // Width comes from --lp-text-box-width (builder CSS !important).
+                  maxWidth: '100%',
+                  width: '100%',
+                  minWidth: 0,
+                  whiteSpace: 'normal',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
                   ...emptyChromeStyle,
                 }
               : emptyChromeStyle,
@@ -2637,21 +2861,14 @@ export function InlineEditable({
           pointerRef.current = null;
           if (!p || p.moved) return;
           stop(e);
-          e.preventDefault();
-          // 1 click = select + enter inline edit with caret at click (no dblclick).
-          if (e.shiftKey) {
-            handlers.onSelect({ blockId, element, field }, { shiftKey: true });
-            clearBrowserTextSelection();
-            return;
-          }
-          startEdit({ clientX: e.clientX, clientY: e.clientY });
+          // 1 click = select + bounding box. Do not preventDefault — that would
+          // swallow the native dblclick needed to enter inline edit.
+          selectTextBox(e.shiftKey);
         }}
         onClick={(e) => {
           stop(e);
-          e.preventDefault();
         }}
         onDoubleClick={(e) => {
-          // Keep as no-op safety: single-click already enters edit.
           e.preventDefault();
           stop(e);
           if (!editing && !locked) startEdit({ clientX: e.clientX, clientY: e.clientY });
@@ -2696,33 +2913,28 @@ export function InlineEditable({
   );
 }
 
-/** Light card / dark CTA: pick edit border so the caret field is obvious. */
-function resolveEditBorderColor(
-  style?: CSSProperties,
-  textStyle?: LandingPageInlineTextStyle,
-  className?: string,
-): string {
-  const cls = String(className || '').toLowerCase();
-  if (/\btext-white\b/.test(cls) || /\btext-white\//.test(cls)) return '#ffffff';
-  const color = String(textStyle?.color || style?.color || '').toLowerCase().trim();
-  if (
-    color === '#fff' ||
-    color === '#ffffff' ||
-    color === 'white' ||
-    /rgba?\(\s*255\s*,\s*255\s*,\s*255/.test(color)
-  ) {
-    return '#ffffff';
+/** Contrast against the rendered background, independent of the text's color. */
+function resolveEditBorderColor(element: HTMLElement): string {
+  const background = [0, 0, 0];
+  let opacity = 0;
+  // Composite transparent element/card/section backgrounds from front to back.
+  for (let node: HTMLElement | null = element; node && opacity < 1; node = node.parentElement) {
+    const color = window.getComputedStyle(node).backgroundColor;
+    if (!/^rgba?\(/.test(color)) continue;
+    const channels = color.match(/[\d.]+/g)?.map(Number);
+    if (!channels || channels.length < 3) continue;
+    const alpha = Math.max(0, Math.min(1, channels[3] ?? 1));
+    const contribution = (1 - opacity) * alpha;
+    for (let i = 0; i < 3; i += 1) background[i] += channels[i] * contribution;
+    opacity += contribution;
   }
-  const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (hex?.[1]) {
-    let h = hex[1];
-    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    if (lum > 0.72) return '#ffffff';
-  }
+  // The browser canvas is white when every ancestor is transparent.
+  const linear = background.map((channel) => {
+    const value = (channel + 255 * (1 - opacity)) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  if (luminance < 0.179) return '#ffffff';
   return '#000000';
 }
 
@@ -3185,7 +3397,7 @@ function TextEditToolbar({
       window.removeEventListener('resize', update);
       window.removeEventListener('lp-heading-box-resize-end', update);
     };
-  }, [anchorEl, blockId, field]);
+  }, [anchorEl, blockId, field, Boolean(pos)]);
 
   useLayoutEffect(() => {
     if (!moreOpen || !moreBtnRef.current) {
@@ -3568,8 +3780,8 @@ function TextEditToolbar({
         data-lp-text-more-menu
         data-lp-text-more-orient="vertical"
         data-lp-floating-toolbar
-        className="fixed z-[9998] flex min-w-[220px] flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-xl"
-        style={{ left: morePos.left, top: morePos.top }}
+        className="fixed z-[9998] flex max-h-[calc(100dvh-1rem)] min-w-[220px] flex-col overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl"
+        style={{ left: morePos.left, top: morePos.top, maxHeight: `calc(100dvh - ${morePos.top}px - 8px)` }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -3667,8 +3879,8 @@ function TextEditToolbar({
         ref={colorPanelRef}
         data-lp-text-color-panel
         data-lp-floating-toolbar
-        className="fixed z-[9998] w-[280px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl"
-        style={{ left: colorPos.left, top: colorPos.top }}
+        className="fixed z-[9998] max-h-[calc(100dvh-1rem)] w-[280px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-zinc-200 bg-white shadow-2xl"
+        style={{ left: colorPos.left, top: colorPos.top, maxHeight: `calc(100dvh - ${colorPos.top}px - 8px)` }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -3903,6 +4115,14 @@ function ItemReorderChromeInteractive({
         const hit = e.target as HTMLElement | null;
         if (hit?.closest?.('[data-lp-item-handle]')) return;
         if (hit?.closest?.('[data-lp-inline-field],[data-lp-inline-wrap]')) return;
+        // Nested image chrome selects itemImage — don't steal as the card box.
+        if (
+          hit?.closest?.(
+            '[data-lp-content-image],[data-lp-element-kind="image"],[data-lp-element-field^="itemImage:"]',
+          )
+        ) {
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         handlers.onSelect({ blockId, element });

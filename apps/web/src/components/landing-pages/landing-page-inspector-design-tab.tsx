@@ -16,8 +16,10 @@ import {
   type LandingPageInlineTextStyle,
 } from './landing-page-canvas-ux';
 import { resolveInspectorContext } from './landing-page-inspector-context';
+import { LandingPageFormThemePanel } from './landing-page-form-theme-panel';
 import { LandingPageItemBoxPanel } from './landing-page-item-box-panel';
 import { LandingPageTextQuickPanel } from './landing-page-text-quick-panel';
+import type { LandingPageLeadFormBlock } from '@marketingspa/shared';
 import {
   composeDesignTransformCss,
   parseBorderParts,
@@ -1351,6 +1353,7 @@ export function CustomCssPanel({
 export function LandingPageInspectorDesignTab({
   selected,
   selectedElement,
+  selectedField,
   textStyle,
   textField,
   themePrimary,
@@ -1367,6 +1370,8 @@ export function LandingPageInspectorDesignTab({
 }: {
   selected: LandingPageBlock | null;
   selectedElement?: LandingPageCanvasElementKey;
+  /** Raw canvas selection field (e.g. itemImage:…) — used for inspector context. */
+  selectedField?: string | null;
   textStyle?: LandingPageInlineTextStyle | null;
   textField?: string | null;
   themePrimary: string;
@@ -1384,7 +1389,11 @@ export function LandingPageInspectorDesignTab({
   onPatchFreeLayout?: (layout: NonNullable<LandingPageBlock['freeLayout']>) => void;
 }) {
   const [bgModeOverride, setBgModeOverride] = useState<BgMode | null>(null);
-  const ctx = resolveInspectorContext(selected, selectedElement, textField);
+  const ctx = resolveInspectorContext(
+    selected,
+    selectedElement,
+    selectedField ?? textField,
+  );
 
   const style = useMemo(
     () => ({ ...((selected?.style || {}) as Record<string, unknown>) }),
@@ -1479,15 +1488,18 @@ export function LandingPageInspectorDesignTab({
   }
 
   if (ctx.kind === 'form') {
+    const formBlock = selected as LandingPageLeadFormBlock;
     return (
       <div className="space-y-2.5" data-lp-inspector-design data-lp-context="form" data-lp-design-tab="1">
         {header}
-        <InspectorEmptyHint>
-          Form: CRM ở tab <strong>Nội dung</strong>. Theme trang: rail <strong>Thiết kế tổng thể</strong>.
-          CSS tuỳ chỉnh: tab <strong>Nâng cao</strong>.
-        </InspectorEmptyHint>
+        <LandingPageFormThemePanel
+          block={formBlock}
+          onChange={(formTheme) =>
+            onUpdateBlock(selected.id, { formTheme } as Partial<LandingPageBlock>)
+          }
+        />
         {!hidePageTheme ? (
-          <InspectorAccordion title="Theme trang" data-lp="theme" defaultOpen={false}>
+          <InspectorAccordion title="Màu chủ đạo trang" data-lp="theme" defaultOpen={false}>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -1623,6 +1635,8 @@ export function inspectorTextFieldKey(
 ): string | null {
   // Prefer explicit canvas field (itemDesc vs itemTitle) when available.
   if (selectedField && typeof selectedField === 'string' && selectedField.trim()) {
+    // Card/gallery image field is not a text style key.
+    if (/^itemImage:/.test(selectedField)) return null;
     return selectedField;
   }
   if (!selectedElement || selectedElement === 'section' || selectedElement === 'section-background') {

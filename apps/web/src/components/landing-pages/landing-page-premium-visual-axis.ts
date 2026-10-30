@@ -282,8 +282,8 @@ export const LP_PREMIUM_VISUAL_AXIS_CSS = `
   line-height: 1.08;
 }
 /* Text selection hug — never inherit section/flex stretch or locked freeLayout height */
-[data-lp-canvas-root] [data-lp-text-hug="1"],
-[data-lp-canvas-root] [data-lp-heading-auto-height="1"] {
+[data-lp-canvas-root] [data-lp-text-hug="1"]:not([data-lp-heading-height-locked="1"]):not([data-lp-heading-height-live]),
+[data-lp-canvas-root] [data-lp-heading-auto-height="1"]:not([data-lp-heading-height-locked="1"]):not([data-lp-heading-height-live]) {
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
@@ -293,41 +293,98 @@ export const LP_PREMIUM_VISUAL_AXIS_CSS = `
   overflow: visible !important;
   box-sizing: border-box !important;
 }
-/* Wrap always shrink-wraps the painted text box — never a wider parent frame */
-[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-resize="1"]:not([data-lp-heading-width-live]) {
+/* Locked / live text-box height: wrap size follows handles; glyphs still wrap and never clip */
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-height-locked="1"],
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-height-live] {
+  height: var(--lp-text-box-height) !important;
+  min-height: max-content !important;
+  max-height: none !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+  align-self: flex-start !important;
+  justify-self: start !important;
+  flex: 0 0 auto !important;
+}
+/* Unlocked wrap shrink-wraps glyphs. Locked/live wrap IS the box width. */
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-resize="1"]:not([data-lp-heading-width-live]):not([data-lp-heading-width-locked="1"]) {
   width: max-content !important;
   max-width: 100% !important;
   min-width: 0 !important;
+}
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-width-locked="1"],
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-width-live] {
+  width: var(--lp-text-box-width) !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+/* Builder: do not clamp to parent 100% — shrink-to-fit ancestors made E/W grow a no-op. */
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-text-hug="1"][data-lp-heading-width-locked="1"],
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-text-hug="1"][data-lp-heading-width-live],
+[data-lp-canvas-ux] [data-lp-text-hug="1"][data-lp-heading-width-locked="1"],
+[data-lp-canvas-ux] [data-lp-text-hug="1"][data-lp-heading-width-live] {
+  width: var(--lp-text-box-width) !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
 }
 [data-lp-canvas-root] [data-lp-text-hug="1"] [data-lp-inline-field] {
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  text-wrap: wrap !important;
 }
-/* Builder only: theme mt/max-w on the text node must not inflate selection chrome */
+/* Builder only: theme mt must not inflate selection chrome. Keep max-width 100%
+ * so glyphs wrap inside the orange frame instead of spilling past it. */
 [data-lp-builder-root] [data-lp-text-hug="1"] [data-lp-inline-field],
 [data-lp-canvas-ux] [data-lp-text-hug="1"] [data-lp-inline-field] {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
   margin-left: 0 !important;
   margin-right: 0 !important;
-  max-width: none !important;
+  max-width: 100% !important;
 }
 /*
- * Locked text-box width must live on the painted text node so background/padding
- * chips grow with resize. Beats element custom CSS width:fit-content !important
- * (scoped in buildPageCustomCssBlocks) which previously left the orange wrap
- * wider than the blue visual box.
+ * Locked/live width: text fills the wrap (padding stays on the wrap).
+ * Beats custom CSS width:fit-content and heading text-wrap:balance overflow.
  */
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-width-locked="1"] [data-lp-inline-field],
 [data-lp-builder-root] [data-lp-text-hug="1"][data-lp-heading-width-locked="1"] [data-lp-inline-field],
 [data-lp-canvas-ux] [data-lp-text-hug="1"][data-lp-heading-width-locked="1"] [data-lp-inline-field],
+[data-lp-canvas-root] [data-lp-text-hug="1"][data-lp-heading-width-live] [data-lp-inline-field],
 [data-lp-builder-root] [data-lp-text-hug="1"][data-lp-heading-width-live] [data-lp-inline-field],
 [data-lp-canvas-ux] [data-lp-text-hug="1"][data-lp-heading-width-live] [data-lp-inline-field] {
-  width: var(--lp-text-box-width) !important;
-  max-width: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
   min-width: 0 !important;
   display: block !important;
   box-sizing: border-box !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  text-wrap: wrap !important;
+}
+/* Builder: don't clip 8 square handles that sit on the text bounding box */
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-section-chrome="1"]:has([data-lp-heading-resize="1"][data-lp-bounding-box="1"]),
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-section-chrome="1"]:has([data-lp-heading-resize="1"][data-lp-bounding-box="1"]) > section,
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-section-chrome="1"]:has([data-lp-heading-resize="1"][data-lp-bounding-box="1"]) > header,
+[data-lp-builder-root]:not([data-lp-fullscreen-preview="1"]) [data-lp-section-chrome="1"]:has([data-lp-heading-resize="1"][data-lp-bounding-box="1"]) > footer {
+  overflow: visible !important;
+}
+/* Preview / published: never show selection frame or resize handles */
+body[data-lp-preview-mode="1"] [data-lp-heading-box-chrome],
+[data-lp-preview-shell] [data-lp-heading-box-chrome],
+[data-lp-builder-root][data-lp-fullscreen-preview="1"] [data-lp-heading-box-chrome] {
+  display: none !important;
+}
+body[data-lp-preview-mode="1"] [data-lp-text-hug="1"],
+[data-lp-preview-shell] [data-lp-text-hug="1"],
+[data-lp-builder-root][data-lp-fullscreen-preview="1"] [data-lp-text-hug="1"] {
+  outline: none !important;
 }
 [data-lp-canvas-root] [data-lp-section-head] h2 {
   font-size: clamp(1.375rem, 2.6vw, 2rem);
