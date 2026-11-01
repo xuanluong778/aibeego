@@ -3,6 +3,7 @@
  * Stamps architectureRecipe + designFamily + conversionGoal into spec.meta (canonical SoT).
  */
 
+import { applyAgencyPortfolioStandard } from './landing-page-agency-portfolio-standard';
 import type { LandingPageCategory, LandingPageTemplateDefinition } from './landing-page-types';
 import { layoutForCategory } from './landing-page-ui';
 import {
@@ -172,7 +173,7 @@ export function expandLandingPageTemplateCatalog(
           },
         },
       };
-      out.push(def);
+      out.push(applyAgencyPortfolioStandard(def));
     }
   }
 

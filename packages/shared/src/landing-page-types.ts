@@ -404,6 +404,8 @@ export type LandingPageSpec = {
   meta?: {
     /** Stamped catalog generation id — drives ensureSystemTemplates DB sync. */
     catalogVersion?: string;
+    /** Persisted rendering contract; missing/unknown values use legacy. */
+    rendererVersion?: string;
     /**
      * Original uploaded HTML, kept for version history and re-export.
      * Visual sections live in htmlSections when the page was imported.

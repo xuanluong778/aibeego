@@ -1,4 +1,5 @@
 'use client';
+import { agencyPortfolioInlineStyle } from '@marketingspa/shared';
 
 import {
   startTransition,
@@ -4901,10 +4902,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         return false;
       },
       getTextStyle: (blockId, field) => {
-        const map =
-          (specRef.current.meta as { inlineTextStyles?: Record<string, LandingPageInlineTextStyle> } | undefined)
-            ?.inlineTextStyles || {};
-        return map[`${blockId}::${field}`];
+        return agencyPortfolioInlineStyle(specRef.current, `${blockId}::${field}`, viewport);
       },
       onTextStyleChange: (blockId, field, patch) =>
         canvasActionRef.current.patchInlineTextStyle(blockId, field, patch),

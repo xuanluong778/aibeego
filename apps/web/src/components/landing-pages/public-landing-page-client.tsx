@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { isAgencyPortfolioStandard } from '@marketingspa/shared';
 import type { LandingPageSpec } from '@marketingspa/shared';
 import { getApiBaseUrl } from '@/lib/api-client';
 import { interpretPublicLeadResponse } from '@/components/landing-pages/landing-page-public-lead';
@@ -141,14 +142,14 @@ export function PublicLandingPageClient({
       {success ? (
         <div className="bg-emerald-600 px-4 py-2 text-center text-sm text-white">{success}</div>
       ) : null}
-      {formError ? (
+      {formError && !isAgencyPortfolioStandard(data.spec) ? (
         <div className="bg-red-700 px-4 py-2 text-center text-sm text-white" data-lp-form-error>
           {formError}
         </div>
       ) : null}
       <LandingPageRenderer
         spec={data.spec}
-        mode="public"
+        mode={isPreview && isAgencyPortfolioStandard(data.spec) ? 'preview' : 'public'}
         viewport={viewport}
         onLeadSubmit={
           isPreview
@@ -185,7 +186,9 @@ export function PublicLandingPageClient({
                   } catch {
                     body = null;
                   }
-                  const result = interpretPublicLeadResponse(res.status, body);
+                  const result = isAgencyPortfolioStandard(data.spec) && body?.ok !== true
+                    ? {ok:false, message:body?.message || 'Chưa nhận được xác nhận gửi thành công. Vui lòng thử lại.'}
+                    : interpretPublicLeadResponse(res.status, body);
                   if (!result.ok) {
                     setSuccess(null);
                     setFormError(result.message);
@@ -193,7 +196,7 @@ export function PublicLandingPageClient({
                   }
                   await track('FORM_SUBMIT', { blockId });
                   setFormError(null);
-                  setSuccess(result.message);
+                  setSuccess(isAgencyPortfolioStandard(data.spec) ? null : result.message);
                 } finally {
                   leadInflight.current = null;
                 }

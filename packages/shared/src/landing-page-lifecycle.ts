@@ -1,3 +1,4 @@
+import { isAgencyPortfolioStandard, remapAgencyPortfolioCloneIds } from './landing-page-agency-portfolio-standard';
 /**
  * Landing Page Auto — sanitize + validate + mutate helpers (Phase 1).
  */
@@ -631,6 +632,9 @@ export function sanitizeLandingPageSpec(
             ...(goldStandard ? { goldStandard } : {}),
             ...(architectureRecipe ? { architectureRecipe } : {}),
             ...(gallery ? { gallery } : {}),
+            ...(typeof metaIn.rendererVersion === 'string' && metaIn.rendererVersion.trim()
+              ? { rendererVersion: metaIn.rendererVersion.trim().slice(0, 80) }
+              : {}),
             ...(typeof metaIn.catalogVersion === 'string' && metaIn.catalogVersion.trim()
               ? { catalogVersion: metaIn.catalogVersion.trim().slice(0, 80) }
               : {}),
@@ -1238,22 +1242,25 @@ export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingP
     idMap.set(block.id, id);
     const next = { ...block, id } as LandingPageBlock & Record<string, unknown>;
     if (Array.isArray(next.items)) {
-      next.items = next.items.map((row: { id?: string } & Record<string, unknown>) => ({
-        ...row,
-        id: uid('item'),
-      }));
+      next.items = next.items.map((row: { id?: string } & Record<string, unknown>) => {
+        const nestedId = uid('item');
+        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        return { ...row, id: nestedId };
+      });
     }
     if (Array.isArray(next.plans)) {
-      next.plans = next.plans.map((row: { id?: string } & Record<string, unknown>) => ({
-        ...row,
-        id: uid('plan'),
-      }));
+      next.plans = next.plans.map((row: { id?: string } & Record<string, unknown>) => {
+        const nestedId = uid('plan');
+        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        return { ...row, id: nestedId };
+      });
     }
     if (Array.isArray(next.fields)) {
-      next.fields = next.fields.map((row: { id?: string } & Record<string, unknown>) => ({
-        ...row,
-        id: uid('fld'),
-      }));
+      next.fields = next.fields.map((row: { id?: string } & Record<string, unknown>) => {
+        const nestedId = uid('fld');
+        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        return { ...row, id: nestedId };
+      });
     }
     return next as LandingPageBlock;
   });
@@ -1270,11 +1277,11 @@ export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingP
       blockId: idMap.get(row.blockId) || row.blockId,
     }));
   }
-  return sanitizeLandingPagePersistSpec({
+  return sanitizeLandingPagePersistSpec(remapAgencyPortfolioCloneIds({
     ...raw,
     blocks,
     ...(meta ? { meta } : {}),
-  });
+  }, idMap));
 }
 
 export function reorderBlocks(blocks: LandingPageBlock[], from: number, to: number): LandingPageBlock[] {

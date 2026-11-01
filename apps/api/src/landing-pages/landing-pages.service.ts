@@ -21,6 +21,8 @@ import {
 } from '@marketingspa/database';
 import {
   LANDING_PAGE_SYSTEM_TEMPLATES,
+  agencyPortfolioCreationSeed,
+  isAgencyPortfolioStandard,
   LANDING_PAGE_TEMPLATE_CATALOG_VERSION,
   applyBusinessProfileToSpec,
   businessProfileToAiBrief,
@@ -355,6 +357,20 @@ export class LandingPagesService implements OnModuleInit {
     return { synced: catalog.length, skipped: false as const };
   }
 
+  /** Canonical pilot is used only for template previews and NEW drafts; no DB row is upgraded. */
+  private creationTemplateSpec(
+    row: { slug: string; isSystem: boolean; organizationId: string | null; tags: string[] },
+    raw: unknown,
+  ): LandingPageSpec {
+    const parsed = this.parseSpec(raw);
+    const canonical = LANDING_PAGE_SYSTEM_TEMPLATES.find((t) => t.slug === 'agency-portfolio')!.spec;
+    return agencyPortfolioCreationSeed(
+      { ...row, managed: row.tags.includes(TEMPLATE_PACK_MANAGED_TAG) },
+      parsed,
+      canonical,
+    );
+  }
+
   private parseSpec(raw: unknown): LandingPageSpec {
     return sanitizeLandingPageSpec(raw);
   }
@@ -567,7 +583,7 @@ export class LandingPagesService implements OnModuleInit {
     });
     const mapped = items.map((t) => {
       const visibleRaw = admin ? t.definition : (t.publishedDefinition ?? t.definition);
-      const def = this.parseSpec(visibleRaw);
+      const def = this.creationTemplateSpec(t, visibleRaw);
       const gallery = def.meta?.gallery;
       const recipe = def.meta?.architectureRecipe;
       const designFamily =
@@ -597,9 +613,11 @@ export class LandingPagesService implements OnModuleInit {
         theme: t.theme,
         description: t.description,
         tags: t.tags,
-        thumbnailUrl: def.meta?.htmlConverted
-          ? gallery?.thumbnail || null
-          : t.thumbnailUrl || gallery?.thumbnail || null,
+        thumbnailUrl: isAgencyPortfolioStandard(def)
+          ? gallery?.thumbnail || t.thumbnailUrl || null
+          : def.meta?.htmlConverted
+            ? gallery?.thumbnail || null
+            : t.thumbnailUrl || gallery?.thumbnail || null,
         previewLongImage: def.meta?.htmlConverted ? null : gallery?.previewLongImage || null,
         htmlPreviewUrl: def.meta?.htmlConverted ? null : htmlPreviewPath(t.id, visibleRaw, t.updatedAt),
         badges,
@@ -654,6 +672,7 @@ export class LandingPagesService implements OnModuleInit {
       throw new NotFoundException('Template không tồn tại');
     }
     const visibleRaw = admin ? row.definition : (row.publishedDefinition ?? row.definition);
+    const definition = this.creationTemplateSpec(row, visibleRaw);
     return {
       id: row.id,
       slug: row.slug,
@@ -662,7 +681,7 @@ export class LandingPagesService implements OnModuleInit {
       theme: row.theme,
       description: row.description,
       tags: row.tags,
-      thumbnailUrl: row.thumbnailUrl,
+      thumbnailUrl: isAgencyPortfolioStandard(definition) ? definition.meta?.gallery?.thumbnail || row.thumbnailUrl : row.thumbnailUrl,
       isSystem: row.isSystem,
       ...(admin
         ? {
@@ -670,7 +689,7 @@ export class LandingPagesService implements OnModuleInit {
             hasPublishedVersion: row.publishedDefinition != null,
           }
         : {}),
-      definition: this.parseSpec(visibleRaw),
+      definition,
     };
   }
 
@@ -765,7 +784,7 @@ export class LandingPagesService implements OnModuleInit {
         theme = tpl.theme;
         // Clone a copy with fresh ids. User pages never share the template row's JSON.
         const source = admin ? tpl.definition : (tpl.publishedDefinition ?? tpl.definition);
-        spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.parseSpec(source)));
+        spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.creationTemplateSpec(tpl, source)));
       }
 
       if (dto.draftSpec) {

@@ -138,3 +138,5 @@ export * from './marketing-autopilot-command-center';
 // funnel-fallback overlaps funnel-* exports — import via
 // '@marketingspa/shared/dist/marketing-autopilot-funnel-fallback' if needed
 // ssrf-fetch uses Node dns/net — import '@marketingspa/shared/ssrf-fetch' (server-only)
+
+export * from './landing-page-agency-portfolio-standard';

@@ -23,7 +23,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { LandingPageFreeLayout, LandingPageTextBoxChrome } from '@marketingspa/shared';
-import { applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChromeCss, textBoxHideAttrs } from '@marketingspa/shared';
+import { AGENCY_PORTFOLIO_RENDERER_VERSION, applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChromeCss, textBoxHideAttrs } from '@marketingspa/shared';
 import {
   FreeDragHandle,
   FreeTransformChrome,
@@ -395,6 +395,7 @@ export function readElementFreeLayouts(
 
 /** Shared Builder/Preview/Public meta for toolbar styles + element free-layouts (no handlers). */
 export type LpPublicRenderMeta = {
+  rendererVersion?: string;
   inlineTextStyles: Record<string, LandingPageInlineTextStyle>;
   elementFreeLayouts: Record<string, LandingPageFreeLayout>;
 };
@@ -410,6 +411,7 @@ export function LandingPagePublicMetaProvider({
 }) {
   const value = useMemo<LpPublicRenderMeta>(
     () => ({
+      rendererVersion: typeof meta?.rendererVersion === 'string' ? meta.rendererVersion : undefined,
       inlineTextStyles: readInlineTextStyles(meta),
       elementFreeLayouts: readElementFreeLayouts(meta),
     }),
@@ -2446,6 +2448,7 @@ export function InlineEditable({
         style={mergeFieldStyle()}
         data-lp-element-id={`${blockId}::${element}`}
         data-lp-element-kind="text"
+        data-lp-inline-field={publicMeta?.rendererVersion === AGENCY_PORTFOLIO_RENDERER_VERSION ? field : undefined}
       >
         {value}
       </Comp>

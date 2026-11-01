@@ -6,6 +6,9 @@
  * meta.layout fall back to classic — fully compatible.
  */
 
+import { isAgencyPortfolioStandard, agencyPortfolioRenderMeta } from '@marketingspa/shared';
+import { AgencyPortfolioBlock } from './landing-page-agency-portfolio-blocks';
+import { scopeLegacyLandingPageCss } from './landing-page-legacy-css-scope';
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
   LandingPageBlock,
@@ -100,6 +103,7 @@ import { LP_PREMIUM_FOUNDATION_CSS } from './landing-page-premium-foundation';
 import { LP_GOLD_FOUNDATION_CSS } from './landing-page-gold-foundation';
 import { LP_VISUAL_FOUNDATION_CSS } from './landing-page-visual-foundation';
 import { LP_PREMIUM_VISUAL_AXIS_CSS } from './landing-page-premium-visual-axis';
+import { lpImgStyle, lpImgMotionAttr } from './landing-page-content-image-style';
 import { LpContentImage } from './landing-page-content-image';
 
 type Viewport = 'desktop' | 'tablet' | 'mobile';
@@ -318,26 +322,6 @@ const LP_VIEWPORT_SIM_CSS = `
   }
 }
 `;
-
-function lpImgStyle(style?: LandingPageImageStyle): CSSProperties {
-  const flip = String(style?.flip || '');
-  const sx = flip.includes('x') ? -1 : 1;
-  const sy = flip.includes('y') ? -1 : 1;
-  const z = style?.zIndex != null && style.zIndex !== '' ? Number(style.zIndex) : undefined;
-  return {
-    objectFit: style?.fit === 'contain' ? 'contain' : 'cover',
-    objectPosition: style?.position || 'center',
-    borderRadius: style?.borderRadius || undefined,
-    backgroundColor: style?.bgColor || undefined,
-    transform: sx !== 1 || sy !== 1 ? `scale(${sx}, ${sy})` : undefined,
-    zIndex: Number.isFinite(z) ? z : undefined,
-  };
-}
-
-function lpImgMotionAttr(style?: LandingPageImageStyle): string | undefined {
-  const motion = style?.motion;
-  return typeof motion === 'string' && motion && motion !== 'none' ? motion : undefined;
-}
 
 const ICON_SVGS = [
   // bulb
@@ -607,6 +591,8 @@ function LeadFormCard({
   compact,
   canvas,
   omitHead,
+  standard = false,
+  mode = 'preview',
 }: {
   block: LandingPageLeadFormBlock;
   primary: string;
@@ -616,7 +602,20 @@ function LeadFormCard({
   canvas?: LandingPageCanvasHandlers | null;
   /** When true, skip headline/subheadline (e.g. split layout left column owns copy). */
   omitHead?: boolean;
+  standard?: boolean;
+  mode?: RenderMode;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string,string>>({});
+  const [success, setSuccess] = useState(false);
+  const [plan, setPlan] = useState('');
+  useEffect(() => {
+    if (!standard) return;
+    const form = formRef.current;
+    const choose = (event: Event) => setPlan(String((event as CustomEvent).detail || ''));
+    form?.addEventListener('agency-plan', choose);
+    return () => form?.removeEventListener('agency-plan', choose);
+  }, [standard]);
   const started = useRef(false);
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -749,17 +748,19 @@ function LeadFormCard({
 
   return (
     <form
+      ref={formRef}
+      aria-busy={standard ? pending : undefined}
       id="lead-form"
       data-lp-form-block="1"
       data-lp-form-hit="1"
       data-lp-transformable="1"
-      className={`space-y-3 ${compact ? 'w-full max-w-full' : 'mx-auto w-full max-w-full sm:max-w-lg'}`}
-      noValidate={false}
+      className={`${standard ? 'agency-form-card'+(success?' agency-is-success':'') : 'space-y-3'} ${compact ? 'w-full max-w-full' : 'mx-auto w-full max-w-full sm:max-w-lg'}`}
+      noValidate={standard}
       style={{
         background: theme.background || 'var(--lp-surface)',
         borderRadius: radius,
-        boxShadow: theme.background ? '0 12px 40px rgba(15,23,42,0.14)' : '0 12px 40px rgba(15,23,42,0.12)',
-        padding: compact ? '1.25rem' : '1.75rem',
+        boxShadow: standard ? '0 12px 30px rgba(15,23,42,.04)' : theme.background ? '0 12px 40px rgba(15,23,42,0.14)' : '0 12px 40px rgba(15,23,42,0.12)',
+        padding: standard ? 'var(--agency-form-padding, 30px)' : compact ? '1.25rem' : '1.75rem',
         border: theme.border || `2px solid ${primary}33`,
       }}
       onFocus={() => {
@@ -771,11 +772,21 @@ function LeadFormCard({
       onSubmit={(e) => {
         e.preventDefault();
         const form = e.currentTarget;
-        if (!form.checkValidity()) {
+        if (standard) {
+          const errors: Record<string,string> = {};
+          for (const field of block.fields) {
+            const input = form.elements.namedItem(field.name) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+            if (input && (!input.checkValidity() || (field.required && !input.value.trim()))) errors[field.name] = field.required && !input.value.trim() ? `Vui lòng nhập ${field.label.toLowerCase()}.` : `Vui lòng kiểm tra ${field.label.toLowerCase()}.`;
+          }
+          setFieldErrors(errors);
+          if (Object.keys(errors).length) { (form.elements.namedItem(Object.keys(errors)[0]!) as HTMLElement)?.focus(); return; }
+        } else if (!form.checkValidity()) {
           form.reportValidity();
           return;
         }
-        if (!onSubmit || pending) return;
+        if (pending) return;
+        if (!onSubmit && !standard) return;
+        if (standard && mode === 'public' && !onSubmit) { setFormError('Chưa thể gửi yêu cầu. Vui lòng thử lại sau.'); return; }
         const fd = new FormData(form);
         const fields: Record<string, string> = {};
         for (const [k, v] of fd.entries()) {
@@ -783,15 +794,21 @@ function LeadFormCard({
           if (fields[k]) fields[k] = `${fields[k]}, ${s}`;
           else fields[k] = s;
         }
+        if (standard && plan) fields.cooperation = plan;
         setPending(true);
         setFormError(null);
-        void Promise.resolve(onSubmit(fields, block.id))
+        void Promise.resolve().then(() => standard && mode === 'preview'
+          ? new Promise<void>(resolve => setTimeout(resolve, 500))
+          : onSubmit?.(fields, block.id))
+          .then(() => { if (standard) setSuccess(true); })
           .catch((err: unknown) => {
             setFormError(err instanceof Error ? err.message : 'Không gửi được. Thử lại.');
           })
           .finally(() => setPending(false));
       }}
     >
+      {standard && plan ? <p className="agency-selection">Cách hợp tác quan tâm: {plan}</p> : null}
+      {standard && success ? <div className="agency-form-success" role="status"><h3>{block.successMessage || 'Đã nhận được yêu cầu của bạn.'}</h3>{mode === 'preview' ? <p>Đây là trạng thái mô phỏng trong bản thiết kế. Không có thông tin nào được gửi đi.</p> : null}<button type="button" className="btn btn-outline" onClick={() => setSuccess(false)}>Gửi yêu cầu khác</button></div> : null}
       {omitHead ? null : showCanvasInlineField(block.headline, canvas, block.id, 'headline') ? (
         <InlineEditable
           as="h3"
@@ -826,7 +843,7 @@ function LeadFormCard({
           f.fieldType === 'radio' ||
           Boolean(f.optionsLayout);
         return (
-          <label key={f.id} className="block text-sm">
+          <label key={f.id} className="block text-sm" data-lp-field-name={f.name}>
             {f.label.trim() ? (
               <span className="mb-1.5 block font-medium" style={{ color: labelColor }}>
                 <InlineEditable
@@ -845,7 +862,7 @@ function LeadFormCard({
                     {' '}
                     *
                   </span>
-                ) : null}
+                ) : standard ? <span className="form-optional">Không bắt buộc</span> : null}
               </span>
             ) : null}
             {isChoice && (f.options?.length || 0) > 0 ? (
@@ -853,6 +870,8 @@ function LeadFormCard({
             ) : f.fieldType === 'textarea' ? (
               <textarea
                 name={f.name}
+                aria-invalid={standard && fieldErrors[f.name] ? true : undefined}
+                aria-describedby={standard && fieldErrors[f.name] ? `error-${block.id}-${f.id}` : undefined}
                 required={f.required}
                 placeholder={f.placeholder}
                 aria-required={f.required || undefined}
@@ -860,7 +879,7 @@ function LeadFormCard({
                 style={{
                   borderRadius: theme.inputUnderline ? '0px' : inputRadius,
                   background: theme.inputUnderline ? 'transparent' : inputBg,
-                  border: theme.inputUnderline ? 'none' : inputBorder,
+                  border: standard && fieldErrors[f.name] ? '1px solid #B42318' : theme.inputUnderline ? 'none' : inputBorder,
                   borderBottom: theme.inputUnderline
                     ? theme.inputBorderBottom || inputBorder || '1px solid currentColor'
                     : undefined,
@@ -871,6 +890,8 @@ function LeadFormCard({
             ) : (
               <input
                 name={f.name}
+                aria-invalid={standard && fieldErrors[f.name] ? true : undefined}
+                aria-describedby={standard && fieldErrors[f.name] ? `error-${block.id}-${f.id}` : undefined}
                 type={f.fieldType === 'email' || f.fieldType === 'tel' ? f.fieldType : 'text'}
                 required={f.required}
                 placeholder={f.placeholder}
@@ -884,7 +905,7 @@ function LeadFormCard({
                         ? 'name'
                         : undefined
                 }
-                pattern={f.fieldType === 'tel' ? '[0-9+()\\-\\s]{8,20}' : undefined}
+                pattern={f.fieldType === 'tel' ? (standard ? String.raw`[0-9+\s\(\)\-]{8,20}` : '[0-9+()\\-\\s]{8,20}') : undefined}
                 title={
                   f.fieldType === 'tel'
                     ? 'Nhập số điện thoại hợp lệ (8–20 ký tự)'
@@ -896,7 +917,7 @@ function LeadFormCard({
                 style={{
                   borderRadius: theme.inputUnderline ? '0px' : inputRadius,
                   background: theme.inputUnderline ? 'transparent' : inputBg,
-                  border: theme.inputUnderline ? 'none' : inputBorder,
+                  border: standard && fieldErrors[f.name] ? '1px solid #B42318' : theme.inputUnderline ? 'none' : inputBorder,
                   borderBottom: theme.inputUnderline
                     ? theme.inputBorderBottom || inputBorder || '1px solid currentColor'
                     : undefined,
@@ -904,11 +925,12 @@ function LeadFormCard({
                 }}
               />
             )}
+            {standard && fieldErrors[f.name] ? <span id={`error-${block.id}-${f.id}`} data-lp-field-error role="alert">{fieldErrors[f.name]}</span> : null}
           </label>
         );
       })}
       {formError ? (
-        <p className="text-sm font-medium text-red-700" data-lp-form-error>
+        <p className="text-sm font-medium text-red-700" data-lp-form-error role="alert">
           {formError}
         </p>
       ) : null}
@@ -927,17 +949,17 @@ function LeadFormCard({
             as="span"
             blockId={block.id}
             field="submitLabel"
-            value={block.submitLabel || 'Gửi'}
+            value={standard && pending ? 'Đang gửi…' : block.submitLabel || 'Gửi'}
             handlers={canvas}
                         blockStyle={(block.style || {}) as Record<string, unknown>}
             textRole="button"
             className="font-bold"
             style={{ color: buttonColor }}
           />
-        <span aria-hidden>→</span>
+        <span aria-hidden>{standard ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg> : '→'}</span>
       </button>
-      <p className="flex items-center justify-center gap-1.5 text-center text-[11px]" style={{ color: mutedColor }}>
-        <span aria-hidden>🔒</span>
+      <p className={`flex items-center justify-center gap-1.5 text-center text-[11px] ${standard ? 'agency-form-footer' : ''}`} style={{ color: mutedColor }}>
+        <span aria-hidden>{standard ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 14v3"/></svg> : '🔒'}</span>
         <InlineEditable
             as="span"
             blockId={block.id}
@@ -4017,7 +4039,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-viewport-sim-css';
     el.setAttribute('data-lp-viewport-sim-css', '1');
-    el.textContent = LP_VIEWPORT_SIM_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_VIEWPORT_SIM_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4026,7 +4048,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-responsive-foundation-css';
     el.setAttribute('data-lp-responsive-foundation-css', '1');
-    el.textContent = LP_RESPONSIVE_FOUNDATION_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_RESPONSIVE_FOUNDATION_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4035,7 +4057,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-premium-foundation-css';
     el.setAttribute('data-lp-premium-foundation-css', '1');
-    el.textContent = LP_PREMIUM_FOUNDATION_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_PREMIUM_FOUNDATION_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4044,7 +4066,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-variant-css';
     el.setAttribute('data-lp-variant-css', '1');
-    el.textContent = LP_VARIANT_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_VARIANT_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4053,7 +4075,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-gold-foundation-css';
     el.setAttribute('data-lp-gold-foundation-css', '1');
-    el.textContent = LP_GOLD_FOUNDATION_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_GOLD_FOUNDATION_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4062,7 +4084,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-visual-foundation-css';
     el.setAttribute('data-lp-visual-foundation-css', '1');
-    el.textContent = LP_VISUAL_FOUNDATION_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_VISUAL_FOUNDATION_CSS);
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4071,10 +4093,11 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-premium-visual-axis-css';
     el.setAttribute('data-lp-premium-visual-axis-css', '1');
-    el.textContent = LP_PREMIUM_VISUAL_AXIS_CSS;
+    el.textContent = scopeLegacyLandingPageCss(LP_PREMIUM_VISUAL_AXIS_CSS);
     document.head.appendChild(el);
   }, []);
-  const tokens = mergeDesignFamilyTokens(
+  const agencyStandard = isAgencyPortfolioStandard(spec);
+  const tokens = agencyStandard ? normalizeLandingPageThemeTokens(spec.themeTokens, spec.theme) : mergeDesignFamilyTokens(
     normalizeLandingPageThemeTokens(spec.themeTokens, spec.theme),
     spec.meta?.designFamily,
   );
@@ -4092,7 +4115,8 @@ export function LandingPageRenderer({
     | undefined;
   const heroVariant = hero ? resolveBlockVariant('Hero', hero.variant) : 'default';
   const embedForm = Boolean(
-    leadForm &&
+    !agencyStandard &&
+      leadForm &&
       hero &&
       (layout === 'lead_gen' || heroVariant === 'floating-card'),
   );
@@ -4163,6 +4187,10 @@ export function LandingPageRenderer({
   const selectedElement = primaryTarget?.element ?? canvasHandlers?.selection?.element;
 
   useEffect(() => {
+    if (agencyStandard) {
+      if (!tokens.fontFamily.includes('Agency Portfolio Be Vietnam Pro')) ensureLandingPageCatalogFonts(tokens.fontFamily);
+      return; // The approved Vietnamese font is served locally by this pilot.
+    }
     // Always warm the professional font set so designFamily swaps never flash system fonts.
     const catalogFonts = [
       '"Oswald"',
@@ -4278,7 +4306,7 @@ export function LandingPageRenderer({
       ensureLandingPageCatalogFonts('"Cormorant Garamond"');
       ensureLandingPageCatalogFonts('"DM Sans"');
     }
-  }, [tokens.fontFamily, goldStandard, designFamilyAttr]);
+  }, [tokens.fontFamily, goldStandard, designFamilyAttr, agencyStandard]);
 
   useEffect(() => {
     const styles = (spec.meta as { inlineTextStyles?: Record<string, unknown> } | undefined)?.inlineTextStyles;
@@ -4314,6 +4342,8 @@ export function LandingPageRenderer({
   return (
     <div
       className={className}
+      data-lp-style-scope={agencyStandard ? 'agency-portfolio-v2' : 'legacy'}
+      data-lp-renderer={agencyStandard ? 'agency-portfolio-v2' : 'legacy'}
       data-lp-layout={layout}
       data-lp-category={category}
       data-lp-gold-standard={goldStandard}
@@ -4356,7 +4386,7 @@ export function LandingPageRenderer({
         viewport={viewport}
       >
         <LandingPagePublicMetaProvider
-          meta={(spec.meta || null) as Record<string, unknown> | null}
+          meta={(agencyStandard ? agencyPortfolioRenderMeta(spec, viewport) || null : spec.meta || null) as Record<string, unknown> | null}
         >
         <article
           data-lp-canvas-root="1"
@@ -4482,6 +4512,42 @@ export function LandingPageRenderer({
               tablet: rs.tablet?.display === 'none',
               mobile: rs.mobile?.display === 'none',
             };
+            if (agencyStandard && ['Header', 'Hero', 'Benefits', 'Features', 'Gallery', 'Process', 'Pricing', 'FAQ', 'CTA', 'LeadForm', 'Footer'].includes(block.type)) {
+              return (
+                <div key={block.id} data-lp-block-slot={block.id}>
+                  <SelectableShell
+                    blockId={block.id}
+                    label={`Section ${block.type}`}
+                    selected={Boolean(canvasHandlers?.isSectionPrimary?.(block.id))}
+                    selectedElement={primaryTarget?.blockId === block.id ? primaryTarget.element : undefined}
+                    handlers={canvasHandlers}
+                    allowReorder={block.type !== 'Hero'}
+                    designClassName={safeCustomClassName((block.style as Record<string, unknown>)?.className)}
+                    publicFreeLayout={canvasHandlers ? null : resolvePublicSectionFreeLayout(block)}
+                    responsiveHide={responsiveHide}
+                    surfaceBlock={block}
+                  >
+                    <AgencyPortfolioBlock
+                      block={block}
+                      spec={spec}
+                      canvas={canvasHandlers}
+                      renderForm={block.type === 'LeadForm' ? (
+                        <LeadFormCard
+                          block={block}
+                          primary={primary}
+                          onSubmit={onLeadSubmit}
+                          onFormStart={onFormStart}
+                          canvas={canvasHandlers}
+                          omitHead
+                          standard
+                          mode={mode}
+                        />
+                      ) : null}
+                    />
+                  </SelectableShell>
+                </div>
+              );
+            }
             if (block.type === 'Hero') {
               return (
                 <div key={block.id} data-lp-block-slot={block.id} data-lp-hero-slot-wrap="1">
