@@ -1,54 +1,72 @@
 #!/usr/bin/env node
-/**
- * BUG-06 undo-history-leaks-across-pages
- *   node scripts/test-landing-page-undo-page-isolation.cjs
- */
-const fs = require('fs');
-const path = require('path');
-
-const root = path.join(__dirname, '..');
-const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
-
-const page = read('apps/web/src/app/(app)/landing-pages/builder/[id]/page.tsx');
-const builder = read('apps/web/src/components/landing-pages/landing-page-builder.tsx');
-
-const gates = {};
-function gate(name, ok, detail) {
-  gates[name] = { ok: !!ok, detail: detail || '' };
-  console.log((ok ? 'PASS' : 'FAIL') + ' ' + name + (detail ? ' — ' + detail : ''));
+const {
+  assert,
+  vm,
+  ts,
+  path,
+  root,
+  webRequire,
+  builder,
+  parse,
+  find,
+  definition,
+  evaluate,
+  harness,
+  snapshot,
+} = require('./helpers/landing-page-source-harness.cjs');
+async function main() {
+  const page = parse(path.join(root, 'apps/web/src/app/(app)/landing-pages/builder/[id]/page.tsx'));
+  const ctx = vm.createContext({
+    require: webRequire,
+    exports: {},
+    LandingPageBuilder: () => null,
+    useParams: () => ({ id: ctx.id }),
+  });
+  const render = evaluate(definition(page, 'LandingPageBuilderPage'), ctx);
+  const elements = [];
+  for (const id of ['page-a', 'page-b']) {
+    ctx.id = id;
+    const element = render().props.children;
+    assert.equal(element.props.pageId, id);
+    assert.equal(element.key, id, 'actual page output keys builder by route id');
+    elements.push(element);
+  }
+  assert.notEqual(elements[0].key, elements[1].key);
+  console.log('PASS REMOUNT_ON_PAGE_ID / NO_SHARED_INSTANCE_ACROSS_PAGES');
+  const first = harness(),
+    second = harness();
+  for (const name of ['historyRef', 'futureRef', 'blockClipboardRef', 'styleClipboardRef']) {
+    const nodes = find(
+      builder,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(builder) === name,
+    );
+    assert.equal(nodes.length, 1);
+    for (const editor of [first, second]) {
+      editor.useRef = (value) => ({ current: value });
+      editor[name] = evaluate(nodes[0].initializer.getText(builder), editor);
+    }
+    assert.notEqual(first[name], second[name]);
+  }
+  const original = snapshot(first.specRef.current);
+  first.toggleElementHidden('hero', 'headline');
+  assert.equal(first.historyRef.current.length, 1);
+  assert.equal(second.historyRef.current.length, 0);
+  first.undo();
+  assert.deepEqual(snapshot(first.specRef.current), original);
+  assert.equal(first.futureRef.current.length, 1);
+  assert.equal(second.futureRef.current.length, 0);
+  first.redo();
+  assert.equal(first.specRef.current.meta.elementHidden['hero::headline'], true);
+  await first.load();
+  assert.equal(first.historyRef.current.length, 0);
+  assert.equal(first.futureRef.current.length, 0);
+  assert.equal(first.historyNav.undo, false);
+  assert.equal(first.historyNav.redo, false);
+  console.log(
+    'PASS UNDO_USES_LOCAL_HISTORY / load resets navigation history (source execution, not browser navigation)',
+  );
 }
-
-gate(
-  'REMOUNT_ON_PAGE_ID',
-  /<LandingPageBuilder\s+key=\{pageId\}\s+pageId=\{pageId\}\s*\/>/.test(page) ||
-    (/key=\{pageId\}/.test(page) && /pageId=\{pageId\}/.test(page)),
-  'LandingPageBuilder remounts via key={pageId}',
-);
-
-gate(
-  'NO_SHARED_INSTANCE_ACROSS_PAGES',
-  page.includes('key={pageId}') &&
-    page.includes('history/clipboard/refs never leak') &&
-    !/<LandingPageBuilder\s+pageId=\{params\.id\}\s*\/>/.test(page),
-  'no unkeyed builder reuse on client navigation',
-);
-
-gate(
-  'UNDO_USES_LOCAL_HISTORY',
-  builder.includes('historyRef.current.pop()') &&
-    builder.includes('futureRef.current.pop()') &&
-    builder.includes('blockClipboardRef') &&
-    builder.includes('styleClipboardRef'),
-  'undo/redo/clipboard live in builder instance refs (cleared by remount)',
-);
-
-const failed = Object.entries(gates).filter(([, g]) => !g.ok);
-console.log('');
-for (const k of Object.keys(gates)) {
-  console.log(k + '=' + (gates[k].ok ? 'PASS' : 'FAIL'));
-}
-console.log(failed.length ? 'BUG_06=FAIL' : 'BUG_06=PASS');
-console.log(
-  'FILES_CHANGED=apps/web/src/app/(app)/landing-pages/builder/[id]/page.tsx,scripts/test-landing-page-undo-page-isolation.cjs',
-);
-process.exit(failed.length ? 1 : 0);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

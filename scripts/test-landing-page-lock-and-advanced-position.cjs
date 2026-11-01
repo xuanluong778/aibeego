@@ -1,171 +1,147 @@
 #!/usr/bin/env node
-/**
- * BUG-10 section lock semantics + BUG-11 advanced position clamp
- *   node scripts/test-landing-page-lock-and-advanced-position.cjs
- */
-const fs = require('fs');
-const path = require('path');
+const {
+  assert,
+  ts,
+  path,
+  components,
+  builder,
+  canvas,
+  parse,
+  find,
+  definition,
+  evaluate,
+  jsxCallback,
+  harness,
+  state,
+  snapshot,
+  clock,
+} = require('./helpers/landing-page-source-harness.cjs');
+async function main() {
+  const locked = harness(true);
+  assert.equal(locked.guardSectionUnlocked('hero'), false);
+  assert.match(locked.saveMsg, /mở khóa/);
+  const attempts = [
+    ['moveBlock', ['hero', 'up']],
+    ['reorderBlockById', ['hero', 'other']],
+    ['toggleBlockFreePosition', ['hero']],
+    ['removeBlock', ['hero']],
+    ['updateBlock', ['hero', { headline: 'blocked' }]],
+    ['updateBlockFieldLive', ['hero', 'headline', 'blocked']],
+    ['updateBlockFieldCommit', ['hero', 'headline', 'blocked']],
+    ['patchInlineTextStyle', ['hero', 'headline', { color: '#123456' }]],
+    [
+      'commitBlockFreeLayout',
+      ['hero', { positionMode: 'free', viewport: 'desktop', freeLayout: { x: 30, y: 20 } }],
+    ],
+  ];
+  locked.removeBlocks = evaluate(definition(builder, 'removeBlocks'), locked);
+  for (const [name, args] of attempts) {
+    const before = state(locked);
+    evaluate(definition(builder, name), locked)(...args);
+    assert.deepEqual(state(locked), before, `${name} respects section lock`);
+  }
+  locked.spec = locked.specRef.current;
+  evaluate(jsxCallback(builder, 'LandingPageAddComponentsPanel', 'onReorderBlocks'), locked)(0, 1);
+  assert.equal(locked.historyRef.current.length, 0);
+  locked.toggleBlockLock('hero');
+  assert.equal(locked.specRef.current.blocks[0].locked, false);
+  console.log('PASS LOCK_GUARD_HELPER / LOCK_GUARDS_STRUCTURAL / LOCK_GUARDS_EDIT');
+  await require('./test-landing-page-element-visibility-lock.cjs').run();
+  const reorderProps = find(
+    canvas,
+    (node) =>
+      ts.isJsxAttribute(node) &&
+      node.name.text === 'allowReorder' &&
+      find(node, (child) => ts.isIdentifier(child) && child.text === 'sectionLocked').length > 0,
+  );
+  assert.equal(reorderProps.length, 1);
+  const menu = parse(path.join(components, 'landing-page-canvas-context-menu.tsx'));
+  for (const sectionLocked of [true, false]) {
+    locked.allowReorder = true;
+    locked.sectionLocked = sectionLocked;
+    locked.menuBlockId = 'hero';
+    assert.equal(
+      evaluate(reorderProps[0].initializer.expression.getText(canvas), locked),
+      !sectionLocked,
+    );
+    assert.equal(evaluate(definition(menu, 'editDisabled'), locked), sectionLocked);
+  }
+  console.log('PASS LOCK_UI_DISABLE');
 
-const root = path.join(__dirname, '..');
-const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
-
-const builder = read('apps/web/src/components/landing-pages/landing-page-builder.tsx');
-const drag = read('apps/web/src/components/landing-pages/landing-page-free-drag.tsx');
-const ux = read('apps/web/src/components/landing-pages/landing-page-canvas-ux.tsx');
-const menu = read('apps/web/src/components/landing-pages/landing-page-canvas-context-menu.tsx');
-
-const gates = {};
-function gate(name, ok, detail) {
-  gates[name] = { ok: !!ok, detail: detail || '' };
-  console.log((ok ? 'PASS' : 'FAIL') + ' ' + name + (detail ? ' — ' + detail : ''));
-}
-
-// --- BUG-10 ---
-gate(
-  'LOCK_GUARD_HELPER',
-  builder.includes('function guardSectionUnlocked') &&
-    builder.includes('function isSectionLocked') &&
-    builder.includes("Section đang khóa — mở khóa trước khi chỉnh sửa"),
-  'central lock guard + toast',
-);
-
-gate(
-  'LOCK_GUARDS_STRUCTURAL',
-  /function moveBlock[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    /function reorderBlockById[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    /function toggleBlockFreePosition[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    builder.includes("Section đang khóa — mở khóa trước khi xóa") &&
-    builder.includes('moving?.locked'),
-  'move/reorder/free-position/delete/sidebar reorder guarded',
-);
-
-gate(
-  'LOCK_GUARDS_EDIT',
-  /function updateBlock\([\s\S]*?onlyLockToggle/.test(builder) &&
-    /function updateBlockFieldLive[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    /function updateBlockFieldCommit[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    /function patchInlineTextStyle[\s\S]*?guardSectionUnlocked/.test(builder) &&
-    /function commitBlockFreeLayout[\s\S]*?guardSectionUnlocked/.test(builder),
-  'content + free-layout commits blocked while locked (lock toggle allowed)',
-);
-
-gate(
-  'LOCK_UI_DISABLE',
-  ux.includes('isBlockLocked') &&
-    ux.includes('sectionLocked') &&
-    ux.includes("data-lp-section-locked={sectionLocked ? '1' : '0'}") &&
-    ux.includes('allowReorder={allowReorder && !sectionLocked}') &&
-    menu.includes('editDisabled') &&
-    menu.includes('sectionLocked') &&
-    builder.includes('disabled={selected.locked === true}') &&
-    builder.includes('isTextElementLocked') &&
-    builder.includes('if (isSectionLocked(blockId)) return true'),
-  'toolbar/context/inspector/inline disable when section locked',
-);
-
-// --- BUG-11 ---
-gate(
-  'SHARED_BOUNDS_CONSTANTS',
-  drag.includes('FREE_LAYOUT_ABSOLUTE_BOUNDS') &&
-    drag.includes('minPos: -40') &&
-    drag.includes('maxPos: 2400') &&
-    drag.includes('maxSize: 2400') &&
-    /export function isPlausibleFreeLayout[\s\S]*FREE_LAYOUT_ABSOLUTE_BOUNDS/.test(drag),
-  'isPlausibleFreeLayout uses shared FREE_LAYOUT_ABSOLUTE_BOUNDS',
-);
-
-gate(
-  'CLAMP_HELPER_SAME_BOUNDS',
-  drag.includes('export function clampAbsoluteFreeLayout') &&
-    drag.includes('export function patchAbsoluteFreeLayoutField') &&
-    /clampAbsoluteFreeLayout[\s\S]*FREE_LAYOUT_ABSOLUTE_BOUNDS/.test(drag) &&
-    builder.includes('patchAbsoluteFreeLayoutField') &&
-    builder.includes('clampAbsoluteFreeLayout'),
-  'Advanced Position uses same clamp helper as plausibility bounds',
-);
-
-gate(
-  'ADVANCED_POSITION_CLAMPS_BEFORE_UPDATE',
-  /data-lp="advanced-position"[\s\S]*patchAbsoluteFreeLayoutField[\s\S]*updateBlock\(selected\.id/.test(
+  const drag = parse(path.join(components, 'landing-page-free-drag.tsx'));
+  for (const name of [
+    'FREE_LAYOUT_ABSOLUTE_BOUNDS',
+    'FREE_LAYOUT_OFFSET_BOUNDS',
+    'clampNumber',
+    'clampAbsoluteFreeLayout',
+    'patchAbsoluteFreeLayoutField',
+    'isPlausibleFreeLayout',
+  ])
+    locked[name] = evaluate(definition(drag, name), locked);
+  const bounds = locked.FREE_LAYOUT_ABSOLUTE_BOUNDS;
+  assert.deepEqual(snapshot(bounds), { minPos: -40, maxPos: 2400, minSize: 1, maxSize: 2400 });
+  const inputs = [
+    { x: 24, y: -100, width: 2500, height: 200 },
+    { x: 3000, y: 10, width: 100, height: 0 },
+    { x: -40, y: 2400, width: 2400, height: 1 },
+  ];
+  for (const input of inputs) {
+    const result = locked.clampAbsoluteFreeLayout(input);
+    assert.equal(locked.isPlausibleFreeLayout(result), true);
+    assert.ok(result.x >= bounds.minPos && result.x <= bounds.maxPos);
+    assert.ok(result.height >= bounds.minSize && result.height <= bounds.maxSize);
+    assert.equal(result.reserveHeight, result.height);
+  }
+  console.log('PASS SHARED_BOUNDS_CONSTANTS / CLAMP_HELPER_SAME_BOUNDS / CLAMP_KEEPS_PLAUSIBLE');
+  const controls = find(
     builder,
-  ) &&
-    !/data-lp="advanced-position"[\s\S]*freeLayout:\s*\{\s*\.\.\.selected\.freeLayout![\s\S]*\[key\]:\s*Number\.isFinite/.test(
-      builder,
-    ),
-  'inspector numbers go through patchAbsoluteFreeLayoutField before updateBlock',
-);
-
-gate(
-  'CLAMP_KEEPS_PLAUSIBLE',
-  (() => {
-    // Lightweight simulation of exported bounds (mirror source of truth in free-drag).
-    const FREE_LAYOUT_ABSOLUTE_BOUNDS = { minPos: -40, maxPos: 2400, minSize: 1, maxSize: 2400 };
-    function clampNumber(n, min, max) {
-      return Math.min(max, Math.max(min, n));
-    }
-    function clampAbsoluteFreeLayout(layout) {
-      const { minPos, maxPos, minSize, maxSize } = FREE_LAYOUT_ABSOLUTE_BOUNDS;
-      const next = {
-        ...layout,
-        x: clampNumber(Number(layout.x) || 0, minPos, maxPos),
-        y: clampNumber(Number(layout.y) || 0, minPos, maxPos),
-      };
-      if (layout.width != null && Number.isFinite(layout.width)) {
-        next.width = clampNumber(layout.width, minSize, maxSize);
-      }
-      if (layout.height != null && Number.isFinite(layout.height)) {
-        next.height = clampNumber(layout.height, minSize, maxSize);
-      }
-      return next;
-    }
-    function isPlausible(layout) {
-      const { minPos, maxPos, maxSize } = FREE_LAYOUT_ABSOLUTE_BOUNDS;
-      if (layout.x < minPos || layout.y < minPos) return false;
-      if (layout.x > maxPos || layout.y > maxPos) return false;
-      if (layout.width != null && (layout.width <= 0 || layout.width > maxSize)) return false;
-      if (layout.height != null && (layout.height <= 0 || layout.height > maxSize)) return false;
-      return true;
-    }
-    const cases = [
-      { x: 24, y: -100, width: 2500, height: 200 },
-      { x: 3000, y: 10, width: 100, height: 0 },
-      { x: -40, y: 2400, width: 2400, height: 1 },
-    ];
-    return cases.every((c) => isPlausible(clampAbsoluteFreeLayout(c)));
-  })(),
-  'clamped layouts always pass isPlausibleFreeLayout absolute bounds',
-);
-
-gate(
-  'UNDO_AUTOSAVE_PATH_INTACT',
-  builder.includes('const undo = useCallback') &&
-    builder.includes('const redo = useCallback') &&
-    builder.includes('pushHistory') &&
-    builder.includes('persist(') &&
-    builder.includes('clientRevision'),
-  'undo/redo + autosave revision path unchanged',
-);
-
-const bug10 = [
-  'LOCK_GUARD_HELPER',
-  'LOCK_GUARDS_STRUCTURAL',
-  'LOCK_GUARDS_EDIT',
-  'LOCK_UI_DISABLE',
-];
-const bug11 = [
-  'SHARED_BOUNDS_CONSTANTS',
-  'CLAMP_HELPER_SAME_BOUNDS',
-  'ADVANCED_POSITION_CLAMPS_BEFORE_UPDATE',
-  'CLAMP_KEEPS_PLAUSIBLE',
-  'UNDO_AUTOSAVE_PATH_INTACT',
-];
-
-console.log('');
-for (const k of Object.keys(gates)) {
-  console.log(k + '=' + (gates[k].ok ? 'PASS' : 'FAIL'));
+    (node) =>
+      ts.isJsxSelfClosingElement(node) &&
+      node.attributes.properties.some(
+        (attr) =>
+          attr.name?.text === 'onChange' &&
+          find(
+            attr,
+            (n) =>
+              ts.isCallExpression(n) &&
+              ts.isIdentifier(n.expression) &&
+              n.expression.text === 'patchAbsoluteFreeLayoutField',
+          ).length > 0,
+      ),
+  );
+  assert.equal(controls.length, 1);
+  const callback = controls[0].attributes.properties
+    .find((attr) => attr.name?.text === 'onChange')
+    .initializer.expression.getText(builder);
+  const editor = harness();
+  clock(editor);
+  editor.selected = editor.specRef.current.blocks[0];
+  editor.viewport = 'desktop';
+  for (const name of [
+    'FREE_LAYOUT_ABSOLUTE_BOUNDS',
+    'clampNumber',
+    'clampAbsoluteFreeLayout',
+    'patchAbsoluteFreeLayoutField',
+  ])
+    editor[name] = evaluate(definition(drag, name), editor);
+  editor.patchBlockFreeLayoutForViewport = evaluate(
+    definition(builder, 'patchBlockFreeLayoutForViewport'),
+    editor,
+  );
+  editor.resolvedSelectedFreeLayout = { x: 0, y: 0, width: 100, height: 100 };
+  editor.key = 'height';
+  evaluate(callback, editor)({ target: { value: '99999' } });
+  assert.equal(editor.specRef.current.blocks[0].freeLayout.height, bounds.maxSize);
+  assert.equal(editor.historyRef.current.length, 1);
+  editor.undo();
+  assert.equal(editor.specRef.current.blocks[0].positionMode, undefined);
+  editor.redo();
+  assert.equal(editor.specRef.current.blocks[0].freeLayout.height, bounds.maxSize);
+  await editor.persist();
+  assert.equal(editor.dirtyRef.current, false);
+  console.log('PASS ADVANCED_POSITION_CLAMPS_BEFORE_UPDATE / UNDO_AUTOSAVE_PATH_INTACT');
 }
-const fail10 = bug10.some((k) => !gates[k].ok);
-const fail11 = bug11.some((k) => !gates[k].ok);
-console.log(fail10 ? 'BUG_10=FAIL' : 'BUG_10=PASS');
-console.log(fail11 ? 'BUG_11=FAIL' : 'BUG_11=PASS');
-process.exit(fail10 || fail11 ? 1 : 0);
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

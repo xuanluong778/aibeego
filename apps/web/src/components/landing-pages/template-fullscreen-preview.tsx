@@ -21,6 +21,8 @@ type Props = {
   onClose: () => void;
   onUseTemplate: () => void;
   using?: boolean;
+  useLabel?: string;
+  actionError?: string | null;
 };
 
 /**
@@ -38,6 +40,8 @@ export function TemplateFullscreenPreview({
   onClose,
   onUseTemplate,
   using = false,
+  useLabel = 'Sử dụng mẫu',
+  actionError,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -69,23 +73,23 @@ export function TemplateFullscreenPreview({
       aria-label={`Xem trước ${title}`}
     >
       <div
-        className="relative z-[200] flex h-11 shrink-0 items-center gap-2 border-b border-white/10 bg-zinc-950 px-2 sm:px-3"
+        className="relative z-[200] flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-white/10 bg-zinc-950 px-2 py-2 sm:h-11 sm:flex-nowrap sm:px-3 sm:py-0"
         data-lp-template-preview-toolbar="1"
       >
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <div className="truncate text-sm font-semibold text-white">{title}</div>
-          {subtitle ? (
-            <div className="truncate text-[11px] text-white/55">{subtitle}</div>
-          ) : null}
+          {subtitle ? <div className="truncate text-[11px] text-white/55">{subtitle}</div> : null}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
           <div
             className="flex h-9 shrink-0 items-center gap-1.5 px-1"
             data-lp-preview-toggle
             data-lp-preview-on="1"
           >
-            <span className="whitespace-nowrap text-[13px] font-medium text-white/90">Xem trước</span>
+            <span className="whitespace-nowrap text-[13px] font-medium text-white/90">
+              Xem trước
+            </span>
             <button
               type="button"
               role="switch"
@@ -114,7 +118,7 @@ export function TemplateFullscreenPreview({
             className="h-9 shrink-0 bg-[#F97316] text-white hover:bg-[#ea6c0c]"
             onClick={onUseTemplate}
           >
-            Sử dụng mẫu
+            {useLabel}
           </Button>
 
           <Button
@@ -128,6 +132,14 @@ export function TemplateFullscreenPreview({
         </div>
       </div>
 
+      {actionError ? (
+        <p
+          role="alert"
+          className="border-b border-red-300/20 bg-red-950 px-3 py-2 text-sm text-red-100"
+        >
+          {actionError}
+        </p>
+      ) : null}
       <div
         className="relative z-0 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white [scrollbar-width:none] [transform:translateZ(0)] [&::-webkit-scrollbar]:hidden"
         data-lp-preview-canvas="1"

@@ -454,7 +454,7 @@ function CheckItem({
       data-lp-trust-icon={index != null ? String(index) : undefined}
       data-lp-box-hit={canvas && blockId != null && index != null ? '1' : undefined}
       className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-      style={{ background: primary }}
+      style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
       aria-hidden
     >
       {glyph}
@@ -544,7 +544,7 @@ function HeroVisual({
           >
             <span
               className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white"
-              style={{ background: primary }}
+              style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
             >
               ▶
             </span>
@@ -636,8 +636,8 @@ function LeadFormCard({
     theme.titleFont === 'serif'
       ? 'Georgia, "Times New Roman", serif'
       : undefined;
-  const inputRadius = 'calc(var(--lp-inner-radius, 8px))';
-  const footerDefault = 'Bảo mật thông tin — không chia sẻ cho bên thứ ba';
+  const inputRadius = theme.inputRadius || 'calc(var(--lp-inner-radius, 8px))';
+  const footerDefault = (block.style as Record<string, unknown> | undefined)?.lpAiGenerated === '1' ? 'Kiểm tra thông tin trước khi gửi yêu cầu.' : 'Bảo mật thông tin — không chia sẻ cho bên thứ ba';
 
   function renderOptionField(f: LandingPageLeadFormBlock['fields'][number]) {
     const layout = f.optionsLayout || (f.fieldType === 'checkbox' ? 'checkboxes' : f.fieldType === 'radio' ? 'buttons' : 'select');
@@ -858,9 +858,12 @@ function LeadFormCard({
                 aria-required={f.required || undefined}
                 className="min-h-[88px] w-full px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-black/5"
                 style={{
-                  borderRadius: inputRadius,
-                  background: inputBg,
-                  border: inputBorder,
+                  borderRadius: theme.inputUnderline ? '0px' : inputRadius,
+                  background: theme.inputUnderline ? 'transparent' : inputBg,
+                  border: theme.inputUnderline ? 'none' : inputBorder,
+                  borderBottom: theme.inputUnderline
+                    ? theme.inputBorderBottom || inputBorder || '1px solid currentColor'
+                    : undefined,
                   color: inputColor,
                 }}
                 rows={3}
@@ -891,9 +894,12 @@ function LeadFormCard({
                 }
                 className="min-h-[48px] w-full px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-black/5"
                 style={{
-                  borderRadius: inputRadius,
-                  background: inputBg,
-                  border: inputBorder,
+                  borderRadius: theme.inputUnderline ? '0px' : inputRadius,
+                  background: theme.inputUnderline ? 'transparent' : inputBg,
+                  border: theme.inputUnderline ? 'none' : inputBorder,
+                  borderBottom: theme.inputUnderline
+                    ? theme.inputBorderBottom || inputBorder || '1px solid currentColor'
+                    : undefined,
                   color: inputColor,
                 }}
               />
@@ -913,7 +919,8 @@ function LeadFormCard({
         style={{
           background: buttonBg,
           color: buttonColor,
-          borderRadius: 'calc(var(--lp-radius) - 2px)',
+          borderRadius: theme.buttonRadius || 'calc(var(--lp-radius) - 2px)',
+          fontFamily: titleFont,
         }}
       >
         <InlineEditable
@@ -973,7 +980,7 @@ function SectionHead({
       data-lp-section-head="1"
       data-lp-align={align}
     >
-      {eyebrow ? (
+      {eyebrow && blockStyle?.lpAiGenerated !== '1' ? (
         <div data-lp-section-eyebrow="1">{eyebrow}</div>
       ) : null}
       {showHeadline ? (
@@ -1057,8 +1064,9 @@ function HeroBlock({
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 4);
+  const aiGenerated = (block.style as Record<string, unknown> | undefined)?.lpAiGenerated === '1';
   const defaultTrust =
-    fromField.length > 0
+    aiGenerated ? fromField : fromField.length > 0
       ? fromField
       : fromBody.length > 0
         ? fromBody
@@ -1154,7 +1162,7 @@ function HeroBlock({
   );
 
   const badge =
-    layout === 'webinar' ? (
+    aiGenerated ? null : layout === 'webinar' ? (
       <span
         className="mb-4 inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide"
         style={{ background: `${primary}18`, color: primary }}
@@ -1680,6 +1688,13 @@ function HeroBlock({
   );
 }
 
+/** Natural card counts: center one, balance two/four, then use three columns. */
+function itemCountGridClass(count: number): string {
+  if (count <= 1) return 'mx-auto w-full max-w-xl grid-cols-1';
+  if (count === 2 || count === 4) return 'grid-cols-1 sm:grid-cols-2';
+  return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+}
+
 function ListCards({
   block,
   primary,
@@ -1697,16 +1712,10 @@ function ListCards({
   const listVariant = resolveListComposition(block.type, block.variant);
   const galleryVariant =
     block.type === 'Gallery' ? canonicalBlockVariant('Gallery', block.variant) : null;
-  const cols =
-    listVariant === 'minimal-list' || listVariant === 'editorial-list' || listVariant === 'numbered'
-      ? 'grid-cols-1'
-      : block.type === 'Benefits' && (layout === 'webinar' || layout === 'lead_gen')
-        ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
-        : isProcess && layout === 'webinar'
-          ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
-          : category === 'agency'
-            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
-            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3';
+  const cols = listVariant === 'minimal-list' || listVariant === 'editorial-list' || listVariant === 'numbered'
+    ? 'grid-cols-1'
+    : itemCountGridClass(block.items.length);
+
 
   // Title / paragraph-only insert (empty items): headline or subheadline as text block.
   if (!block.items.length) {
@@ -1905,7 +1914,7 @@ function ListCards({
                 >
                   <div
                     className="relative z-[1] mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                     aria-hidden
                   >
                     {String(i + 1).padStart(2, '0')}
@@ -1977,7 +1986,7 @@ function ListCards({
             canvas={canvas}
             blockStyle={(block.style || {}) as Record<string, unknown>}
           />
-          <div className="relative grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" data-lp-free-surface="1" data-lp-process-grid="1">
+          <div className={`relative grid gap-6 ${itemCountGridClass(block.items.length)}`} data-lp-free-surface="1" data-lp-process-grid="1" data-lp-item-count={block.items.length}>
             <div
               className="pointer-events-none absolute left-0 right-0 top-8 hidden h-0.5 lg:block"
               style={{ background: `${primary}33` }}
@@ -1999,7 +2008,7 @@ function ListCards({
                 >
                   <div
                     className="relative z-[1] mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full text-sm font-bold text-white lg:mx-0"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                   >
                     {String(i + 1).padStart(2, '0')}
                   </div>
@@ -2125,7 +2134,7 @@ function ListCards({
                   : `relative grid gap-3 md:gap-4 ${cols}`
           }
           data-lp-free-surface="1"
-          data-lp-cards-grid="1"
+          data-lp-cards-grid="1" data-lp-item-count={block.items.length}
         >
           {(galleryVariant === 'featured-plus-grid' ? block.items.slice(1) : block.items).map((item, mapIdx) => {
             const i = galleryVariant === 'featured-plus-grid' ? mapIdx + 1 : mapIdx;
@@ -2138,7 +2147,7 @@ function ListCards({
                 {numbered ? (
                   <div
                     className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-extrabold text-white"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                   >
                     {i + 1}
                   </div>
@@ -2373,6 +2382,12 @@ function BlockView({
             data-lp-header-inner="1"
             data-lp-container-inner="1"
           >
+            <div className="flex min-w-0 items-center gap-3">
+              {block.imageUrl ? (
+                <ElementChrome blockId={block.id} element="image" handlers={canvas} kind="image" blockStyle={(block.style || {}) as Record<string, unknown>}>
+                  <LpContentImage src={block.imageUrl} alt={block.headline || ''} width={120} height={36} className="h-9 w-auto max-w-[120px] object-contain" />
+                </ElementChrome>
+              ) : null}
             <InlineEditable
                 as="div"
                 blockId={block.id}
@@ -2383,6 +2398,7 @@ function BlockView({
                 className={minimal ? 'text-xs font-bold tracking-wide uppercase' : 'text-sm font-extrabold'}
                 style={{ color: 'var(--lp-secondary)' }}
               />
+            </div>
             {links.length && !minimal ? (
               <nav className="hidden flex-wrap gap-4 text-xs font-medium md:flex" style={{ color: 'var(--lp-muted)' }} aria-label="Primary">
                 {links.map((l) => (
@@ -2400,13 +2416,13 @@ function BlockView({
                   handlers={canvas}
                   blockStyle={(block.style || {}) as Record<string, unknown>}
                   className="inline-flex min-h-[40px] items-center px-4 py-2 text-xs font-bold text-white"
-                  style={{ background: primary, borderRadius: 'calc(var(--lp-radius) - 2px)' }}
+                  style={{ background: primary, color: 'var(--lp-on-primary, #fff)', borderRadius: 'calc(var(--lp-radius) - 2px)' }}
                 />
               ) : (
                 <a
                   href={block.ctaUrl || '#lead-form'}
                   className="inline-flex min-h-[40px] items-center px-4 py-2 text-xs font-bold text-white"
-                  style={{ background: primary, borderRadius: 'calc(var(--lp-radius) - 2px)' }}
+                  style={{ background: primary, color: 'var(--lp-on-primary, #fff)', borderRadius: 'calc(var(--lp-radius) - 2px)' }}
                 >
                   <InlineEditable
                     as="span"
@@ -2473,7 +2489,7 @@ function BlockView({
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
             />
-            <div className="relative grid grid-cols-1 gap-5 md:grid-cols-2" data-lp-free-surface="1" data-lp-cards-grid="1">
+            <div className="relative grid grid-cols-1 gap-5 md:grid-cols-2" data-lp-free-surface="1" data-lp-cards-grid="1" data-lp-item-count={block.items.length}>
               {speakers.map((item) => {
                 const index = list.items.findIndex((row) => row.id === item.id);
                 const itemChrome = itemBoxDomProps(block, item.id);
@@ -2523,7 +2539,7 @@ function BlockView({
                   ) : (
                     <div
                       className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full text-3xl text-white"
-                      style={{ background: primary }}
+                      style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                       aria-hidden
                     >
                       👤
@@ -2806,7 +2822,7 @@ function BlockView({
       const ctaVariant = canonicalBlockVariant('CTA', block.variant);
       const ctaBandStyle: CSSProperties = {
         background:
-          ctaVariant === 'image-background' &&
+          (block.style as Record<string, unknown> | undefined)?.lpAiGenerated === '1' ? '#0F172A' : ctaVariant === 'image-background' &&
           (block as { imageUrl?: string | null }).imageUrl
             ? `linear-gradient(120deg, rgba(0,0,0,0.55), rgba(0,0,0,0.35)), url(${(block as { imageUrl?: string | null }).imageUrl}) center/cover`
             : ctaVariant === 'minimal'
@@ -3024,7 +3040,7 @@ function BlockView({
     case 'Footer':
       {
         const footerVariant = canonicalBlockVariant('Footer', block.variant);
-        const columns = footerVariant === 'columns';
+        const columns = footerVariant === 'columns' && (block.style as Record<string, unknown> | undefined)?.lpAiGenerated !== '1';
         return (
         <footer
           className={`${spacingClass(block.spacing)} border-t border-black/5 px-4 sm:px-6`}
@@ -3197,17 +3213,17 @@ function BlockView({
                                   style={{
                                     borderRadius: 'calc(var(--lp-radius) - 2px)',
                                     background: primary,
-                                    color: '#fff',
+                                    color: 'var(--lp-on-primary, #fff)',
                                   }}
                                 />
                               ) : (
                                 <a
-                                  href="#lead-form"
+                                  href={plan.ctaUrl || '#lead-form'}
                                   className="inline-block px-3 py-2 text-sm font-bold"
                                   style={{
                                     borderRadius: 'calc(var(--lp-radius) - 2px)',
                                     background: primary,
-                                    color: '#fff',
+                                    color: 'var(--lp-on-primary, #fff)',
                                   }}
                                 >
                                   <InlineEditable
@@ -3307,7 +3323,7 @@ function BlockView({
                           />
                         ) : (
                           <a
-                            href="#lead-form"
+                            href={plan.ctaUrl || '#lead-form'}
                             className="mt-4 inline-block text-sm font-bold"
                             style={{ color: primary }}
                           >
@@ -3364,7 +3380,7 @@ function BlockView({
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
             />
-            <div className="relative grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3" data-lp-free-surface="1" data-lp-pricing-grid="1">
+            <div className={`relative grid gap-5 ${itemCountGridClass(block.plans.length)}`} data-lp-free-surface="1" data-lp-pricing-grid="1" data-lp-item-count={block.plans.length}>
               {block.plans.map((plan, planIndex) => {
                 const planCard = (
                   <div
@@ -3373,7 +3389,7 @@ function BlockView({
                     data-lp-featured={plan.highlighted ? '1' : undefined}
                     style={{
                       background: plan.highlighted ? primary : 'var(--lp-surface)',
-                      color: plan.highlighted ? '#fff' : 'var(--lp-text)',
+                      color: plan.highlighted ? 'var(--lp-on-primary, #fff)' : 'var(--lp-text)',
                     }}
                   >
                   <div className="text-lg font-bold break-words">
@@ -3424,18 +3440,18 @@ function BlockView({
                         className="mt-6 block w-full max-w-full px-4 py-2.5 text-center text-sm font-bold break-words"
                         style={{
                           borderRadius: 'calc(var(--lp-radius) - 2px)',
-                          background: plan.highlighted ? '#fff' : primary,
-                          color: plan.highlighted ? primary : '#fff',
+                          background: plan.highlighted ? 'var(--lp-on-primary, #fff)' : primary,
+                          color: plan.highlighted ? primary : 'var(--lp-on-primary, #fff)',
                         }}
                       />
                     ) : (
                       <a
-                        href="#lead-form"
+                        href={plan.ctaUrl || '#lead-form'}
                         className="mt-6 block w-full max-w-full px-4 py-2.5 text-center text-sm font-bold break-words"
                         style={{
                           borderRadius: 'calc(var(--lp-radius) - 2px)',
-                          background: plan.highlighted ? '#fff' : primary,
-                          color: plan.highlighted ? primary : '#fff',
+                          background: plan.highlighted ? 'var(--lp-on-primary, #fff)' : primary,
+                          color: plan.highlighted ? primary : 'var(--lp-on-primary, #fff)',
                         }}
                       >
                         <InlineEditable
@@ -3520,7 +3536,7 @@ function BlockView({
                 ) : (
                   <span
                     className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                     data-lp-avatar="1"
                   >
                     {(t.author || t.role || '?').slice(0, 1)}
@@ -3782,7 +3798,7 @@ function BlockView({
                   <div className="absolute inset-0 flex items-center justify-center bg-black/25">
                     <span
                       className="inline-flex h-16 w-16 items-center justify-center rounded-full text-2xl text-white shadow-lg"
-                      style={{ background: primary }}
+                      style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                       aria-hidden
                     >
                       ▶
@@ -3812,7 +3828,7 @@ function BlockView({
               >
                 <span
                   className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                  style={{ background: primary }}
+                  style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
                   aria-hidden
                 >
                   ✓
@@ -4344,6 +4360,7 @@ export function LandingPageRenderer({
         >
         <article
           data-lp-canvas-root="1"
+          data-lp-ai-generated={spec.meta?.aiGenerationId ? "1" : undefined}
           data-lp-imported={htmlDocument ? '1' : undefined}
           data-lp-density={tokens.density || 'comfortable'}
           data-lp-btn-style={tokens.buttonStyle || 'solid'}

@@ -1,9 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
   OnModuleInit,
 } from '@nestjs/common';
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs';
@@ -30,6 +33,9 @@ import {
   landingPageDoctorReportSchema,
   landingPageUrlSummaryToBriefNotes,
   selectLandingPageTemplate,
+  mergeLandingPageAiBrief,
+  normalizeLandingPageBriefSuggestInput,
+  protectLandingPageAiUserContent,
   type LandingPageDoctorReport,
   type LandingPageUrlSummary,
   CREDIT_FEATURE_CODES,
@@ -52,6 +58,8 @@ import {
   type LandingPageTheme as SharedTheme,
 } from '@marketingspa/shared';
 import { randomBytes, randomUUID } from 'crypto';
+import type Redis from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { RateLimitService } from '../common/services/rate-limit.service';
 import { LeadsService } from '../leads/leads.service';
@@ -71,6 +79,7 @@ import type {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
+  SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
   InlineAiSuggestFieldDto,
@@ -88,10 +97,12 @@ import type {
 } from './dto/landing-pages.dto';
 import {
   decideLandingPageAutosave,
+  readLandingPageRequestHash,
   publishRevisionAllowed,
   readLandingPageRequestId,
   readLandingPageRevision,
 } from './landing-page-revision';
+import { hashLandingPageAutosaveRequest, landingPageAutosaveContentKey } from './landing-page-autosave-receipt';
 import {
   isValidLandingCustomDomain,
   landingPageCnameTarget,
@@ -122,6 +133,8 @@ export class LandingPagesService implements OnModuleInit {
   private readonly logger = new Logger(LandingPagesService.name);
   private readonly createIdem = new Map<string, IdemEntry<ReturnType<LandingPagesService['serializePage']>>>();
   private readonly generateIdem = new Map<string, IdemEntry<unknown>>();
+  /** Retain provider output even when saving conflicts with a concurrent edit. */
+  private readonly generateContentIdem = new Map<string, IdemEntry<Awaited<ReturnType<LandingPageAiService['generate']>>>>();
   private readonly doctorApplyIdem = new Map<string, IdemEntry<unknown>>();
   /** Org-scoped crawl cache: key = orgId:urlHash → summary + expiry */
   private readonly urlCrawlCache = new Map<
@@ -137,6 +150,7 @@ export class LandingPagesService implements OnModuleInit {
     private readonly automation: AutomationEngineService,
     private readonly ai: LandingPageAiService,
     private readonly credit: CreditService,
+    @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
   private purgeIdemMap(map: Map<string, IdemEntry<unknown>>) {
@@ -164,7 +178,9 @@ export class LandingPagesService implements OnModuleInit {
       if (existing.promise) return existing.promise;
     }
     const entry: IdemEntry<T> = { expiresAt: Date.now() + IDEMPOTENCY_TTL_MS };
-    const promise = factory()
+    const promise = (this.redis && /^(?:lp:generate:|lp:create:|lp:brief-suggest:)/.test(cacheKey)
+      ? this.withSharedAiIdempotency(cacheKey, factory)
+      : factory())
       .then((value) => {
         entry.value = value;
         entry.promise = undefined;
@@ -178,6 +194,32 @@ export class LandingPagesService implements OnModuleInit {
     entry.promise = promise;
     map.set(cacheKey, entry);
     return promise;
+  }
+
+  private async withSharedAiIdempotency<T>(key: string, factory: () => Promise<T>): Promise<T> {
+    const redis = this.redis!;
+    if (redis.status !== 'ready') throw new ServiceUnavailableException('Hệ thống đang kết nối lại. Vui lòng thử lại với yêu cầu hiện tại.');
+    const lock = `${key}:lock`;
+    const resultKey = `${key}:result`;
+    const token = randomUUID();
+    const deadline = Date.now() + 100_000;
+    while (Date.now() < deadline) {
+      const cached = await redis.get(resultKey);
+      if (cached) return JSON.parse(cached) as T;
+      if (await redis.set(lock, token, 'PX', 180_000, 'NX')) {
+        try {
+          const completed = await redis.get(resultKey);
+          if (completed) return JSON.parse(completed) as T;
+          const value = await factory();
+          await redis.set(resultKey, JSON.stringify(value), 'PX', IDEMPOTENCY_TTL_MS);
+          return value;
+        } finally {
+          await redis.eval("if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end", 1, lock, token);
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    throw new ConflictException('Yêu cầu này vẫn đang xử lý. Vui lòng thử lại, hệ thống sẽ dùng lại kết quả hiện tại.');
   }
 
   async onModuleInit() {
@@ -726,6 +768,22 @@ export class LandingPagesService implements OnModuleInit {
         spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.parseSpec(source)));
       }
 
+      if (dto.draftSpec) {
+        if (dto.templateId || dto.templateSlug) throw new BadRequestException('Chỉ chọn một nguồn bản nháp.');
+        const candidate = sanitizeLandingPageSpec(dto.draftSpec);
+        const validation = validateLandingPageSpec(candidate);
+        if (!validation.ok) throw new BadRequestException({ code: 'INVALID_SPEC', message: validation.errors.join('; ') });
+        if (candidate.meta?.aiGenerationId) {
+          const existing = await this.prisma.landingPage.findFirst({ where: {
+            organizationId: user.organizationId, createdById: user.id,
+            draftSpec: { path: ['meta', 'aiGenerationId'], equals: candidate.meta.aiGenerationId },
+          } });
+          if (existing) return this.serializePage(existing);
+        }
+        spec = candidate;
+        theme = THEME_MAP[spec.theme] || LandingPageTheme.MODERN;
+      }
+
       const seo = spec.seo;
       const insert = (slug: string) =>
         this.prisma.landingPage.create({
@@ -830,6 +888,16 @@ export class LandingPagesService implements OnModuleInit {
 
     // Sanitize outside the row lock — large specs were exceeding Prisma interactive tx timeout (5s).
     const sanitizedIncoming = sanitizeLandingPageSpec(dto.draftSpec);
+    const requestHash = dto.requestId
+      ? hashLandingPageAutosaveRequest({
+          // Sanitizers may allocate IDs for legacy input. The submitted payload
+          // must retain the same receipt even when that normalization runs again.
+          draftSpec: dto.draftSpec,
+          name: dto.name?.trim().slice(0, 120),
+          baseRevision,
+          clientRevision: incomingRevision,
+        })
+      : null;
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${row.id} FOR UPDATE`;
@@ -841,14 +909,21 @@ export class LandingPagesService implements OnModuleInit {
         baseRevision,
         incomingRevision,
         requestId: dto.requestId ?? null,
+        storedRequestHash: readLandingPageRequestHash(fresh.draftSpec),
+        requestHash,
       });
-      if (decision.action === 'reject') {
+      const differentUnchangedDraft = decision.action === 'unchanged' && (
+        landingPageAutosaveContentKey(sanitizedIncoming) !==
+          landingPageAutosaveContentKey(sanitizeLandingPageSpec(fresh.draftSpec)) ||
+        (dto.name !== undefined && dto.name.trim().slice(0, 120) !== fresh.name)
+      );
+      if (decision.action === 'reject' || differentUnchangedDraft) {
         return {
           id: fresh.id,
           updatedAt: fresh.updatedAt,
           rejected: true as const,
           reason: 'STALE_REVISION' as const,
-          clientRevision: decision.storedRevision,
+          clientRevision: readLandingPageRevision(fresh.draftSpec),
           requestId: dto.requestId ?? null,
         };
       }
@@ -865,7 +940,11 @@ export class LandingPagesService implements OnModuleInit {
       sanitized.meta = {
         ...(sanitized.meta || {}),
         clientRevision: decision.nextRevision,
-        ...(dto.requestId ? { lastAutosaveRequestId: dto.requestId.slice(0, 64) } : {}),
+        ...(dto.requestId ? {
+          lastAutosaveRequestId: dto.requestId.slice(0, 64),
+          // Server-only receipt; shared spec sanitization does not trust/copy it.
+          lastAutosaveRequestHash: requestHash,
+        } : {}),
       };
       const updated = await tx.landingPage.update({
         where: { id: fresh.id },
@@ -1075,6 +1154,25 @@ export class LandingPagesService implements OnModuleInit {
       },
     });
     return this.serializePage(updated);
+  }
+
+  async delete(user: AuthUser, id: string) {
+    const row = await this.assertPage(user.organizationId, id);
+    await this.prisma.landingPage.delete({
+      where: { id: row.id },
+    });
+    return { success: true, id: row.id };
+  }
+
+  async bulkDelete(user: AuthUser, ids: string[]) {
+    if (!Array.isArray(ids) || !ids.length) return { success: true, deletedCount: 0 };
+    const res = await this.prisma.landingPage.deleteMany({
+      where: {
+        organizationId: user.organizationId,
+        id: { in: ids },
+      },
+    });
+    return { success: true, deletedCount: res.count };
   }
 
   async listDomains(organizationId: string) {
@@ -1968,163 +2066,75 @@ export class LandingPagesService implements OnModuleInit {
     };
   }
 
+  async suggestAiBrief(user: AuthUser, dto: SuggestLandingPageBriefDto) {
+    const input = normalizeLandingPageBriefSuggestInput(dto);
+    if (!input.productService && !input.businessType) throw new BadRequestException('Nhập ngành hoặc sản phẩm / dịch vụ trước khi lấy gợi ý.');
+    const key = this.normalizeIdemKey(dto.idempotencyKey);
+    if (!key) throw new BadRequestException('Thiếu mã yêu cầu. Vui lòng thử lại.');
+    return this.withIdempotency(this.generateIdem, `lp:brief-suggest:${user.organizationId}:${user.id}:${input.field}:${key}`, async () => {
+      this.rateLimit.assertWithinLimit(`lp:brief-suggest:u:${user.organizationId}:${user.id}`, 12, 60_000, 'Bạn đang lấy gợi ý quá nhanh. Vui lòng thử lại sau một phút.');
+      this.rateLimit.assertWithinLimit(`lp:brief-suggest:o:${user.organizationId}`, 60, 60_000, 'Hệ thống đang xử lý nhiều gợi ý. Vui lòng thử lại sau.');
+      return this.ai.suggestBriefField(input);
+    });
+  }
+
   async generateAi(user: AuthUser, dto: GenerateLandingPageAiDto) {
     const idemKey = this.normalizeIdemKey(dto.idempotencyKey);
-    const cacheKey = idemKey
-      ? `lp:generate:${user.organizationId}:${idemKey}:${dto.landingPageId || 'none'}`
-      : null;
-
+    const cacheKey = idemKey ? `lp:generate:${user.organizationId}:${idemKey}:${dto.landingPageId || 'none'}` : null;
     return this.withIdempotency(this.generateIdem, cacheKey, async () => {
-      let productService = dto.productService.trim();
-      let targetCustomer = dto.targetCustomer.trim();
-      let uspBenefits = (dto.uspBenefits ?? '').trim();
-      let extraNotes = (dto.extraNotes ?? '').trim();
-      let brandName = (dto.brandName ?? '').trim();
-      let sourceUrl = (dto.sourceUrl ?? '').trim();
-      let urlWarning: string | undefined;
-      let profileWarning: string | undefined;
-
-      if (dto.useBusinessProfile) {
-        const profile = await this.getBusinessProfile(user.organizationId);
-        if (!profile.isEmpty) {
-          const fromProfile = businessProfileToAiBrief(profile as BusinessProfileData, {
-            productService: productService || undefined,
-            brandName: brandName || undefined,
-            targetCustomer: targetCustomer || undefined,
-            pageGoal: (dto.pageGoal as 'lead' | 'sales' | 'signup' | 'consult' | 'event') || 'lead',
-            extraNotes: extraNotes || undefined,
-          });
-          productService = fromProfile.productService;
-          brandName = fromProfile.brandName || brandName;
-          targetCustomer = fromProfile.targetCustomer;
-          uspBenefits = uspBenefits || fromProfile.uspBenefits;
-          extraNotes = fromProfile.extraNotes;
-          sourceUrl = sourceUrl || fromProfile.sourceUrl;
-        } else {
-          profileWarning = 'Business Profile trống — AI chạy với form hiện tại';
-        }
+      // Check ownership and snapshot BEFORE an AI call; save only if the draft is unchanged.
+      const original = dto.landingPageId ? await this.assertPage(user.organizationId, dto.landingPageId) : null;
+      if (original) this.assertMutable(original.status);
+      let profile: BusinessProfileData | null = null;
+      let summary: LandingPageUrlSummary | null = null;
+      const warnings: string[] = [];
+      if (dto.useBusinessProfile && !dto.sourceReviewed) {
+        const current = await this.getBusinessProfile(user.organizationId);
+        if (!current.isEmpty) profile = current as BusinessProfileData;
       }
-
-      if (sourceUrl) {
+      if (dto.sourceUrl?.trim() && !dto.sourceReviewed) {
         try {
-          const { fetchPublicHtmlSafe } = await import('@marketingspa/shared/dist/ssrf-fetch');
-          const fetched = await fetchPublicHtmlSafe(sourceUrl, {
-            timeoutMs: 12000,
-            maxBytes: 1_000_000,
-            skipCommerceHostBlock: true,
-            includeHtml: true,
-          });
-          const summary = extractLandingPageUrlSummary({
-            sourceUrl,
-            finalUrl: fetched.finalUrl,
-            title: fetched.title,
-            text: fetched.text,
-            html: fetched.html,
-          });
-          const notes = landingPageUrlSummaryToBriefNotes(summary);
-          extraNotes = [extraNotes, notes].filter(Boolean).join('\n\n').slice(0, 1200);
-          if (!productService) productService = (summary.productService || fetched.title).slice(0, 200);
-          if (!brandName) brandName = (summary.brand || '').slice(0, 120);
-          if (!uspBenefits) uspBenefits = (summary.usp || fetched.text).slice(0, 400);
-        } catch (err) {
-          urlWarning = `Không đọc được URL (${err instanceof Error ? err.message : 'lỗi'}) — tiếp tục với form thủ công`;
-          this.logger.warn(`LP URL enrich failed: ${String(err)}`);
+          // Reuse the same SSRF-safe crawl and cache as the URL review flow.
+          const crawled = await this.crawlPublicUrl(user, { url: dto.sourceUrl.trim() });
+          summary = crawled.summary;
+        } catch {
+          warnings.push('Không đọc được website tham khảo. Bản nháp sử dụng thông tin trong biểu mẫu.');
         }
       }
-
-      if (!targetCustomer) {
-        throw new BadRequestException('targetCustomer is required');
+      const brief = mergeLandingPageAiBrief(dto, profile, summary);
+      // External media from URL/profile input must pass the existing public-URL validator.
+      const { assertPublicHttpUrl } = await import('@marketingspa/shared/dist/ssrf-fetch');
+      for (const field of ['imageUrl', 'logoUrl'] as const) {
+        if (!brief[field] || brief[field].startsWith('/')) continue;
+        try { await assertPublicHttpUrl(brief[field], { skipCommerceHostBlock: true }); }
+        catch { brief[field] = ''; warnings.push(field === 'imageUrl' ? 'Ảnh tham khảo không hợp lệ; bản nháp dùng bố cục không ảnh.' : 'Logo tham khảo không hợp lệ và đã được bỏ qua.'); }
       }
-      if (!productService) {
-        throw new BadRequestException('productService is required');
-      }
-
-      const pageGoal =
-        (dto.pageGoal as 'lead' | 'sales' | 'signup' | 'consult' | 'event') || 'lead';
-
-      // AI picks an existing catalog template — never invents per-page source.
       const templateSelection = selectLandingPageTemplate({
-        businessType: dto.businessType,
-        pageGoal,
-        offer: dto.offer,
-        audience: targetCustomer,
-        productService,
-        templateSlug: dto.templateSlug,
+        businessType: brief.businessType, pageGoal: brief.pageGoal, offer: brief.offer,
+        audience: brief.targetCustomer, productService: brief.productService, templateSlug: dto.templateSlug,
       });
-
-      const result = await this.ai.generate({
-        productService,
-        brandName,
-        price: dto.price ?? '',
-        targetCustomer,
-        uspBenefits,
-        pageGoal,
-        extraNotes,
-        sourceUrl,
-        businessType: dto.businessType ?? '',
-        painPoint: dto.painPoint ?? '',
-        offer: dto.offer ?? '',
-        tone: (dto.tone as 'professional' | 'bold' | 'friendly') || 'professional',
-      });
-
+      const result = await this.withIdempotency(
+        this.generateContentIdem,
+        cacheKey ? `${cacheKey}:content` : null,
+        () => this.ai.generate(brief, templateSelection),
+      );
+      let draftSpec = result.draftSpec;
       let page: ReturnType<LandingPagesService['serializePage']> | null = null;
-      if (dto.landingPageId) {
-        const row = await this.assertPage(user.organizationId, dto.landingPageId);
-        this.assertMutable(row.status);
-        const existingSpec = this.parseSpec(row.draftSpec);
-        const layout = existingSpec.meta?.layout;
-        const needsTemplateSeed =
-          !layout ||
-          layout === 'classic' ||
-          existingSpec.blocks.filter((b) => b.enabled).length < 4;
-
-        // Seed shared template schema when page is empty/classic; preserve custom layouts.
-        let baseSpec = existingSpec;
-        if (needsTemplateSeed) {
-          const def = LANDING_PAGE_SYSTEM_TEMPLATES.find(
-            (t) => t.slug === templateSelection.templateSlug,
-          );
-          if (def?.spec) {
-            baseSpec = sanitizeLandingPageSpec(
-              structuredClone(def.spec) as LandingPageSpec,
-            );
-          }
-        }
-
-        let nextSpec = this.ai.applyToSpec(baseSpec, result.copy);
-        nextSpec = preserveUserEditedFields(
-          needsTemplateSeed ? baseSpec : existingSpec,
-          markLandingPageAiSources(nextSpec),
-        );
-        if (dto.useBusinessProfile) {
-          const profile = await this.getBusinessProfile(user.organizationId);
-          if (!profile.isEmpty) {
-            nextSpec = applyBusinessProfileToSpec(nextSpec, profile as BusinessProfileData, {
-              force: false,
-              pageGoal,
-            });
-          }
-        }
-        const theme = THEME_MAP[nextSpec.theme] ?? row.theme;
-        const nextName =
-          brandName ||
-          (row.name.startsWith('Landing Page') ? productService.slice(0, 120) : undefined);
-        const updated = await this.prisma.landingPage.update({
-          where: { id: row.id },
-          data: {
-            draftSpec: nextSpec as unknown as Prisma.InputJsonValue,
-            theme,
-            ...(nextName ? { name: nextName } : {}),
-            seoTitle: nextSpec.seo.title.slice(0, 200),
-            seoDescription: nextSpec.seo.metaDescription.slice(0, 500),
-          },
+      if (original) {
+        const existingSpec = this.parseSpec(original.draftSpec);
+        draftSpec = protectLandingPageAiUserContent(existingSpec, draftSpec);
+        const validation = validateLandingPageSpec(draftSpec);
+        if (!validation.ok) throw new BadRequestException({ code: 'INVALID_SPEC', message: validation.errors.join('; ') });
+        const saved = await this.prisma.landingPage.updateMany({
+          where: { id: original.id, organizationId: user.organizationId, updatedAt: original.updatedAt, status: original.status },
+          data: { draftSpec: draftSpec as unknown as Prisma.InputJsonValue, theme: THEME_MAP[draftSpec.theme],
+            seoTitle: draftSpec.seo.title, seoDescription: draftSpec.seo.metaDescription },
         });
-        page = this.serializePage(updated);
+        if (saved.count !== 1) throw new ConflictException('Trang đã thay đổi trong khi AI xử lý. Nội dung mới của bạn được giữ nguyên; hãy tải lại trước khi thử lại.');
+        page = this.serializePage(await this.assertPage(user.organizationId, original.id));
       }
-
-      const warning =
-        [profileWarning, urlWarning, result.warning].filter(Boolean).join(' · ') || undefined;
-      return { ...result, warning, page, templateSelection };
+      const warning = [...warnings, result.warning].filter(Boolean).join(' · ') || undefined;
+      return { ...result, draftSpec, warning, page, templateSelection, normalizedBrief: brief };
     });
   }
 

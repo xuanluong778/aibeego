@@ -1,9 +1,5 @@
-/**
- * Deep landing-page copy helpers — distinct per-block text, no fake social proof.
- */
-
+/** Buyer-facing fallback copy. Only the brief supplies commercial facts. */
 export type DetailPair = { title: string; description: string };
-
 export type DepthBriefInput = {
   productService: string;
   brandName?: string;
@@ -16,233 +12,231 @@ export type DepthBriefInput = {
   painPoint?: string;
   offer?: string;
   tone?: 'professional' | 'bold' | 'friendly';
+  ctaLabel?: string;
+  guarantee?: string;
 };
 
-const GOAL_LABELS: Record<string, string> = {
-  lead: 'Thu lead',
-  sales: 'Bán hàng',
-  signup: 'Đăng ký',
-  consult: 'Tư vấn',
-  event: 'Sự kiện',
-};
-
-/** Split USP / notes into distinct non-empty chunks. */
-export function splitCopyChunks(text: string, min = 3, max = 6): string[] {
-  const parts = String(text || '')
-    .split(/[.;\n|/•]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 8);
-  const out = parts.slice(0, max);
-  while (out.length < min) {
-    out.push(`Giá trị ${out.length + 1}: rõ ràng, đo được, phù hợp mục tiêu.`);
-  }
-  return out;
+export function splitCopyChunks(text: string, _min = 0, max = 6): string[] {
+  return [
+    ...new Set(
+      String(text || '')
+        .split(/[;\n|•]+|\.\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 4),
+    ),
+  ].slice(0, max);
 }
-
 export function deepenBenefitPairs(
   titles: string[],
   details: string[] | undefined,
-  painPoints: string[],
-  audience: string,
+  _pain: string[],
+  _audience: string,
   usp: string,
 ): DetailPair[] {
-  const chunks = details?.length
-    ? details
-    : splitCopyChunks(usp, Math.max(titles.length, 3), titles.length + 2);
-  return titles.slice(0, 8).map((title, i) => {
-    const pain = painPoints[i];
-    const detail = chunks[i] || chunks[0] || usp;
-    const description = pain
-      ? `Giải quyết: ${pain.replace(/\.$/, '')}. ${detail}`.slice(0, 280)
-      : `Dành cho ${audience}: ${detail}`.slice(0, 280);
-    return { title: title.slice(0, 120), description };
-  });
+  return titles
+    .slice(0, 8)
+    .map((title, i) => ({
+      title: title.slice(0, 120),
+      description: (details?.[i] || (i === 0 ? usp : '')).slice(0, 280),
+    }));
 }
-
 export function deepenFeaturePairs(
   titles: string[],
   details: string[] | undefined,
-  usp: string,
-  offer: string,
+  _usp: string,
+  _offer: string,
 ): DetailPair[] {
-  const chunks = details?.length
-    ? details
-    : splitCopyChunks(usp, Math.max(titles.length, 3), titles.length + 2);
-  return titles.slice(0, 8).map((title, i) => ({
-    title: title.slice(0, 120),
-    description: (chunks[i] || (offer ? `Điểm khác biệt gắn với offer: ${offer}` : usp)).slice(
-      0,
-      280,
-    ),
-  }));
+  return titles
+    .slice(0, 8)
+    .map((title, i) => ({
+      title: title.slice(0, 120),
+      description: (details?.[i] || '').slice(0, 280),
+    }));
+}
+export function deepenProcessPairs(
+  _titles: string[],
+  steps: DetailPair[] | undefined,
+  _features: string[],
+  _goal: string,
+  _audience: string,
+): DetailPair[] {
+  return (
+    steps?.length
+      ? steps
+      : [
+          {
+            title: 'Chia sẻ nhu cầu',
+            description: 'Cho biết điều bạn đang quan tâm và cách liên hệ phù hợp.',
+          },
+          {
+            title: 'Trao đổi phương án',
+            description: 'Làm rõ phạm vi, chi phí và các thông tin cần thiết trước khi quyết định.',
+          },
+          {
+            title: 'Xác nhận bước tiếp theo',
+            description: 'Chọn phương án phù hợp sau khi đã nắm rõ thông tin.',
+          },
+        ]
+  )
+    .slice(0, 6)
+    .map((s) => ({ title: s.title.slice(0, 120), description: s.description.slice(0, 280) }));
 }
 
-export function deepenProcessPairs(
-  existingTitles: string[],
-  steps: DetailPair[] | undefined,
-  featureTitles: string[],
-  goal: string,
-  audience: string,
-): DetailPair[] {
-  if (steps?.length) {
-    return steps.slice(0, 6).map((s) => ({
-      title: s.title.slice(0, 120),
-      description: s.description.slice(0, 280),
-    }));
-  }
-  const titles =
-    existingTitles.length >= 2
-      ? existingTitles
-      : featureTitles.length
-        ? featureTitles.slice(0, 4)
-        : ['Đăng ký', 'Tư vấn', 'Triển khai', 'Đo kết quả'];
-  const goalLabel = (GOAL_LABELS[goal] || goal || 'chuyển đổi').toLowerCase();
-  return titles.slice(0, 5).map((title, i) => ({
-    title: title.slice(0, 120),
-    description: [
-      `Bước ${i + 1} giúp ${audience} tiến tới mục tiêu ${goalLabel} — rõ đầu vào, rõ đầu ra.`,
-      `Thực hiện nhanh, có checklist — tránh lãng phí thời gian của ${audience}.`,
-      `Chốt kết quả đo được trước khi chuyển bước tiếp theo.`,
-      `Bàn giao / follow-up để giữ momentum sau khi hoàn tất.`,
-    ][i % 4]!.slice(0, 280),
-  }));
-}
+const TOPICS: Array<{
+  test: RegExp;
+  topics: [string, string, string, string];
+  details: [string, string, string, string];
+}> = [
+  {
+    test: /spa|clinic|phòng khám|chăm sóc|nha khoa|skincare|thẩm mỹ/,
+    topics: [
+      'Nhu cầu của bạn',
+      'Tìm hiểu dịch vụ',
+      'Lựa chọn phù hợp',
+      'Trao đổi trước khi đặt lịch',
+    ],
+    details: [
+      'Chia sẻ tình trạng và điều bạn mong muốn cải thiện.',
+      'Tìm hiểu nội dung dịch vụ và những điều cần chuẩn bị.',
+      'Trao đổi về lựa chọn phù hợp với nhu cầu cá nhân.',
+      'Hỏi rõ chi phí và lịch hẹn trước khi xác nhận.',
+    ],
+  },
+  {
+    test: /saas|software|phần mềm|crm|platform/,
+    topics: [
+      'Nhu cầu của đội ngũ',
+      'Chức năng cần dùng',
+      'Phương án triển khai',
+      'Chi phí sử dụng',
+    ],
+    details: [
+      'Xác định công việc và quy mô đội ngũ cần hỗ trợ.',
+      'Trao đổi về các chức năng bạn cần cho công việc hằng ngày.',
+      'Tìm hiểu cách bắt đầu phù hợp với hệ thống đang sử dụng.',
+      'Làm rõ phạm vi sử dụng trước khi lựa chọn phương án.',
+    ],
+  },
+  {
+    test: /course|khóa học|đào tạo|coaching|học/,
+    topics: ['Mục tiêu học tập', 'Nội dung quan tâm', 'Hình thức tham gia', 'Thông tin đăng ký'],
+    details: [
+      'Chia sẻ kiến thức hiện có và mục tiêu bạn muốn hướng đến.',
+      'Tìm hiểu nội dung phù hợp với mục tiêu của bạn.',
+      'Trao đổi về lịch và hình thức học trước khi đăng ký.',
+      'Kiểm tra học phí và các điều kiện tham gia.',
+    ],
+  },
+  {
+    test: /restaurant|nhà hàng|ẩm thực|cafe|quán ăn/,
+    topics: ['Dịp gặp gỡ', 'Món ăn quan tâm', 'Số lượng khách', 'Thông tin đặt bàn'],
+    details: [
+      'Chia sẻ dịp dùng bữa và không gian bạn đang tìm kiếm.',
+      'Trao đổi về thực đơn và các yêu cầu ăn uống riêng.',
+      'Cho biết số người dự kiến để tìm phương án phù hợp.',
+      'Xác nhận thời gian và chi phí trước khi đặt bàn.',
+    ],
+  },
+  {
+    test: /real_estate|bất động sản|căn hộ|nhà đất/,
+    topics: ['Nhu cầu tìm kiếm', 'Thông tin dự án', 'Ngân sách dự kiến', 'Lịch trao đổi'],
+    details: [
+      'Xác định nhu cầu ở hoặc đầu tư cùng khu vực quan tâm.',
+      'Yêu cầu thông tin cụ thể về sản phẩm bạn đang xem xét.',
+      'Trao đổi ngân sách để khoanh vùng lựa chọn phù hợp.',
+      'Để lại thông tin để trao đổi chi tiết trước khi quyết định.',
+    ],
+  },
+  {
+    test: /product|fashion|cosmetics|sản phẩm|thời trang|mỹ phẩm/,
+    topics: ['Nhu cầu sử dụng', 'Thông tin sản phẩm', 'Lựa chọn của bạn', 'Cách đặt hàng'],
+    details: [
+      'Xác định mục đích sử dụng trước khi lựa chọn.',
+      'Tìm hiểu đặc điểm và thông tin được cung cấp về sản phẩm.',
+      'Trao đổi yêu cầu cụ thể để chọn phương án phù hợp.',
+      'Hỏi rõ giá và điều kiện mua hàng trước khi xác nhận.',
+    ],
+  },
+];
 
 export function buildDeepFallbackNarrative(brief: DepthBriefInput) {
-  const product = brief.productService.trim() || 'Giải pháp';
+  const product = brief.productService.trim();
   const brand = brief.brandName?.trim() || product;
-  const audience = brief.targetCustomer.trim() || 'khách hàng mục tiêu';
-  const goal = brief.pageGoal || 'lead';
-  const goalLabel = GOAL_LABELS[goal] || 'Thu lead';
-  const businessType = (brief.businessType || '').trim() || 'doanh nghiệp';
-  const pain =
-    (brief.painPoint || '').trim() ||
-    `${audience} đang mất thời gian / chi phí vì thiếu quy trình ${product.toLowerCase()} rõ ràng`;
-  const offer = (brief.offer || '').trim() || brief.price?.trim() || '';
-  const tone = brief.tone || 'professional';
-  const uspRaw = (brief.uspBenefits || '').trim();
-  const usp =
-    uspRaw ||
-    `${brand} giúp ${audience} trong ngành ${businessType} đạt ${goalLabel.toLowerCase()} nhờ ${product} — rõ lộ trình, rõ kết quả.`;
-
-  const painPoints = [
-    pain,
-    `Thông điệp / offer chưa đủ rõ để ${audience} quyết định nhanh`,
-    `Thiếu quy trình ${goalLabel.toLowerCase()} có thể đo và tối ưu liên tục`,
-  ].map((s) => s.slice(0, 200));
-
-  const benefits = [
-    `Giải pháp ${product} gắn đúng nỗi đau của ${audience}`,
-    `Lộ trình ${goalLabel.toLowerCase()} rõ ràng — biết bước tiếp theo`,
-    offer
-      ? `Offer rõ ràng: ${offer}`
-      : `Tư vấn minh bạch — không bịa số liệu hay cam kết ảo`,
-    `Phù hợp ${businessType} muốn tăng trưởng bền vững`,
-  ].map((s) => s.slice(0, 200));
-
-  const benefitDetails = [
-    `Thay vì copy chung chung, trang tập trung vào vấn đề: ${pain.slice(0, 120)}.`,
-    `Mỗi bước đều hướng tới mục tiêu ${goalLabel.toLowerCase()} của ${audience}.`,
-    offer
-      ? `Offer được nêu rõ để giảm ma sát quyết định: ${offer}.`
-      : `USP được diễn giải thành lợi ích thực tế, không dùng số liệu bịa.`,
-    `Ngôn ngữ ${tone} — chuyên nghiệp nhưng dễ hiểu với ${audience}.`,
+  const audience = brief.targetCustomer.trim();
+  const topic = TOPICS.find((t) =>
+    t.test.test(`${brief.businessType || ''} ${product}`.toLowerCase()),
+  );
+  const topics = topic?.topics || [
+    'Nhu cầu thực tế',
+    'Phạm vi công việc',
+    'Phương án phù hợp',
+    'Bước tiếp theo',
   ];
-
-  const features = [
-    `Định vị rõ cho ${businessType}`,
-    `Thông điệp theo pain → USP → CTA`,
-    `Form / CTA phục vụ mục tiêu ${goalLabel.toLowerCase()}`,
-    `Nội dung đủ sâu để thuyết phục ${audience}`,
+  const descriptions = topic?.details || [
+    'Chia sẻ điều bạn cần giải quyết và kết quả mong muốn.',
+    'Làm rõ những hạng mục bạn cần trước khi lựa chọn.',
+    'Trao đổi về lựa chọn phù hợp với ngân sách và nhu cầu.',
+    'Xác nhận thông tin cần thiết trước khi bắt đầu.',
   ];
-
-  const featureDetails = [
-    `Bám ngành ${businessType} và đối tượng ${audience} — tránh template “một câu cho mọi ngành”.`,
-    `Pain point được chuyển thành lợi ích và FAQ objection handling.`,
-    `CTA và form headline khớp goal ${goalLabel.toLowerCase()}.`,
-    `Độ dài copy đủ để giải thích giá trị — không chỉ 3 từ chung chung.`,
-  ];
-
-  const processSteps: DetailPair[] = [
-    {
-      title: '1. Nắm nhu cầu',
-      description: `Thu thập ngữ cảnh của ${audience} (pain, mục tiêu, ràng buộc) trước khi đề xuất.`,
-    },
-    {
-      title: '2. Đề xuất rõ',
-      description: `Trình bày ${product} + USP theo mục tiêu ${goalLabel.toLowerCase()}${
-        offer ? ` và offer ${offer}` : ''
-      }.`,
-    },
-    {
-      title: '3. Chốt bước tiếp',
-      description: `Hướng ${audience} tới hành động cụ thể trên trang (form / CTA) — đo được.`,
-    },
-    {
-      title: '4. Follow-up',
-      description: `Sau đăng ký: phản hồi nhanh, không hứa doanh thu / rating giả.`,
-    },
-  ];
-
-  const toneLead =
-    tone === 'bold'
-      ? `${brand}: ${product} giúp ${audience} chốt ${goalLabel.toLowerCase()} nhanh hơn`
-      : tone === 'friendly'
-        ? `${brand} đồng hành cùng ${audience} với ${product}`
-        : `${brand} — ${product} cho ${audience} muốn ${goalLabel.toLowerCase()} bền vững`;
-
+  const supplied = splitCopyChunks(brief.uspBenefits || '', 0, 4);
+  const usp = (brief.uspBenefits || `${product} dành cho ${audience}.`).slice(0, 240);
+  const cta =
+    brief.ctaLabel?.trim() ||
+    (brief.pageGoal === 'event'
+      ? 'Đăng ký tham dự'
+      : brief.pageGoal === 'signup'
+        ? 'Đăng ký nhận thông tin'
+        : brief.pageGoal === 'sales'
+          ? 'Hỏi về sản phẩm'
+          : 'Trao đổi nhu cầu');
   return {
-    headline: toneLead.slice(0, 160),
-    subheadline: `${pain.slice(0, 100)}. ${usp.slice(0, 200)}`.slice(0, 320),
-    painPoints,
-    benefits,
-    benefitDetails,
-    features,
-    featureDetails,
-    processSteps,
-    usp: usp.slice(0, 240),
+    headline: (brand === product ? product : `${product} tại ${brand}`).slice(0, 100),
+    subheadline:
+      `${product} dành cho ${audience}. ${brief.painPoint ? `Bạn đang quan tâm đến ${brief.painPoint.replace(/[.!?]+$/, '')}? ` : ''}Trao đổi cùng ${brand} để tìm lựa chọn phù hợp.`.slice(
+        0,
+        320,
+      ),
+    painPoints: [brief.painPoint || `Tìm ${product.toLowerCase()} phù hợp với nhu cầu của bạn`],
+    usp,
+    benefits: supplied.length >= 2 ? supplied.map((s) => s.slice(0, 100)) : topics.slice(),
+    benefitDetails: supplied.length >= 2 ? supplied.map(() => '') : descriptions.slice(),
+    features: [product.slice(0, 100)],
+    featureDetails: [usp],
+    processSteps: deepenProcessPairs([], undefined, [], '', ''),
     faq: [
       {
-        question: `${product} phù hợp với ai?`,
-        answer: `Phù hợp ${audience} trong ${businessType} đang gặp: ${pain.slice(0, 140)}.`,
-      },
-      {
-        question: 'Bắt đầu như thế nào?',
-        answer: `Điền form — đội ngũ liên hệ để làm rõ nhu cầu và đề xuất bước ${goalLabel.toLowerCase()} phù hợp. Không yêu cầu cung cấp số liệu không có thật.`,
-      },
-      {
-        question: offer ? 'Offer gồm những gì?' : 'Chi phí thế nào?',
-        answer: offer
-          ? `Offer hiện tại: ${offer}. Chi tiết sẽ được xác nhận khi tư vấn — không bịa % ưu đãi.`
-          : brief.price?.trim()
-            ? `Tham chiếu: ${brief.price}. Báo giá chính xác sau khi nắm scope.`
-            : 'Chi phí phụ thuộc scope — nhận báo giá sau khi để lại thông tin.',
-      },
-      {
-        question: 'Có cam kết kết quả không?',
+        question: 'Dịch vụ này phù hợp với ai?',
         answer:
-          'Cam kết quy trình rõ và hỗ trợ minh bạch. Không dùng testimonial / rating / doanh thu giả trên trang.',
+          `${product} dành cho ${audience}. Hãy chia sẻ nhu cầu cụ thể để trao đổi thêm.`.slice(
+            0,
+            600,
+          ),
+      },
+      {
+        question: 'Chi phí được tính thế nào?',
+        answer: brief.price
+          ? `Giá được cung cấp: ${brief.price}.${brief.offer ? ` ${brief.offer}` : ''}`
+          : `Liên hệ ${brand} để hỏi về chi phí và phạm vi phù hợp trước khi quyết định.`,
+      },
+      {
+        question: 'Tôi bắt đầu như thế nào?',
+        answer:
+          `Chọn “${cta}” và gửi thông tin liên hệ hoặc sử dụng kênh liên hệ trên trang để trao đổi với ${brand}.`.slice(
+            0,
+            600,
+          ),
       },
     ],
-    guarantee: `Cam kết làm việc minh bạch với ${audience}: phản hồi rõ ràng, không phát sinh phí ẩn, không bịa chứng nhận hay số liệu.`,
-    pricingCopy: offer
-      ? `Offer: ${offer}. Để lại thông tin để nhận chi tiết áp dụng.`
-      : brief.price?.trim()
-        ? `Tham chiếu giá: ${brief.price}. Đăng ký để nhận tư vấn gói phù hợp.`
-        : `Nhận đề xuất gói ${product} phù hợp ${audience} — báo giá sau khi nắm nhu cầu.`,
+    guarantee: brief.guarantee?.trim() || '',
+    pricingCopy:
+      [brief.price, brief.offer].filter(Boolean).join(' · ') ||
+      `Trao đổi với ${brand} về nhu cầu và chi phí phù hợp.`,
     leadFormHeadline:
-      goal === 'event'
-        ? 'Đăng ký giữ chỗ — nhận hướng dẫn tham dự'
-        : goal === 'sales'
-          ? 'Nhận tư vấn / báo giá phù hợp nhu cầu'
-          : `Đăng ký — ${goalLabel.toLowerCase()} với ${brand}`,
-    cta:
-      goal === 'sales'
-        ? 'Nhận báo giá ngay'
-        : goal === 'event'
-          ? 'Giữ chỗ ngay'
-          : goal === 'signup'
-            ? 'Đăng ký dùng thử'
-            : 'Nhận tư vấn miễn phí',
+      brief.pageGoal === 'event'
+        ? 'Đăng ký tham dự'
+        : brief.pageGoal === 'signup'
+          ? 'Đăng ký nhận thông tin'
+          : 'Cùng trao đổi nhu cầu',
+    cta,
   };
 }

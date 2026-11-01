@@ -821,7 +821,7 @@ body[data-lp-preview-mode="1"] [data-lp-text-hug="1"],
 [data-lp-canvas-root] [data-lp-form-card] button[type="submit"] {
   background: var(--lp-cta-gradient) !important;
   border: none !important;
-  color: #fff !important;
+  color: var(--lp-on-primary, #fff) !important;
   box-shadow:
     0 10px 28px color-mix(in srgb, var(--lp-primary) 38%, transparent),
     inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
@@ -1014,12 +1014,12 @@ body[data-lp-preview-mode="1"] [data-lp-text-hug="1"],
 [data-lp-canvas-root] [data-lp-btn-style="outline"] [data-lp-hero-cta] a:first-child:hover,
 [data-lp-canvas-root] [data-lp-btn-style="outline"] [data-lp-cta-band] a:first-of-type:hover {
   background: var(--lp-primary) !important;
-  color: #fff !important;
+  color: var(--lp-on-primary, #fff) !important;
   filter: none;
 }
 [data-lp-canvas-root] [data-lp-btn-style="outline"] [data-lp-form-card] button[type="submit"] {
   background: var(--lp-primary) !important;
-  color: #fff !important;
+  color: var(--lp-on-primary, #fff) !important;
   border: none !important;
 }
 /*

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   BadRequestException,
   Header,
@@ -30,6 +31,7 @@ import {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
+  SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
   InlineAiSuggestFieldDto,
@@ -97,6 +99,12 @@ export class LandingPagesController {
   @RequirePermissions('lead.write')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateLandingPageAiDto) {
     return this.service.generateAi(user, dto);
+  }
+
+  @Post('ai-suggest-brief')
+  @RequirePermissions('lead.write')
+  suggestBrief(@CurrentUser() user: AuthUser, @Body() dto: SuggestLandingPageBriefDto) {
+    return this.service.suggestAiBrief(user, dto);
   }
 
   @Post('crawl-url')
@@ -384,6 +392,24 @@ export class LandingPagesController {
   @RequirePermissions('lead.write')
   archive(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.archive(user, id);
+  }
+
+  @Post('bulk-delete')
+  @RequirePermissions('lead.write')
+  bulkDelete(@CurrentUser() user: AuthUser, @Body() body: { ids: string[] }) {
+    return this.service.bulkDelete(user, body?.ids || []);
+  }
+
+  @Delete(':id')
+  @RequirePermissions('lead.write')
+  delete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.delete(user, id);
+  }
+
+  @Post(':id/delete')
+  @RequirePermissions('lead.write')
+  deletePost(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.delete(user, id);
   }
 
   @Post(':id/domain')

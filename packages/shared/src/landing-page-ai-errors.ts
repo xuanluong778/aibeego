@@ -74,6 +74,8 @@ export function classifyLpAiFailure(err: unknown): LpAiFailureInfo {
     };
   }
   if (
+    lower.includes('landingpageaicontentvalidationerror') ||
+    /ai_(?:schema|section|unsupported|repeated|internal|invalid)/.test(lower) ||
     lower.includes('json') ||
     lower.includes('malformed') ||
     lower.includes('parse') ||

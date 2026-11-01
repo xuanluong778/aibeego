@@ -115,6 +115,7 @@ export type LandingPageAddComponentsPanelProps = {
   onOpenMediaLibrary?: () => void;
   onOpenSectionLibrary?: () => void;
   onOpenButtonLibrary?: () => void;
+  onOpenFormLibrary?: () => void;
   onInsertTitlePreset?: (preset: LandingPageTitlePreset) => void;
   onInsertParagraphPreset?: (preset: LandingPageParagraphPreset) => void;
   onInsertListPreset?: (preset: LandingPageListPreset) => void;
@@ -146,6 +147,7 @@ export function LandingPageAddComponentsPanel({
   onOpenMediaLibrary,
   onOpenSectionLibrary,
   onOpenButtonLibrary,
+  onOpenFormLibrary,
   onInsertTitlePreset,
   onInsertParagraphPreset,
   onInsertListPreset,
@@ -177,11 +179,17 @@ export function LandingPageAddComponentsPanel({
   }, [initialAddTab, onOpenSectionLibrary]);
 
   useEffect(() => {
+    if (initialSubView === 'forms') {
+      onOpenFormLibrary?.();
+      setRootMode('add');
+      setSubView('root');
+      return;
+    }
     if (initialSubView && initialSubView !== 'root') {
       setRootMode('add');
       setSubView(initialSubView);
     }
-  }, [initialSubView]);
+  }, [initialSubView, onOpenFormLibrary]);
 
   function runQuick(card: QuickCard) {
     switch (card.kind) {
@@ -233,11 +241,7 @@ export function LandingPageAddComponentsPanel({
         setSubView('icon');
         return;
       case 'forms':
-        if (!onInsertFormPreset) {
-          onAddBlock('LeadForm');
-          return;
-        }
-        setSubView('forms');
+        onOpenFormLibrary?.();
         return;
       case 'block':
         if (card.blockType) onAddBlock(card.blockType);
@@ -297,6 +301,7 @@ export function LandingPageAddComponentsPanel({
           onInsertForm={(preset) => onInsertFormPreset?.(preset)}
           onInsertBlockType={(type) => onAddBlock(type)}
           onOpenMediaLibrary={onOpenMediaLibrary}
+          onOpenFormLibrary={onOpenFormLibrary}
         />
       </div>
     );
@@ -318,6 +323,7 @@ export function LandingPageAddComponentsPanel({
           onInsertForm={(preset) => onInsertFormPreset?.(preset)}
           onInsertBlockType={(type) => onAddBlock(type)}
           onOpenMediaLibrary={onOpenMediaLibrary}
+          onOpenFormLibrary={onOpenFormLibrary}
         />
       </div>
     );
@@ -340,88 +346,16 @@ export function LandingPageAddComponentsPanel({
           onInsertForm={(preset) => onInsertFormPreset?.(preset)}
           onInsertBlockType={(type) => onAddBlock(type)}
           onOpenMediaLibrary={onOpenMediaLibrary}
+          onOpenFormLibrary={onOpenFormLibrary}
         />
       </div>
     );
   }
 
-  if (subView === 'forms' && onInsertFormPreset) {
-    return (
-      <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 text-zinc-900"
-        data-lp-add-components-sub="forms"
-      >
-        <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5 py-2">
-          <button
-            type="button"
-            className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
-            onClick={() => setSubView('root')}
-          >
-            ← Quay lại
-          </button>
-          <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
-            Mẫu biểu mẫu
-          </div>
-          <button
-            type="button"
-            data-lp-form-insert-empty="1"
-            className="shrink-0 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
-            onClick={() => {
-              onAddBlock('LeadForm');
-              setSubView('root');
-            }}
-          >
-            Form trống
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2.5 py-3">
-          {LP_FORM_GROUPS.map((group) => {
-            const rows = LP_FORM_PRESETS.filter((p) => p.group === group.id);
-            if (!rows.length) return null;
-            return (
-              <section key={group.id}>
-                <h3 className="mb-1.5 px-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  {group.label}
-                </h3>
-                <div className="flex flex-col gap-1.5">
-                  {rows.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      data-lp-form-preset={preset.id}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition hover:border-sky-200 hover:shadow-md"
-                      onClick={() => onInsertFormPreset(preset)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-8 w-8 shrink-0 rounded-md ring-1 ring-slate-200"
-                          style={{
-                            background: `linear-gradient(135deg, ${preset.preview.bg}, ${preset.preview.accent})`,
-                          }}
-                          aria-hidden
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-[12px] font-semibold text-slate-800">
-                            {preset.label}
-                          </div>
-                          <div className="truncate text-[10px] text-slate-500">
-                            {preset.fields.length} trường · {preset.submitLabel}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
 
   function renderComponentCard(card: QuickCard) {
     const dropHint = 'Thả vào canvas → hiện mẫu để chọn';
+    const blockDragType = card.kind === 'block' ? card.blockType : null;
     let dragKind: 'section-library' | 'button-library' | 'block-type' | 'picker' | undefined;
     let onDragStart: ((e: DragEvent<HTMLButtonElement>) => void) | undefined;
 
@@ -449,17 +383,11 @@ export function LandingPageAddComponentsPanel({
         beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'text' }, card.label, {
           subtitle: dropHint,
         });
-    } else if (card.kind === 'forms' && onInsertFormPreset) {
+    } else if (card.kind === 'forms') {
       dragKind = 'picker';
       onDragStart = (e) =>
-        beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'forms' }, card.label, {
-          subtitle: dropHint,
-        });
-    } else if (card.kind === 'forms') {
-      dragKind = 'block-type';
-      onDragStart = (e) =>
-        beginSidebarPresetDrag(e, { kind: 'block-type', type: 'LeadForm' }, card.label, {
-          subtitle: 'Thả vào canvas để chèn form',
+        beginSidebarPresetDrag(e, { kind: 'form-library-open' }, card.label, {
+          subtitle: 'Kéo thả vào canvas để chọn mẫu biểu mẫu',
         });
     } else if (card.kind === 'graphics' && onInsertBoxPreset) {
       dragKind = 'picker';
@@ -485,10 +413,10 @@ export function LandingPageAddComponentsPanel({
         beginSidebarPresetDrag(e, { kind: 'add-picker-open', picker: 'media' }, card.label, {
           subtitle: 'Thả vào canvas → mở thư viện ảnh',
         });
-    } else if (card.kind === 'block' && card.blockType) {
+    } else if (card.kind === 'block' && blockDragType) {
       dragKind = 'block-type';
       onDragStart = (e) =>
-        beginSidebarPresetDrag(e, { kind: 'block-type', type: card.blockType! }, card.label, {
+        beginSidebarPresetDrag(e, { kind: 'block-type', type: blockDragType }, card.label, {
           subtitle: 'Thả vào canvas để chèn',
         });
     }

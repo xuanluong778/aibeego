@@ -294,6 +294,8 @@ export function selectArchitectureVariant(
 }
 
 function categoryFromSlug(slug: string): string {
+  const template = getLandingPageSystemTemplate(slug);
+  if (template) return template.category;
   const found = Object.entries(SLUG_BY_CATEGORY).find(
     ([, s]) => slug === s || slug.startsWith(`${s}-`),
   );
@@ -381,7 +383,21 @@ export function selectLandingPageTemplate(
   const text = blob(input);
   const goal = (input.pageGoal || '').toLowerCase();
 
+  // An explicitly selected industry takes precedence over audience/product keywords.
+  const industry = (input.businessType || '').trim().toLowerCase();
+  if (industry in SLUG_BY_CATEGORY && goal !== 'event') {
+    return finalizeSelection(industry, input, 'explicit business industry');
+  }
+
   const rules: Array<{ test: () => boolean; category: string; reason: string }> = [
+    {
+      test: () => goal !== 'event' && /thiết kế (?:web|website)|website development|web design/.test(text),
+      category: 'website', reason: 'website design signals',
+    },
+    {
+      test: () => goal !== 'event' && /coaching|huấn luyện cá nhân|mentor/.test(text),
+      category: 'coaching', reason: 'coaching signals',
+    },
     {
       test: () =>
         goal === 'event' ||
@@ -474,5 +490,5 @@ export function selectLandingPageTemplate(
     }
   }
 
-  return finalizeSelection('lead_magnet', input, 'default lead-gen fallback');
+  return finalizeSelection('service', input, 'general service fallback');
 }

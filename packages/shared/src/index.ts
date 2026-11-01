@@ -102,6 +102,8 @@ export * from './landing-page-cosmetics-gold-directions';
 export * from './landing-page-cosmetics-directions';
 export * from './landing-page-category-architectures';
 export * from './landing-page-template-expand';
+export * from './landing-page-ai-draft';
+export * from './landing-page-ai-brief-suggest';
 export * from './landing-page-form-fields-by-goal';
 export * from './landing-page-verified-backdrops';
 export * from './landing-page-section-shells';

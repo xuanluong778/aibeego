@@ -331,4 +331,50 @@ ${LP_FOOTER}:empty {
 [data-lp-builder-vertical-toolbars="1"] [data-lp-floating-toolbar]:not([data-lp-element-vertical-toolbar]):not([data-lp-text-toolbar]) {
   display: none !important;
 }
+
+/* Generated pages retain their template palette; locally dark bands own readable ink. */
+[data-lp-ai-generated="1"] [data-lp-section-tone="dark"] {
+  --lp-text: #F8FAFC;
+  --lp-muted: #CBD5E1;
+  --lp-text-on-light: #F8FAFC;
+  --lp-muted-on-light: #CBD5E1;
+  --lp-muted-safe: #CBD5E1;
+  --lp-text-muted: #CBD5E1;
+  --lp-surface: #17243A;
+  --lp-border: #475569;
+  color: #F8FAFC;
+}
+[data-lp-ai-generated="1"] [data-lp-section-tone="editorial"] {
+  --lp-text: #0F172A; --lp-secondary: #0F172A;
+  --lp-muted: #475569; --lp-text-on-light: #0F172A;
+  --lp-muted-on-light: #475569; --lp-muted-safe: #475569;
+  --lp-surface: #FFFFFF; --lp-border: #CBD5E1;
+  color: #0F172A;
+}
+[data-lp-ai-generated="1"] [data-lp-pricing-card][data-lp-featured="1"] {
+  --lp-text: var(--lp-on-primary, #fff);
+  --lp-text-on-light: var(--lp-on-primary, #fff);
+  --lp-muted-on-light: var(--lp-on-primary, #fff);
+  --lp-muted-safe: var(--lp-on-primary, #fff);
+  color: var(--lp-on-primary, #fff) !important;
+}
+[data-lp-viewport] [data-lp-ai-generated="1"] [data-lp-item-count="1"] {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: 100%; max-width: 40rem; margin-inline: auto;
+}
+[data-lp-viewport="desktop"] [data-lp-ai-generated="1"] [data-lp-item-count="2"],
+[data-lp-viewport="desktop"] [data-lp-ai-generated="1"] [data-lp-item-count="4"],
+[data-lp-viewport="tablet"] [data-lp-ai-generated="1"] [data-lp-item-count="2"],
+[data-lp-viewport="tablet"] [data-lp-ai-generated="1"] [data-lp-item-count="4"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+[data-lp-ai-generated="1"] [data-lp-item-count] > * { min-width: 0; max-width: 100%; }
+[data-lp-viewport="mobile"] [data-lp-ai-generated="1"] [data-lp-item-count] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+@media (max-width: 640px) {
+  [data-lp-viewport] [data-lp-ai-generated="1"] [data-lp-item-count] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
 `.trim();

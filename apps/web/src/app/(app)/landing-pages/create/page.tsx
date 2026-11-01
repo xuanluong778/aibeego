@@ -1,51 +1,77 @@
 'use client';
-
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Loader2, Sparkles, Globe2, LayoutTemplate, ArrowRight, CheckCircle2, FilePlus2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Loader2, Sparkles, Globe2, LayoutTemplate, FilePlus2, Eye, RotateCcw } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/i18n/i18n-provider';
+import { useCurrentUser } from '@/hooks/use-auth';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  emptyLandingPageCreateSetup,
+  landingPageCreateStorageKey,
+  parseLandingPageCreateSetup,
+  landingPageCreateBrief,
+  landingPageCreateFingerprint,
+  type LandingPageCreateSetup,
+  type LandingPageCreatePreview as AiPreview,
+} from '@/components/landing-pages/landing-page-create-storage';
+import actionStyles from '@/components/landing-pages/landing-page-create-actions.module.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
-  applyLandingPageAiCopyToSpec,
-  createEmptyLandingPageSpec,
-  markLandingPageAiSources,
-  type LandingPageAiCopy,
-} from '@marketingspa/shared';
-
+  LandingPageTemplatePicker,
+  type LandingPagePickerTemplate,
+} from '@/components/landing-pages/landing-page-template-picker';
+import {
+  LandingPageAiBriefFields,
+  EMPTY_LANDING_PAGE_AI_FIELDS,
+  type LandingPageAiFormFields,
+} from '@/components/landing-pages/landing-page-ai-brief-fields';
+import type { LandingPageUrlSummary, BusinessProfileData } from '@marketingspa/shared';
+import type { TemplateViewport } from '@/components/landing-pages/template-viewport-switcher';
+const TemplateFullscreenPreview = dynamic(() =>
+  import('@/components/landing-pages/template-fullscreen-preview').then(
+    (module) => module.TemplateFullscreenPreview,
+  ),
+);
 type CreateMode = 'ai' | 'url' | 'template' | 'blank';
-
-type Template = {
-  id: string;
-  slug: string;
-  name: string;
-  category: string;
-  theme: string;
-  description: string;
-};
-
 type PageGoal = 'lead' | 'sales' | 'signup' | 'consult' | 'event';
-type Tone = 'professional' | 'bold' | 'friendly';
-
-const PAGE_GOALS: { value: PageGoal; label: string; hint: string }[] = [
-  { value: 'lead', label: 'Thu lead', hint: 'Thu thập thông tin khách' },
-  { value: 'sales', label: 'Bán hàng', hint: 'Chốt mua / báo giá' },
-  { value: 'signup', label: 'Đăng ký', hint: 'Đăng ký dùng thử / tài khoản' },
-  { value: 'consult', label: 'Tư vấn', hint: 'Đặt lịch tư vấn' },
-  { value: 'event', label: 'Sự kiện', hint: 'Webinar / workshop' },
+const PAGE_GOALS: { value: PageGoal; label: string }[] = [
+  { value: 'lead', label: 'Nhận liên hệ' },
+  { value: 'sales', label: 'Bán hàng' },
+  { value: 'signup', label: 'Đăng ký' },
+  { value: 'consult', label: 'Tư vấn / đặt lịch' },
+  { value: 'event', label: 'Sự kiện' },
 ];
-
-const TONES: { value: Tone; label: string }[] = [
-  { value: 'professional', label: 'Chuyên nghiệp' },
-  { value: 'bold', label: 'Mạnh' },
-  { value: 'friendly', label: 'Thân thiện' },
-];
-
+function requestKey(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+function profileFields(profile: BusinessProfileData): Partial<LandingPageAiFormFields> {
+  return {
+    businessType: profile.industry || '',
+    brandName: profile.brandName || profile.companyName || '',
+    productService: profile.productService || '',
+    targetCustomer: profile.targetCustomer || '',
+    uspBenefits: profile.usp || '',
+    ctaLabel: profile.defaultCta || '',
+    logoUrl: profile.logoUrl || '',
+    brandColor: profile.brandColor || '',
+    contactPhone: profile.hotline || '',
+    contactEmail: profile.email || '',
+    contactAddress: profile.address || '',
+  };
+}
 const MODES: {
   id: CreateMode;
   title: string;
@@ -81,912 +107,809 @@ const MODES: {
 export default function LandingPagesCreatePage() {
   const t = useT();
   const router = useRouter();
+  const { data: user } = useCurrentUser();
+  const storageKey =
+    user?.organizationId && user?.id
+      ? landingPageCreateStorageKey(user.organizationId, user.id)
+      : null;
+  const [readyScope, setReadyScope] = useState<string | null>(null);
+  const setupReady = Boolean(storageKey && readyScope === storageKey);
+  const allowProfileAutofill = useRef(false);
+  const storedSnapshot = useRef<{ key: string; setup: LandingPageCreateSetup } | null>(null);
+  const lastBriefFingerprint = useRef('');
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const [previewFingerprint, setPreviewFingerprint] = useState('');
+  const [resetOpen, setResetOpen] = useState(false);
   const submitLock = useRef(false);
-
+  const generateRequest = useRef<{ fingerprint: string; key: string } | null>(null);
   const [mode, setMode] = useState<CreateMode>('ai');
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [fields, setFields] = useState<LandingPageAiFormFields>({
+    ...EMPTY_LANDING_PAGE_AI_FIELDS,
+  });
+  const [pageGoal, setPageGoal] = useState<PageGoal>('lead');
+  const [tone, setTone] = useState('professional');
+  const [useBizProfile, setUseBizProfile] = useState(true);
+  const [bizProfile, setBizProfile] = useState<
+    (BusinessProfileData & { isEmpty?: boolean }) | null
+  >(null);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [urlSummary, setUrlSummary] = useState<LandingPageUrlSummary | null>(null);
+  const [crawling, setCrawling] = useState(false);
+  const [templates, setTemplates] = useState<LandingPagePickerTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [templateSlug, setTemplateSlug] = useState('');
-  const [tplFilter, setTplFilter] = useState('');
+  const [blankName, setBlankName] = useState('Landing Page mới');
   const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState<'idle' | 'previewing' | 'creating' | 'generating' | 'done'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'previewing' | 'creating' | 'viewing'>('idle');
+  const [createdPage, setCreatedPage] = useState<LandingPageCreateSetup['createdPage']>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [aiPreview, setAiPreview] = useState<{
-    copy: LandingPageAiCopy;
-    source: string;
-    warning?: string;
-  } | null>(null);
-  const [ctaHint, setCtaHint] = useState('');
-  const [tone, setTone] = useState<Tone>('professional');
-  const [blankName, setBlankName] = useState('Landing Page mới');
+  const [aiPreview, setAiPreview] = useState<AiPreview | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [viewport, setViewport] = useState<TemplateViewport>('desktop');
+  const [retryCreate, setRetryCreate] = useState<{ fingerprint: string; key: string } | null>(null);
 
-  const [productService, setProductService] = useState('');
-  const [brandName, setBrandName] = useState('');
-  const [targetCustomer, setTargetCustomer] = useState('');
-  const [pageGoal, setPageGoal] = useState<PageGoal>('lead');
-  const [extraNotes, setExtraNotes] = useState('');
-  const [sourceUrl, setSourceUrl] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [useBizProfile, setUseBizProfile] = useState(true);
-  const [urlSummary, setUrlSummary] = useState<{
-    brand?: string | null;
-    title?: string;
-    description?: string | null;
-    productService?: string | null;
-    benefits?: string[];
-    usp?: string | null;
-    contact?: { phone?: string | null; email?: string | null };
-    faq?: Array<{ question: string; answer: string }>;
-    cta?: string | null;
-    imageUrl?: string | null;
-    logoUrl?: string | null;
-    finalUrl?: string;
-  } | null>(null);
-  const [crawling, setCrawling] = useState(false);
-  const [bizProfile, setBizProfile] = useState<{
-    brandName?: string | null;
-    productService?: string | null;
-    targetCustomer?: string | null;
-    usp?: string | null;
-    website?: string | null;
-    isEmpty?: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    void apiClient<{ items: Template[] }>('/landing-pages/templates')
-      .then((r) => setTemplates(r.items))
-      .catch(() => {
-        /* templates optional until mode=template */
-      });
-    void apiClient<{
-      brandName?: string | null;
-      productService?: string | null;
-      targetCustomer?: string | null;
-      usp?: string | null;
-      website?: string | null;
-      isEmpty?: boolean;
-    }>('/landing-pages/business-profile')
-      .then((p) => {
-        setBizProfile(p);
-        if (!p.isEmpty) {
-          if (p.brandName) setBrandName(p.brandName);
-          if (p.productService) setProductService(p.productService);
-          if (p.targetCustomer) setTargetCustomer(p.targetCustomer);
-          if (p.usp) setExtraNotes(p.usp);
-          if (p.website) setSourceUrl(p.website);
+  const currentFingerprint = landingPageCreateFingerprint({
+    fields,
+    pageGoal,
+    tone,
+    sourceUrl,
+    useBizProfile,
+  });
+  const previewSaved = Boolean(
+    aiPreview &&
+    createdPage?.generationId &&
+    createdPage.generationId === aiPreview.draftSpec.meta?.aiGenerationId,
+  );
+  storedSnapshot.current =
+    setupReady && storageKey
+      ? {
+          key: storageKey,
+          setup: {
+            version: 1,
+            fields,
+            mode,
+            pageGoal,
+            tone,
+            sourceUrl,
+            useBizProfile,
+            urlSummary,
+            templateSlug,
+            blankName,
+            aiPreview: previewFingerprint === currentFingerprint ? aiPreview : null,
+            previewFingerprint,
+            generateRequest: generateRequest.current,
+            createdPage,
+          },
         }
-      })
-      .catch(() => setBizProfile(null));
+      : null;
+
+  function applyStoredSetup(setup: LandingPageCreateSetup) {
+    lastBriefFingerprint.current = landingPageCreateFingerprint(setup);
+    setFields(setup.fields);
+    setMode(setup.mode);
+    setPageGoal(setup.pageGoal);
+    setTone(setup.tone);
+    setSourceUrl(setup.sourceUrl);
+    setUseBizProfile(setup.useBizProfile);
+    setUrlSummary(setup.urlSummary);
+    setTemplateSlug(setup.templateSlug);
+    setBlankName(setup.blankName);
+    setAiPreview(setup.aiPreview);
+    setCreatedPage(setup.createdPage);
+    setPreviewFingerprint(setup.previewFingerprint);
+    generateRequest.current = setup.generateRequest;
+    setPreviewOpen(false);
+    setError(null);
+    setNote(null);
+  }
+  useEffect(() => {
+    if (!storageKey) return;
+    setBizProfile(null);
+    let setup = emptyLandingPageCreateSetup();
+    allowProfileAutofill.current = true;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        setup = parseLandingPageCreateSetup(saved);
+        allowProfileAutofill.current = false;
+      }
+    } catch {
+      setStorageWarning('Không đọc được thiết lập đã lưu. Trình duyệt có thể đang chặn lưu trữ.');
+    }
+    applyStoredSetup(setup);
+    setReadyScope(storageKey);
+  }, [storageKey]);
+
+  function persistSetup(reportError = true) {
+    const snapshot = storedSnapshot.current;
+    if (!snapshot) return;
+    try {
+      localStorage.setItem(snapshot.key, JSON.stringify(snapshot.setup));
+      if (reportError) setStorageWarning(null);
+    } catch {
+      if (reportError)
+        setStorageWarning(
+          'Chưa lưu được thiết lập trên trình duyệt. Kiểm tra quyền lưu trữ trước khi tải lại trang.',
+        );
+    }
+  }
+  useEffect(() => {
+    persistSetup();
+  }, [
+    setupReady,
+    storageKey,
+    fields,
+    mode,
+    pageGoal,
+    tone,
+    sourceUrl,
+    useBizProfile,
+    urlSummary,
+    templateSlug,
+    blankName,
+    aiPreview,
+    previewFingerprint,
+    busy,
+    createdPage,
+  ]);
+  useEffect(() => {
+    const flush = () => persistSetup(false);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
   }, []);
 
-  function fillFromBusinessProfile() {
-    if (!bizProfile || bizProfile.isEmpty) {
-      setError('Chưa có Business Profile — vào Settings hoặc PATCH /landing-pages/business-profile');
-      return;
-    }
-    if (bizProfile.brandName) setBrandName(bizProfile.brandName);
-    if (bizProfile.productService) setProductService(bizProfile.productService);
-    if (bizProfile.targetCustomer) setTargetCustomer(bizProfile.targetCustomer);
-    if (bizProfile.usp) setExtraNotes(bizProfile.usp);
-    if (bizProfile.website) setSourceUrl(bizProfile.website);
-    setUseBizProfile(true);
-    setNote('Đã điền từ Business Profile (có thể chỉnh trước khi tạo).');
+  function resetSetup() {
+    if (!storageKey || busy || crawling) return;
+    const setup = { ...emptyLandingPageCreateSetup(), useBizProfile: false };
+    allowProfileAutofill.current = false;
+    // Persist the blank state, too: a delayed profile or F5 must not refill cleared fields.
+    storedSnapshot.current = { key: storageKey, setup };
+    persistSetup();
+    applyStoredSetup(setup);
+    setRetryCreate(null);
+    setViewport('desktop');
+    setResetOpen(false);
+    setNote('Đã làm mới thông tin thiết lập.');
   }
-  const aiReady =
-    productService.trim().length > 0 &&
-    brandName.trim().length > 0 &&
-    targetCustomer.trim().length > 0;
 
-  const urlReady = /^https?:\/\//i.test(sourceUrl.trim()) && targetCustomer.trim().length > 0;
+  async function loadTemplates() {
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    try {
+      const result = await apiClient<{ items: LandingPagePickerTemplate[] }>(
+        '/landing-pages/templates',
+      );
+      setTemplates(result.items);
+    } catch {
+      setTemplatesError('Không tải được thư viện template. Vui lòng thử lại.');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
+  useEffect(() => {
+    void loadTemplates();
+  }, []);
+  useEffect(() => {
+    if (!setupReady) return;
+    let active = true;
+    void apiClient<BusinessProfileData & { isEmpty?: boolean }>('/landing-pages/business-profile')
+      .then((profile) => {
+        if (!active) return;
+        setBizProfile(profile);
+        if (profile.isEmpty || !allowProfileAutofill.current) return;
+        allowProfileAutofill.current = false;
+        const supplied = profileFields(profile);
+        setFields(
+          (previous) =>
+            Object.fromEntries(
+              Object.entries(previous).map(([key, value]) => [
+                key,
+                value || supplied[key as keyof LandingPageAiFormFields] || '',
+              ]),
+            ) as LandingPageAiFormFields,
+        );
+        setSourceUrl((previous) => previous || profile.website || '');
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [setupReady, storageKey]);
+
+  // Editing a reviewed brief invalidates confirmation of the prior preview.
+  useEffect(() => {
+    if (!setupReady || lastBriefFingerprint.current === currentFingerprint) return;
+    lastBriefFingerprint.current = currentFingerprint;
+    setAiPreview(null);
+    setPreviewFingerprint('');
+    setPreviewOpen(false);
+  }, [setupReady, currentFingerprint]);
+  const aiReady = Boolean(
+    fields.productService.trim() && fields.brandName.trim() && fields.targetCustomer.trim(),
+  );
 
   async function analyzeUrl() {
-    const url = sourceUrl.trim();
-    if (!/^https?:\/\//i.test(url)) {
-      setError('URL phải bắt đầu bằng http:// hoặc https://');
-      return;
-    }
     setCrawling(true);
     setError(null);
-    setUrlSummary(null);
     try {
-      const res = await apiClient<{ summary: NonNullable<typeof urlSummary> }>('/landing-pages/crawl-url', {
-        method: 'POST',
-        body: JSON.stringify({ url }),
-      });
-      setUrlSummary(res.summary);
-      if (res.summary.brand && !brandName.trim()) setBrandName(res.summary.brand);
-      if (res.summary.productService && !productService.trim()) {
-        setProductService(res.summary.productService);
-      }
-      if (res.summary.usp) setExtraNotes(res.summary.usp);
-      setNote('Đã phân tích URL — xem tóm tắt bên dưới, rồi Generate.');
-    } catch (e) {
+      const result = await apiClient<{ summary: LandingPageUrlSummary }>(
+        '/landing-pages/crawl-url',
+        { method: 'POST', body: JSON.stringify({ url: sourceUrl.trim() }) },
+      );
+      setUrlSummary(result.summary);
+      applyUrlSummary(result.summary, false);
+      setNote('Đã điền thông tin từ website. Kiểm tra và chỉnh sửa các ô bên dưới trước khi tạo.');
+    } catch (failure) {
       setUrlSummary(null);
-      setError(e instanceof Error ? e.message : 'Không phân tích được URL (SSRF/timeout/invalid)');
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'Không đọc được website. Bạn có thể nhập thông tin thủ công.',
+      );
     } finally {
       setCrawling(false);
     }
   }
+  function applyUrlSummary(summary: LandingPageUrlSummary, replace: boolean) {
+    const values: Partial<LandingPageAiFormFields> = {
+      brandName: summary.brand || '',
+      productService: (summary.productService || '').slice(0, 200),
+      uspBenefits: summary.usp || '',
+      ctaLabel: summary.cta || '',
+      imageUrl: summary.imageUrl || '',
+      logoUrl: summary.logoUrl || '',
+      contactPhone: summary.contact?.phone || '',
+      contactEmail: summary.contact?.email || '',
+      contactAddress: summary.contact?.address || '',
+    };
+    setFields((previous) => ({
+      ...previous,
+      ...Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          replace ? value : previous[key as keyof LandingPageAiFormFields] || value,
+        ]),
+      ),
+    }));
+  }
 
-  const filteredTemplates = templates.filter((tpl) => {
-    if (!tplFilter.trim()) return true;
-    const q = tplFilter.toLowerCase();
-    return (
-      tpl.name.toLowerCase().includes(q) ||
-      tpl.category.toLowerCase().includes(q) ||
-      tpl.theme.toLowerCase().includes(q)
-    );
-  });
-
-  async function previewAi(opts: {
-    productService: string;
-    brandName: string;
-    targetCustomer: string;
-    pageGoal: PageGoal;
-    extraNotes?: string;
-    sourceUrl?: string;
-  }) {
-    if (submitLock.current) return;
+  async function previewAi(forceNew = false) {
+    if (submitLock.current || !aiReady || !setupReady) return;
     submitLock.current = true;
     setBusy(true);
+    setPhase('previewing');
     setError(null);
     setNote(null);
     setAiPreview(null);
-    setPhase('previewing');
+    const brief = landingPageCreateBrief({ fields, pageGoal, tone, sourceUrl, useBizProfile });
+    const fingerprint = JSON.stringify(brief);
+    if (forceNew || generateRequest.current?.fingerprint !== fingerprint)
+      generateRequest.current = { fingerprint, key: requestKey('lp-ai-preview') };
     try {
-      const gen = await apiClient<{
-        copy: LandingPageAiCopy;
-        source: string;
-        warning?: string;
-        page?: { id: string };
-      }>('/landing-pages/generate', {
-        method: 'POST',
-        body: JSON.stringify({
-          productService: opts.productService,
-          brandName: opts.brandName,
-          targetCustomer: opts.targetCustomer,
-          pageGoal: opts.pageGoal,
-          tone,
-          extraNotes: [opts.extraNotes, ctaHint.trim() ? `CTA: ${ctaHint.trim()}` : '']
-            .filter(Boolean)
-            .join('\n') || undefined,
-          sourceUrl: opts.sourceUrl || undefined,
-          // Preview: no landingPageId — do not create/overwrite draft yet
-          useBusinessProfile: useBizProfile,
-          businessType: opts.productService,
-          offer: opts.extraNotes?.slice(0, 200),
-        }),
-      });
-      if (gen.page?.id) {
-        setError('Preview không được ghi draft — thử lại.');
-        setPhase('idle');
-        return;
-      }
-      setAiPreview({ copy: gen.copy, source: gen.source, warning: gen.warning });
-      setNote(gen.warning || `Preview sẵn (${gen.source}) — xác nhận rồi tạo bản nháp.`);
-      setPhase('idle');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Preview AI thất bại');
-      setPhase('idle');
+      const result = await apiClient<Omit<AiPreview, 'name'> & { page?: { id: string } }>(
+        '/landing-pages/generate',
+        {
+          method: 'POST',
+          body: JSON.stringify({ ...brief, idempotencyKey: generateRequest.current!.key }),
+        },
+      );
+      if (
+        result.page?.id ||
+        !result.draftSpec?.blocks?.length ||
+        !result.draftSpec.meta?.aiGenerationId
+      )
+        throw new Error('Bản xem trước chưa hợp lệ. Vui lòng thử lại.');
+      setAiPreview({ ...result, name: (fields.brandName || fields.productService).slice(0, 120) });
+      setPreviewFingerprint(fingerprint);
+      setViewport('desktop');
+      setPreviewOpen(true);
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'Chưa tạo được bản xem trước. Vui lòng thử lại.',
+      );
     } finally {
       setBusy(false);
+      setPhase('idle');
       submitLock.current = false;
     }
   }
-
   async function createDraftFromPreview() {
-    if (!aiPreview || submitLock.current) return;
+    if (
+      !aiPreview ||
+      submitLock.current ||
+      !setupReady ||
+      previewFingerprint !== currentFingerprint
+    )
+      return;
     submitLock.current = true;
     setBusy(true);
-    setError(null);
     setPhase('creating');
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `lp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setError(null);
     try {
-      const pageName =
-        (brandName || productService || aiPreview.copy.seoTitle || 'Landing Page mới').slice(0, 120);
-      const page = await apiClient<{ id: string }>('/landing-pages', {
-        method: 'POST',
-        body: JSON.stringify({ name: pageName, idempotencyKey }),
-      });
-      setPhase('generating');
-      const draftSpec = markLandingPageAiSources(
-        applyLandingPageAiCopyToSpec(createEmptyLandingPageSpec(), aiPreview.copy),
+      // Persist the exact server preview in ONE create, with a stable retry key.
+      const page = await apiClient<{ id: string; name: string; draftSpec: AiPreview['draftSpec'] }>(
+        '/landing-pages',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: aiPreview.name,
+            draftSpec: aiPreview.draftSpec,
+            idempotencyKey: `lp-ai-draft-${aiPreview.draftSpec.meta!.aiGenerationId}`,
+          }),
+        },
       );
-      await apiClient(`/landing-pages/${page.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          draftSpec,
-          name: pageName,
-          seoTitle: draftSpec.seo.title.slice(0, 200),
-          seoDescription: draftSpec.seo.metaDescription.slice(0, 500),
-        }),
+      if (
+        !page.id ||
+        page.draftSpec?.meta?.aiGenerationId !== aiPreview.draftSpec.meta?.aiGenerationId
+      )
+        throw new Error('Máy chủ chưa xác nhận lưu đúng bản thiết kế. Vui lòng thử lưu lại.');
+      setCreatedPage({
+        id: page.id,
+        name: page.name || aiPreview.name,
+        generationId: aiPreview.draftSpec.meta!.aiGenerationId,
       });
-      setPhase('done');
-      setNote('Đã tạo bản nháp (chưa Publish) — mở Builder.');
-      router.push(`/landing-pages/builder/${page.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Tạo bản nháp thất bại');
-      setPhase('idle');
+      setNote('Đã lưu Landing Page vào Trang của tôi.');
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : 'Tạo bản nháp thất bại. Có thể thử lại với bản xem trước hiện tại.',
+      );
+      setPreviewOpen(true);
+    } finally {
       setBusy(false);
+      setPhase('idle');
       submitLock.current = false;
     }
   }
-
-  async function createBlankDraft() {
+  async function openLive() {
+    if (!createdPage || busy || !setupReady) return;
+    persistSetup();
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    setBusy(true);
+    setPhase('viewing');
+    setError(null);
+    try {
+      const result = await apiClient<{ previewPath: string }>(
+        `/landing-pages/${encodeURIComponent(createdPage.id)}/preview-token`,
+        { method: 'POST' },
+      );
+      const url = new URL(result.previewPath, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith('/p/preview/'))
+        throw new Error('Chưa nhận được link xem trang hợp lệ.');
+      if (tab && !tab.closed) tab.location.replace(url.href);
+      else window.location.assign(url.href);
+    } catch (failure) {
+      tab?.close();
+      setError(
+        failure instanceof Error ? failure.message : 'Chưa mở được trang. Vui lòng thử lại.',
+      );
+    } finally {
+      setBusy(false);
+      setPhase('idle');
+    }
+  }
+  async function createSimpleDraft(slug?: string) {
     if (submitLock.current) return;
     submitLock.current = true;
     setBusy(true);
-    setError(null);
     setPhase('creating');
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `lp-blank-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setError(null);
+    const name = slug
+      ? templates.find((template) => template.slug === slug)?.name || 'Landing Page mới'
+      : blankName.trim() || 'Landing Page mới';
+    const body = { name: name.slice(0, 120), ...(slug ? { templateSlug: slug } : {}) };
+    const fingerprint = JSON.stringify(body);
+    const key =
+      retryCreate?.fingerprint === fingerprint ? retryCreate.key : requestKey('lp-create');
+    setRetryCreate({ fingerprint, key });
     try {
       const page = await apiClient<{ id: string }>('/landing-pages', {
         method: 'POST',
-        body: JSON.stringify({
-          name: (blankName.trim() || 'Landing Page mới').slice(0, 120),
-          idempotencyKey,
-        }),
+        body: JSON.stringify({ ...body, idempotencyKey: key }),
       });
-      setPhase('done');
       router.push(`/landing-pages/builder/${page.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Tạo trang trống thất bại');
-      setPhase('idle');
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'Chưa tạo được bản nháp. Vui lòng thử lại.',
+      );
       setBusy(false);
-      submitLock.current = false;
-    }
-  }
-
-  /** @deprecated kept for URL path that already has summary — still goes preview-first */
-  async function runAiCreate(opts: {
-    productService: string;
-    brandName: string;
-    targetCustomer: string;
-    pageGoal: PageGoal;
-    extraNotes?: string;
-    sourceUrl?: string;
-  }) {
-    await previewAi(opts);
-  }
-
-  async function createFromTemplate() {
-    if (submitLock.current || !templateSlug) return;
-    submitLock.current = true;
-    setBusy(true);
-    setError(null);
-    setPhase('creating');
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `lp-tpl-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    try {
-      const tpl = templates.find((x) => x.slug === templateSlug);
-      const page = await apiClient<{ id: string }>('/landing-pages', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: tpl?.name || 'Landing Page mới',
-          templateSlug,
-          idempotencyKey,
-        }),
-      });
-      setPhase('done');
-      router.push(`/landing-pages/builder/${page.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Tạo từ template thất bại');
       setPhase('idle');
-      setBusy(false);
       submitLock.current = false;
     }
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div
+      className={
+        mode === 'template'
+          ? 'w-full min-w-0 max-w-none pb-40'
+          : `mx-auto w-full max-w-4xl ${mode === 'ai' || mode === 'url' ? 'pb-24' : ''}`
+      }
+    >
       <PageHeader
         title={t('landingPages.create')}
-        description="AI · Template · URL · Trang trống → Preview → Tạo bản nháp → Builder."
+        description="Chọn cách bắt đầu, xem trước giao diện rồi xác nhận tạo bản nháp để chỉnh sửa trong Builder."
       />
-
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-lp-create-modes>
-        {MODES.map((m) => {
-          const Icon = m.icon;
-          const active = mode === m.id;
+        {MODES.map((item) => {
+          const Icon = item.icon;
+          const active = mode === item.id;
           return (
             <button
-              key={m.id}
+              key={item.id}
               type="button"
-              disabled={busy}
+              disabled={busy || crawling || !setupReady}
               onClick={() => {
-                setMode(m.id);
+                setMode(item.id);
                 setError(null);
-                setAiPreview(null);
+                setNote(null);
+                setPreviewOpen(false);
               }}
-              className={`rounded-xl border p-4 text-left transition ${
-                active
-                  ? 'border-orange-400/60 bg-white/10 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]'
-                  : 'border-white/10 bg-black/20 hover:border-white/25'
-              } ${busy ? 'opacity-60' : ''}`}
+              className={`rounded-xl border p-4 text-left transition ${active ? 'border-orange-400/60 bg-white/10' : 'border-white/10 bg-black/20 hover:border-white/25'}`}
             >
               <Icon className={`mb-2 h-5 w-5 ${active ? 'text-orange-400' : 'opacity-70'}`} />
-              <div className="text-sm font-semibold">{m.title}</div>
-              <p className="mt-1 text-xs leading-relaxed opacity-65">{m.desc}</p>
+              <div className="text-sm font-semibold">{item.title}</div>
+              <p className="mt-1 text-xs leading-relaxed opacity-65">{item.desc}</p>
             </button>
           );
         })}
       </div>
 
-      {mode === 'ai' ? (
-        <section className="space-y-4 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-5 sm:p-6">
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-orange-500/15 p-2">
-              <Sparkles className="h-4 w-4 text-orange-400" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-base font-semibold">Tạo Landing Page bằng AI</h2>
-              <p className="mt-0.5 text-sm opacity-65">
-                Preview trước → tạo bản nháp (không Publish) → mở Builder.
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || !bizProfile || bizProfile.isEmpty}
-                  onClick={fillFromBusinessProfile}
-                >
-                  ✨ Dùng thông tin doanh nghiệp
-                </Button>
-                <label className="flex items-center gap-1.5 text-xs opacity-70">
-                  <input
-                    type="checkbox"
-                    checked={useBizProfile}
-                    onChange={(e) => setUseBizProfile(e.target.checked)}
-                    disabled={busy}
-                  />
-                  Gắn Business Profile vào AI
-                </label>
-                {bizProfile && !bizProfile.isEmpty ? (
-                  <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-200">
-                    Có Business Profile
-                  </span>
-                ) : (
-                  <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] opacity-60">
-                    Profile trống / thiếu
-                  </span>
-                )}
-              </div>
-            </div>
+      {mode === 'ai' || mode === 'url' ? (
+        <section
+          onChangeCapture={() => {
+            allowProfileAutofill.current = false;
+          }}
+          className="space-y-5 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-5 sm:p-6"
+        >
+          <div>
+            <h2 className="text-lg font-semibold">
+              {mode === 'url' ? 'Tạo từ Website / URL' : 'Tạo Landing Page bằng AI'}
+            </h2>
+            <p className="mt-1 text-sm opacity-65">
+              Thông tin càng cụ thể, nội dung càng sát nhu cầu. Chỉ tạo bản nháp sau khi bạn xác
+              nhận; không tự xuất bản.
+            </p>
           </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Label>Sản phẩm / dịch vụ là gì?</Label>
-              <Input
-                className="mt-1"
-                placeholder="VD: Dịch vụ SEO tổng thể cho doanh nghiệp"
-                value={productService}
-                onChange={(e) => setProductService(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-            <div>
-              <Label>Tên thương hiệu</Label>
-              <Input
-                className="mt-1"
-                placeholder="VD: Ai Bee Go"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-            <div>
-              <Label>Khách hàng mục tiêu</Label>
-              <Input
-                className="mt-1"
-                placeholder="VD: Chủ spa muốn tăng booking"
-                value={targetCustomer}
-                onChange={(e) => setTargetCustomer(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Mục tiêu trang</Label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PAGE_GOALS.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setPageGoal(g.value)}
-                    className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-                      pageGoal === g.value
-                        ? 'border-orange-400/50 bg-orange-500/15'
-                        : 'border-white/10 hover:border-white/25'
-                    }`}
-                  >
-                    <div className="font-medium">{g.label}</div>
-                    <div className="text-[11px] opacity-55">{g.hint}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="sm:col-span-2">
-              <Label>CTA mong muốn (tuỳ chọn)</Label>
-              <Input
-                className="mt-1"
-                placeholder="VD: Đăng ký tư vấn miễn phí"
-                value={ctaHint}
-                onChange={(e) => setCtaHint(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Tone</Label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {TONES.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setTone(g.value)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm ${
-                      tone === g.value
-                        ? 'border-orange-400/50 bg-orange-500/15'
-                        : 'border-white/10 hover:border-white/25'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="text-xs opacity-60 underline-offset-2 hover:underline"
-            onClick={() => setShowAdvanced((v) => !v)}
-            disabled={busy}
-          >
-            {showAdvanced ? 'Ẩn thông tin bổ sung' : 'Thêm ghi chú hoặc URL (tuỳ chọn)'}
-          </button>
-
-          {showAdvanced ? (
-            <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-3">
-              <div>
-                <Label>Thông tin bổ sung</Label>
-                <Textarea
-                  className="mt-1"
-                  rows={3}
-                  placeholder="USP, ưu đãi, đối thủ…"
-                  value={extraNotes}
-                  onChange={(e) => setExtraNotes(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-              <div>
-                <Label>URL tham khảo (tuỳ chọn)</Label>
-                <Input
-                  className="mt-1"
-                  placeholder="https://…"
-                  value={sourceUrl}
-                  onChange={(e) => setSourceUrl(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {aiPreview ? (
-            <div
-              className="space-y-2 rounded-xl border border-orange-400/30 bg-orange-500/10 p-4 text-sm"
-              data-lp-create-preview
-            >
-              <div className="font-semibold text-orange-100">Preview AI (chưa tạo draft)</div>
-              <p>
-                <span className="opacity-60">Headline:</span> {aiPreview.copy.headline}
-              </p>
-              <p>
-                <span className="opacity-60">Sub:</span> {aiPreview.copy.subheadline}
-              </p>
-              <p>
-                <span className="opacity-60">CTA:</span> {aiPreview.copy.cta}
-              </p>
-              {aiPreview.copy.benefits?.length ? (
-                <ul className="list-disc pl-5 opacity-90">
-                  {aiPreview.copy.benefits.slice(0, 4).map((b) => (
-                    <li key={b}>{b}</li>
-                  ))}
-                </ul>
-              ) : null}
-              <p className="text-xs opacity-55">Nguồn: {aiPreview.source} · không tự Publish</p>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              className="sm:w-auto"
-              size="lg"
-              disabled={busy || !aiReady}
-              data-lp-create-preview-btn
-              onClick={() =>
-                void previewAi({
-                  productService: productService.trim(),
-                  brandName: brandName.trim(),
-                  targetCustomer: targetCustomer.trim(),
-                  pageGoal,
-                  extraNotes: extraNotes.trim() || undefined,
-                  sourceUrl: sourceUrl.trim() || undefined,
-                })
-              }
-            >
-              {busy && phase === 'previewing' ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang tạo preview…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Xem trước AI
-                </>
-              )}
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              disabled={busy || !aiPreview}
-              data-lp-create-draft-btn
-              onClick={() => void createDraftFromPreview()}
-            >
-              {busy && (phase === 'creating' || phase === 'generating') ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang tạo bản nháp…
-                </>
-              ) : (
-                <>
-                  Tạo bản nháp → Builder
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </div>
-        </section>
-      ) : null}
-
-      {mode === 'url' ? (
-        <section className="space-y-4 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-5 sm:p-6">
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-sky-500/15 p-2">
-              <Globe2 className="h-4 w-4 text-sky-300" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">Tạo từ Website / URL</h2>
-              <p className="mt-0.5 text-sm opacity-65">
-                Dán URL công khai. Hệ thống đọc an toàn (SSRF-safe) rồi AI dựng landing page.
-              </p>
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Label>URL website</Label>
-              <Input
-                className="mt-1"
-                placeholder="https://example.com"
-                value={sourceUrl}
-                onChange={(e) => {
-                  setSourceUrl(e.target.value);
-                  setUrlSummary(null);
-                }}
-                disabled={busy || crawling}
-              />
-            </div>
-            <div>
-              <Label>Tên thương hiệu (tuỳ chọn)</Label>
-              <Input
-                className="mt-1"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                disabled={busy || crawling}
-              />
-            </div>
-            <div>
-              <Label>Khách hàng mục tiêu</Label>
-              <Input
-                className="mt-1"
-                placeholder="Ai sẽ vào trang này?"
-                value={targetCustomer}
-                onChange={(e) => setTargetCustomer(e.target.value)}
-                disabled={busy || crawling}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Mục tiêu trang</Label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PAGE_GOALS.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    disabled={busy || crawling}
-                    onClick={() => setPageGoal(g.value)}
-                    className={`rounded-lg border px-3 py-1.5 text-sm ${
-                      pageGoal === g.value
-                        ? 'border-sky-400/50 bg-sky-500/15'
-                        : 'border-white/10'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
+              size="sm"
               variant="outline"
-              disabled={busy || crawling || !/^https?:\/\//i.test(sourceUrl.trim())}
-              onClick={() => void analyzeUrl()}
-            >
-              {crawling ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang phân tích URL…
-                </>
-              ) : (
-                'Phân tích URL'
-              )}
-            </Button>
-          </div>
-
-          {urlSummary ? (
-            <div className="space-y-2 rounded-xl border border-sky-400/30 bg-sky-500/10 p-4 text-sm">
-              <div className="font-semibold text-sky-100">Tóm tắt từ website (xem trước Generate)</div>
-              <p>
-                <span className="opacity-60">Title:</span> {urlSummary.title}
-              </p>
-              {urlSummary.brand ? (
-                <p>
-                  <span className="opacity-60">Brand:</span> {urlSummary.brand}
-                </p>
-              ) : null}
-              {urlSummary.description ? (
-                <p className="opacity-90">{urlSummary.description}</p>
-              ) : null}
-              {urlSummary.usp ? (
-                <p>
-                  <span className="opacity-60">USP:</span> {urlSummary.usp}
-                </p>
-              ) : null}
-              {urlSummary.benefits && urlSummary.benefits.length ? (
-                <ul className="list-disc pl-5 opacity-90">
-                  {urlSummary.benefits.slice(0, 5).map((b) => (
-                    <li key={b}>{b}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {urlSummary.cta ? (
-                <p>
-                  <span className="opacity-60">CTA:</span> {urlSummary.cta}
-                </p>
-              ) : null}
-              {(urlSummary.contact?.phone || urlSummary.contact?.email) && (
-                <p className="opacity-80">
-                  Contact: {[urlSummary.contact.phone, urlSummary.contact.email].filter(Boolean).join(' · ')}
-                </p>
-              )}
-              {urlSummary.faq && urlSummary.faq.length ? (
-                <p className="opacity-70">FAQ phát hiện: {urlSummary.faq.length} mục</p>
-              ) : null}
-              {(urlSummary.logoUrl || urlSummary.imageUrl) && (
-                <p className="truncate text-xs opacity-60">
-                  Ảnh: {urlSummary.logoUrl || urlSummary.imageUrl}
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs opacity-55">
-              Bắt buộc Phân tích URL trước khi Generate — chỉ lấy dữ liệu public, SSRF-safe.
-            </p>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="lg"
-              disabled={busy || crawling || !urlReady || !urlSummary}
-              data-lp-create-preview-btn
+              disabled={busy || !setupReady || !bizProfile || bizProfile.isEmpty}
               onClick={() => {
-                const host = (() => {
-                  try {
-                    return new URL(sourceUrl.trim()).hostname.replace(/^www\./, '');
-                  } catch {
-                    return 'Website';
-                  }
-                })();
-                const notesFromSummary = [
-                  urlSummary?.description,
-                  urlSummary?.benefits?.length
-                    ? `Benefits: ${urlSummary.benefits.join('; ')}`
-                    : '',
-                  urlSummary?.cta ? `CTA: ${urlSummary.cta}` : '',
-                  extraNotes.trim(),
-                ]
-                  .filter(Boolean)
-                  .join('\n');
-                void previewAi({
-                  productService:
-                    productService.trim() ||
-                    urlSummary?.productService ||
-                    brandName.trim() ||
-                    host,
-                  brandName: brandName.trim() || urlSummary?.brand || host,
-                  targetCustomer: targetCustomer.trim(),
-                  pageGoal,
-                  sourceUrl: sourceUrl.trim(),
-                  extraNotes: notesFromSummary || undefined,
-                });
+                if (bizProfile) {
+                  setFields((previous) => ({ ...previous, ...profileFields(bizProfile) }));
+                  setUseBizProfile(true);
+                }
               }}
             >
-              {busy && phase === 'previewing' ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang Preview…
-                </>
-              ) : (
-                <>
-                  Xem trước từ URL
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
+              Dùng thông tin doanh nghiệp
             </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              disabled={busy || !aiPreview}
-              data-lp-create-draft-btn
-              onClick={() => void createDraftFromPreview()}
-            >
-              Tạo bản nháp → Builder
-            </Button>
+            <label className="flex items-center gap-2 text-xs opacity-70">
+              <input
+                type="checkbox"
+                checked={useBizProfile}
+                disabled={busy || !setupReady}
+                onChange={(event) => setUseBizProfile(event.target.checked)}
+              />
+              Sử dụng Business Profile
+            </label>
           </div>
-          {aiPreview && mode === 'url' ? (
-            <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 p-3 text-sm" data-lp-create-preview>
-              <div className="font-semibold">Preview: {aiPreview.copy.headline}</div>
-              <p className="opacity-80">{aiPreview.copy.subheadline}</p>
-              <p className="text-xs opacity-55">CTA: {aiPreview.copy.cta}</p>
+          <div className="rounded-xl border border-white/10 bg-black/10 p-4">
+            <Label htmlFor="lp-ai-source-url">
+              Website tham khảo {mode === 'ai' ? '(tuỳ chọn)' : ''}
+            </Label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="lp-ai-source-url"
+                placeholder="https://…"
+                value={sourceUrl}
+                disabled={busy || crawling || !setupReady}
+                onChange={(event) => {
+                  setSourceUrl(event.target.value);
+                  setUrlSummary(null);
+                }}
+              />
+              <Button
+                variant="outline"
+                disabled={
+                  busy || crawling || !setupReady || !/^https?:\/\//i.test(sourceUrl.trim())
+                }
+                onClick={() => void analyzeUrl()}
+              >
+                {crawling ? 'Đang đọc website…' : 'Phân tích URL'}
+              </Button>
             </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {mode === 'blank' ? (
-        <section className="space-y-4 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-5 sm:p-6" data-lp-create-blank>
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-white/10 p-2">
-              <FilePlus2 className="h-4 w-4 opacity-80" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold">Trang trống</h2>
-              <p className="mt-0.5 text-sm opacity-65">
-                Tạo draft rỗng — thêm section trong Builder. Không gọi AI, không Publish.
+            {urlSummary ? (
+              <div className="mt-3 space-y-2 text-xs opacity-75">
+                <p>
+                  Đã đọc: {urlSummary.title}. Dữ liệu đã điền vào các ô bên dưới để bạn kiểm tra.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy || !setupReady}
+                  onClick={() => applyUrlSummary(urlSummary, true)}
+                >
+                  Điền lại thông tin từ website
+                </Button>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs opacity-55">
+                Bấm Phân tích URL để lấy thông tin công khai; bạn có thể sửa mọi dữ liệu trước khi
+                tạo.
               </p>
+            )}
+          </div>
+          <LandingPageAiBriefFields
+            value={fields}
+            onChange={setFields}
+            disabled={busy || crawling || !setupReady}
+            pageGoal={pageGoal}
+          />
+          <div>
+            <Label>Mục tiêu trang</Label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {PAGE_GOALS.map((goal) => (
+                <Button
+                  key={goal.value}
+                  size="sm"
+                  variant={pageGoal === goal.value ? 'default' : 'outline'}
+                  disabled={busy || !setupReady}
+                  onClick={() => setPageGoal(goal.value)}
+                >
+                  {goal.label}
+                </Button>
+              ))}
             </div>
           </div>
           <div>
-            <Label>Tên trang</Label>
-            <Input
-              className="mt-1"
-              value={blankName}
-              onChange={(e) => setBlankName(e.target.value)}
-              disabled={busy}
-            />
+            <Label htmlFor="lp-ai-tone">Giọng văn</Label>
+            <select
+              id="lp-ai-tone"
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={tone}
+              disabled={busy || !setupReady}
+              onChange={(event) => setTone(event.target.value)}
+            >
+              <option value="professional">Chuyên nghiệp, dễ hiểu</option>
+              <option value="friendly">Gần gũi</option>
+              <option value="bold">Ngắn gọn, trực tiếp</option>
+            </select>
           </div>
-          <Button size="lg" disabled={busy} data-lp-create-draft-btn onClick={() => void createBlankDraft()}>
-            {busy ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Đang tạo…
-              </>
-            ) : (
-              <>
-                Tạo bản nháp → Builder
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </>
-            )}
-          </Button>
+          {aiPreview ? (
+            <div
+              className="space-y-3 rounded-xl border border-orange-400/30 bg-orange-500/10 p-4 text-sm"
+              data-lp-create-preview
+            >
+              <div className="font-semibold">
+                {aiPreview.source === 'ai'
+                  ? 'Bản thiết kế với nội dung AI'
+                  : 'Bản nháp từ mẫu phù hợp'}
+              </div>
+              {aiPreview.warning ? (
+                <p role="alert" className="text-amber-100">
+                  {aiPreview.warning.replace(
+                    'chọn Tạo lại nội dung',
+                    'bấm Tạo landing Page để thử lại AI',
+                  )}
+                </p>
+              ) : null}
+              <p className="opacity-75">
+                {aiPreview.draftSpec.blocks.filter((block) => block.enabled).length} section · Mẫu:{' '}
+                {templates.find(
+                  (template) => template.slug === aiPreview.templateSelection.templateSlug,
+                )?.name || aiPreview.templateSelection.category}
+              </p>
+              <p className="text-xs opacity-65">
+                Bản xem trước và bản nháp sử dụng cùng một thiết kế. Bạn có thể chỉnh sửa mọi
+                section trong Builder.
+              </p>
+            </div>
+          ) : null}
+          {createdPage ? (
+            <div
+              className="space-y-2 rounded-xl border border-emerald-300/20 bg-emerald-400/5 p-4 text-sm"
+              data-lp-created-page
+            >
+              <p>
+                Đã lưu vào Trang của tôi: <strong>{createdPage.name}</strong>
+              </p>
+              <p className="text-xs opacity-70">
+                Xem live mở trang này ở tab mới. Trang chưa xuất bản sử dụng link xem trước riêng.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <Link
+                  className="inline-block text-orange-300 underline underline-offset-4"
+                  href="/landing-pages/pages"
+                >
+                  Mở Trang của tôi
+                </Link>
+                <Link
+                  className="inline-block text-orange-300 underline underline-offset-4"
+                  href={`/landing-pages/builder/${createdPage.id}`}
+                >
+                  Chỉnh sửa trong Builder
+                </Link>
+              </div>
+            </div>
+          ) : null}
+          {error ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200"
+            >
+              {error}
+            </p>
+          ) : null}
+          {storageWarning ? (
+            <p role="alert" className="text-sm text-amber-100">
+              {storageWarning}
+            </p>
+          ) : null}
+          <div
+            className={actionStyles.bar}
+            data-lp-create-actions
+            data-lp-setup-ready={setupReady ? '1' : '0'}
+          >
+            <div className={actionStyles.inner}>
+              <div className={actionStyles.buttons}>
+                <Button
+                  size="lg"
+                  className={actionStyles.button}
+                  disabled={busy || crawling || !aiReady || !setupReady}
+                  data-lp-create-preview-btn
+                  onClick={() => {
+                    if (aiPreview?.source === 'fallback') void previewAi(true);
+                    else if (aiPreview) setPreviewOpen(true);
+                    else void previewAi();
+                  }}
+                >
+                  {phase === 'previewing' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Đang tạo…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      Tạo landing Page
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className={actionStyles.button}
+                  disabled={busy || crawling || !createdPage || !setupReady}
+                  data-lp-create-live-btn
+                  onClick={() => void openLive()}
+                >
+                  {phase === 'viewing' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}{' '}
+                  {phase === 'viewing' ? 'Đang mở…' : 'Xem live'}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className={actionStyles.button}
+                  disabled={busy || crawling || !setupReady}
+                  data-lp-create-reset-btn
+                  onClick={() => setResetOpen(true)}
+                >
+                  <RotateCcw className="h-4 w-4" /> Làm mới
+                </Button>
+              </div>
+            </div>
+          </div>
         </section>
       ) : null}
 
       {mode === 'template' ? (
-        <section className="space-y-4 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent p-5 sm:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold">Chọn Template</h2>
-              <p className="mt-0.5 text-sm opacity-65">Chọn mẫu rồi mở Builder để chỉnh.</p>
-            </div>
-            <Input
-              className="max-w-xs"
-              placeholder="Lọc theo tên / ngành…"
-              value={tplFilter}
-              onChange={(e) => setTplFilter(e.target.value)}
-              disabled={busy}
-            />
-          </div>
-          <div className="grid max-h-[420px] gap-2 overflow-y-auto sm:grid-cols-2">
-            {filteredTemplates.map((tpl) => {
-              const active = templateSlug === tpl.slug;
-              return (
-                <button
-                  key={tpl.id}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setTemplateSlug(tpl.slug)}
-                  className={`rounded-xl border p-3 text-left transition ${
-                    active
-                      ? 'border-orange-400/50 bg-orange-500/10'
-                      : 'border-white/10 hover:border-white/25'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">{tpl.name}</span>
-                    {active ? <CheckCircle2 className="h-4 w-4 text-orange-400" /> : null}
-                  </div>
-                  <div className="mt-1 text-[11px] uppercase opacity-50">
-                    {tpl.category} · {tpl.theme}
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs opacity-65">{tpl.description}</p>
-                </button>
-              );
-            })}
-          </div>
-          {!filteredTemplates.length ? (
-            <p className="text-sm opacity-60">Không có template khớp bộ lọc.</p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button size="lg" disabled={busy || !templateSlug} onClick={() => void createFromTemplate()}>
-              {busy ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Đang tạo…
-                </>
-              ) : (
-                'Dùng template này'
-              )}
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/landing-pages/templates">Xem tất cả templates</Link>
-            </Button>
-          </div>
+        <LandingPageTemplatePicker
+          templates={templates}
+          loading={templatesLoading}
+          loadError={templatesError}
+          actionError={error}
+          selectedSlug={templateSlug}
+          busy={busy}
+          onSelect={setTemplateSlug}
+          onUse={(slug) => void createSimpleDraft(slug)}
+          onRetry={() => void loadTemplates()}
+        />
+      ) : null}
+      {mode === 'blank' ? (
+        <section className="space-y-4 rounded-2xl border border-white/10 p-6" data-lp-create-blank>
+          <h2 className="text-lg font-semibold">Trang trống</h2>
+          <Label htmlFor="lp-blank-name">Tên trang</Label>
+          <Input
+            id="lp-blank-name"
+            value={blankName}
+            disabled={busy}
+            onChange={(event) => setBlankName(event.target.value)}
+          />
+          <Button disabled={busy || !blankName.trim()} onClick={() => void createSimpleDraft()}>
+            Tạo bản nháp → Builder
+          </Button>
         </section>
       ) : null}
-
-      {busy ? (
-        <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm">
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
-            <span>
-              {phase === 'previewing' && 'AI đang tạo preview (chưa ghi draft)…'}
-              {phase === 'creating' && 'Đang tạo bản nháp…'}
-              {phase === 'generating' && 'Đang ghi copy vào draft…'}
-              {phase === 'done' && 'Xong — chuyển vào Builder…'}
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {error ? (
-        <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+      {mode === 'blank' && error ? (
+        <p role="alert" className="mt-3 text-sm text-red-200">
           {error}
         </p>
       ) : null}
-      {note ? <p className="mt-2 text-xs opacity-60">{note}</p> : null}
+      {note ? (
+        <p className="mt-3 text-xs opacity-70" role="status">
+          {note}
+        </p>
+      ) : null}
+      {previewOpen && aiPreview ? (
+        <TemplateFullscreenPreview
+          open
+          title={aiPreview.name}
+          subtitle={
+            previewSaved
+              ? 'Đã lưu vào Trang của tôi'
+              : aiPreview.source === 'ai'
+                ? 'AI đã tạo nội dung · Chưa lưu vào Trang của tôi'
+                : 'Nội dung từ mẫu · Chưa lưu vào Trang của tôi'
+          }
+          spec={aiPreview.draftSpec}
+          loading={false}
+          viewport={viewport}
+          onViewportChange={setViewport}
+          onClose={() => setPreviewOpen(false)}
+          onUseTemplate={() => {
+            if (previewSaved) {
+              persistSetup();
+              router.push('/landing-pages/pages');
+            } else void createDraftFromPreview();
+          }}
+          using={busy}
+          actionError={error}
+          useLabel={
+            phase === 'creating'
+              ? 'Đang lưu…'
+              : previewSaved
+                ? 'Mở Trang của tôi'
+                : 'Lưu vào Trang của tôi'
+          }
+        />
+      ) : null}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Làm mới thiết lập?</DialogTitle>
+            <DialogDescription>
+              Xóa thông tin đã nhập và bản xem trước đang lưu trên trình duyệt này để bắt đầu lại.
+              Các Landing Page đã lưu trong hệ thống vẫn được giữ.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)}>
+              Giữ thông tin
+            </Button>
+            <Button onClick={resetSetup} disabled={busy || crawling}>
+              Làm mới thiết lập
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

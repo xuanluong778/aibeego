@@ -55,6 +55,8 @@ export type LpSidebarPresetPayload =
   | { kind: 'section-library-open' }
   /** Open Button Library modal — insert position resolved on drop / click. */
   | { kind: 'button-library-open' }
+  /** Open Form Library modal — insert position resolved on drop / click. */
+  | { kind: 'form-library-open' }
   /** Open right-rail picker (presets) after drop so user can click a template. */
   | {
       kind: 'add-picker-open';

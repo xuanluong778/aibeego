@@ -61,6 +61,10 @@ export class ListLandingPageTemplatesQueryDto {
 }
 
 export class CreateLandingPageDto {
+  /** Confirmed AI preview, saved atomically with the new draft. */
+  @IsOptional()
+  @IsObject()
+  draftSpec?: Record<string, unknown>;
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -194,7 +198,30 @@ export class UpsertCustomDomainDto {
   customDomain!: string;
 }
 
+export class SuggestLandingPageBriefDto {
+  @IsIn(['targetCustomer', 'painPoint', 'uspBenefits']) field!: 'targetCustomer' | 'painPoint' | 'uspBenefits';
+  @IsOptional() @IsString() @MaxLength(80) businessType?: string;
+  @IsOptional() @IsString() @MaxLength(120) brandName?: string;
+  @IsOptional() @IsString() @MaxLength(200) productService?: string;
+  @IsOptional() @IsString() @MaxLength(400) targetCustomer?: string;
+  @IsOptional() @IsString() @MaxLength(400) painPoint?: string;
+  @IsOptional() @IsString() @MaxLength(800) uspBenefits?: string;
+  @IsOptional() @IsIn(['lead', 'sales', 'signup', 'consult', 'event']) pageGoal?: string;
+  @IsString() @MinLength(1) @MaxLength(120) idempotencyKey!: string;
+}
+
 export class GenerateLandingPageAiDto {
+  @IsOptional() @IsString() @MaxLength(80) ctaLabel?: string;
+  @IsOptional() @IsString() @MaxLength(2000) ctaUrl?: string;
+  @IsOptional() @IsString() @MaxLength(2000) imageUrl?: string;
+  @IsOptional() @IsString() @MaxLength(2000) logoUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) brandColor?: string;
+  @IsOptional() @IsString() @MaxLength(400) guarantee?: string;
+  @IsOptional() @IsString() @MaxLength(40) contactPhone?: string;
+  @IsOptional() @IsString() @MaxLength(160) contactEmail?: string;
+  @IsOptional() @IsString() @MaxLength(300) contactAddress?: string;
+  /** The UI has already shown and let the user edit extracted/profile data. */
+  @IsOptional() @IsBoolean() sourceReviewed?: boolean;
   @IsString()
   @MinLength(1)
   @MaxLength(200)

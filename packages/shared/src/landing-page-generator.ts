@@ -56,6 +56,15 @@ export const landingPageAiBriefSchema = z.object({
   /** Offer / promotion — only when real (never invent %). */
   offer: z.string().max(200).optional().default(''),
   tone: z.enum(['professional', 'bold', 'friendly']).optional().default('professional'),
+  ctaLabel: z.string().max(80).optional().default(''),
+  ctaUrl: z.string().max(2000).optional().default(''),
+  imageUrl: z.string().max(2000).optional().default(''),
+  logoUrl: z.string().max(2000).optional().default(''),
+  brandColor: z.string().max(32).optional().default(''),
+  guarantee: z.string().max(400).optional().default(''),
+  contactPhone: z.string().max(40).optional().default(''),
+  contactEmail: z.string().max(160).optional().default(''),
+  contactAddress: z.string().max(300).optional().default(''),
 });
 
 export type LandingPageAiBrief = z.infer<typeof landingPageAiBriefSchema>;
@@ -123,17 +132,7 @@ export function extractJsonObject(text: string): unknown {
 }
 
 export function deriveLandingPageAiUsp(brief: LandingPageAiBrief): string {
-  const brand = brief.brandName?.trim();
-  const goal = LANDING_PAGE_AI_GOAL_LABELS[brief.pageGoal || 'lead'];
-  const notes = brief.extraNotes?.trim();
-  if (notes) return notes.slice(0, 800);
-  if (brand) {
-    return `${brand} — ${brief.productService} giúp ${brief.targetCustomer} đạt mục tiêu: ${goal}.`.slice(
-      0,
-      800,
-    );
-  }
-  return `${brief.productService} dành cho ${brief.targetCustomer} — ${goal}.`.slice(0, 800);
+  return `${brief.productService} dành cho ${brief.targetCustomer}.`.slice(0, 800);
 }
 
 /** Normalize brief: fill USP when AI-first create omits it. */
@@ -193,10 +192,7 @@ export function buildFallbackLandingPageAiCopy(brief: LandingPageAiBrief): Landi
     seoTitle: `${brand} | ${product}`.slice(0, 120),
     metaDescription: `${deep.usp} — ${deep.pricingCopy}`.slice(0, 320),
     theme: pickThemeForBrief(normalized),
-    footerBody: `© ${brand} — ${product}. Nội dung mang tính thông tin; không dùng đánh giá giả.`.slice(
-      0,
-      400,
-    ),
+    footerBody: `© ${brand} · ${product}`.slice(0, 400),
     leadFormHeadline: deep.leadFormHeadline,
     mode: 'fallback',
   };
@@ -250,9 +246,7 @@ export function applyLandingPageAiCopyToSpec(
     copy.usp,
     copy.pricingCopy,
   );
-  const guaranteeText =
-    copy.guarantee?.trim() ||
-    'Cam kết hỗ trợ nhanh — tư vấn rõ ràng, không phát sinh phí ẩn.';
+  const guaranteeText = copy.guarantee?.trim() || '';
   const leadHeadline = copy.leadFormHeadline?.trim() || 'Đăng ký nhận tư vấn';
   const footerBody =
     copy.footerBody?.trim() || `© ${copy.seoTitle.split('|')[0]?.trim() || 'Landing Page'}`;
@@ -338,7 +332,7 @@ export function applyLandingPageAiCopyToSpec(
           };
         }
         case 'Guarantee':
-          return { ...block, body: guaranteeText, ctaLabel: copy.cta || block.ctaLabel };
+          return { ...block, enabled: Boolean(guaranteeText), body: guaranteeText, ctaLabel: copy.cta || block.ctaLabel };
         case 'FAQ':
           return {
             ...block,
@@ -478,7 +472,7 @@ export function applyLandingPageAiCopyToSpec(
     {
       id: reuseId('Guarantee', 'guarantee'),
       type: 'Guarantee',
-      enabled: true,
+      enabled: Boolean(guaranteeText),
       spacing: 'md',
       headline: 'Cam kết của chúng tôi',
       body: guaranteeText,

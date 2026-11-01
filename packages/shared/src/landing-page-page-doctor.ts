@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { LP_INTERNAL_COPY_PATTERN, LP_PLACEHOLDER_PATTERN } from './landing-page-ai-draft';
 import type { LandingPageBlock, LandingPageSpec } from './landing-page-types';
 import { markLandingPageFieldSources } from './landing-page-business-profile';
 
@@ -18,6 +19,7 @@ export const LANDING_PAGE_DOCTOR_DIMS = [
   'seo',
   'mobileReadability',
   'completeness',
+  'repetition', 'placeholders', 'internalLanguage', 'ctaTargets', 'sectionData',
 ] as const;
 export type LandingPageDoctorDim = (typeof LANDING_PAGE_DOCTOR_DIMS)[number];
 
@@ -72,6 +74,49 @@ function textLen(v: unknown): number {
 
 function uid(p: string): string {
   return `${p}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type LandingPageContentIssue = { kind: 'repetition' | 'placeholders' | 'internalLanguage' | 'ctaTargets' | 'sectionData'; blockId: string; message: string };
+
+/** Content checks inspect only visible fields; template metadata and editor instructions are excluded. */
+export function findLandingPageContentIssues(spec: LandingPageSpec): LandingPageContentIssue[] {
+  const issues: LandingPageContentIssue[] = [];
+  const enabled = spec.blocks.filter(block => block.enabled !== false && !block.hidden);
+  const sentences = new Map<string, string>();
+  const visibleText = (value: unknown, key = ''): string[] => {
+    if (typeof value === 'string') return /^(headline|subheadline|body|title|description|question|answer|quote|author|name|price|submitLabel|ctaLabel)$/.test(key) ? [value] : [];
+    if (Array.isArray(value)) return value.flatMap(item => visibleText(item, key));
+    if (value && typeof value === 'object') return Object.entries(value).filter(([field]) => !['meta', 'style', 'responsiveStyle', 'crm'].includes(field)).flatMap(([field, entry]) => visibleText(entry, field));
+    return [];
+  };
+  for (const block of enabled) {
+    for (const value of visibleText(block)) {
+      if (LP_INTERNAL_COPY_PATTERN.test(value)) issues.push({ kind: 'internalLanguage', blockId: block.id, message: 'Có ngôn ngữ hướng dẫn nội bộ trong nội dung hiển thị.' });
+      if (LP_PLACEHOLDER_PATTERN.test(value)) issues.push({ kind: 'placeholders', blockId: block.id, message: 'Nội dung còn văn bản mẫu cần thay thế.' });
+      const normalized = value.toLowerCase().trim().replace(/\s+/g, ' ');
+      if (normalized.length >= 45 && block.type !== 'Header' && block.type !== 'Footer') {
+        const previous = sentences.get(normalized);
+        if (previous) issues.push({ kind: 'repetition', blockId: block.id, message: `Nội dung lặp với section ${previous}.` });
+        else sentences.set(normalized, block.id);
+      }
+    }
+    const urls: string[] = [];
+    if ('ctaLabel' in block && block.ctaLabel?.trim()) urls.push(block.ctaUrl || '#lead-form');
+    if (block.type === 'Pricing') for (const plan of block.plans) urls.push(plan.ctaUrl || '#lead-form');
+    for (const url of urls) {
+      const valid = url.startsWith('#')
+        ? (url === '#lead-form' ? enabled.some(b => b.type === 'LeadForm') : enabled.some(b => '#' + b.id === url))
+        : /^(https?:\/\/|tel:|mailto:)/i.test(url);
+      if (!valid) issues.push({ kind: 'ctaTargets', blockId: block.id, message: 'CTA không trỏ đến form hoặc hành động hợp lệ.' });
+    }
+    const empty = ('items' in block && !block.items.length) || (block.type === 'Pricing' && (!block.plans.length || block.plans.some(plan => !plan.price.trim()))) || (block.type === 'LeadForm' && !block.fields.length) || (block.type === 'Guarantee' && !block.body?.trim());
+    if (empty) issues.push({ kind: 'sectionData', blockId: block.id, message: 'Section đang thiếu dữ liệu cần thiết.' });
+  }
+  for (const value of [spec.seo.title, spec.seo.metaDescription]) {
+    if (LP_INTERNAL_COPY_PATTERN.test(value)) issues.push({ kind: 'internalLanguage', blockId: 'seo', message: 'SEO còn chứa hướng dẫn nội bộ.' });
+    if (LP_PLACEHOLDER_PATTERN.test(value)) issues.push({ kind: 'placeholders', blockId: 'seo', message: 'SEO còn chứa văn bản mẫu.' });
+  }
+  return issues;
 }
 
 /** Heuristic Page Doctor — never invents testimonials or metrics. */
@@ -179,7 +224,7 @@ export function analyzeLandingPageHeuristic(spec: LandingPageSpec): LandingPageD
         blockId: hero.id,
         field: 'ctaLabel',
         before: ctaLabel,
-        after: 'Nhận tư vấn miễn phí',
+        after: 'Trao đổi nhu cầu',
       });
     }
   }
@@ -203,32 +248,21 @@ export function analyzeLandingPageHeuristic(spec: LandingPageSpec): LandingPageD
       score,
       message: hasT || hasG ? '✓ Có tín hiệu tin cậy' : '⚠ Thiếu trust / social proof',
       suggestion: !hasG
-        ? 'Thêm cam kết rõ (không bịa review). Có thể dùng placeholder testimonial nếu cần.'
+        ? 'Chỉ bổ sung đánh giá hoặc chứng nhận khi có bằng chứng thật; có thể giữ bố cục không có mục này.'
         : undefined,
     });
-    if (guarantee && !hasG) {
-      patches.push({
-        id: uid('p'),
-        kind: 'add_guarantee_body',
-        label: 'Bổ sung nội dung Guarantee',
-        path: `${guarantee.id}.body`,
-        blockId: guarantee.id,
-        field: 'body',
-        before: String((guarantee as { body?: string }).body || ''),
-        after: 'Cam kết hỗ trợ rõ ràng — tư vấn trung thực, không phát sinh phí ẩn.',
-      });
-    }
   }
 
   // offer
   {
     const pricing = blockByType(spec, 'Pricing');
-    const score = pricing ? 80 : 45;
+    const hasConsultation = !!cta || !!lead;
+    const score = pricing || hasConsultation ? 80 : 45;
     findings.push({
       dim: 'offer',
-      status: pricing ? 'good' : 'warn',
+      status: pricing || hasConsultation ? 'good' : 'warn',
       score,
-      message: pricing ? '✓ Có block Pricing/offer' : '⚠ Chưa có offer/pricing rõ',
+      message: pricing ? '✓ Có thông tin chi phí' : hasConsultation ? '✓ Có cách trao đổi nhu cầu, không bắt buộc công bố giá' : '⚠ Chưa có cách tìm hiểu chi phí',
       suggestion: pricing ? undefined : 'Thêm Pricing hoặc nêu giá trị ưu đãi (chỉ khi có thật).',
     });
   }
@@ -363,6 +397,13 @@ export function analyzeLandingPageHeuristic(spec: LandingPageSpec): LandingPageD
     });
   }
 
+  const contentIssues = findLandingPageContentIssues(spec);
+  for (const kind of ['repetition', 'placeholders', 'internalLanguage', 'ctaTargets', 'sectionData'] as const) {
+    const related = contentIssues.filter(issue => issue.kind === kind);
+    findings.push({ dim: kind, status: related.length ? 'bad' : 'good', score: related.length ? 25 : 95,
+      message: related.length ? related[0]!.message : ({ repetition: 'Nội dung không lặp nguyên đoạn', placeholders: 'Không phát hiện văn bản mẫu', internalLanguage: 'Không phát hiện lời hướng dẫn nội bộ', ctaTargets: 'Đích CTA hợp lệ', sectionData: 'Section có đủ dữ liệu cơ bản' })[kind],
+      suggestion: related.length ? `Kiểm tra section: ${[...new Set(related.map(issue => issue.blockId))].slice(0, 5).join(', ')}` : undefined });
+  }
   const overallScore = Math.round(
     findings.reduce((s, f) => s + f.score, 0) / Math.max(1, findings.length),
   );

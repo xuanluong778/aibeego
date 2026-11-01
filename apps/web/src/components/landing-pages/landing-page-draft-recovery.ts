@@ -3,7 +3,7 @@ import type { LandingPageSpec } from '@marketingspa/shared';
 export type LocalLandingDraft = {
   pageId: string;
   spec: LandingPageSpec;
-  /** Server revision this draft was based on. */
+  /** Last server revision this tab loaded or successfully saved. */
   baseRevision: number;
   clientRevision: number;
   savedAt: string;
@@ -13,14 +13,43 @@ const keyFor = (pageId: string) => `lp-draft-recovery:${pageId}`;
 
 export type DraftRecoveryDecision = 'use-server' | 'restore-local' | 'conflict';
 
+function isLocalLandingDraft(value: unknown): value is LocalLandingDraft {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const draft = value as LocalLandingDraft;
+  return (
+    typeof draft.pageId === 'string' &&
+    draft.pageId.length > 0 &&
+    Number.isSafeInteger(draft.baseRevision) &&
+    draft.baseRevision >= 0 &&
+    Number.isSafeInteger(draft.clientRevision) &&
+    draft.clientRevision >= 0 &&
+    typeof draft.savedAt === 'string' &&
+    !!draft.spec &&
+    typeof draft.spec === 'object' &&
+    !Array.isArray(draft.spec) &&
+    draft.spec.version === 1 &&
+    Array.isArray(draft.spec.blocks) &&
+    draft.spec.blocks.every(
+      (block) =>
+        !!block &&
+        typeof block === 'object' &&
+        !Array.isArray(block) &&
+        typeof block.id === 'string' &&
+        typeof block.type === 'string',
+    )
+  );
+}
+
 /** Local draft is restored only when the server has not moved since this tab's last ack. */
 export function decideDraftRecovery(input: {
   serverRevision: number;
   local: LocalLandingDraft | null;
 }): DraftRecoveryDecision {
   const local = input.local;
-  if (!local) return 'use-server';
-  if (!Number.isFinite(local.clientRevision) || local.clientRevision <= input.serverRevision) {
+  if (!isLocalLandingDraft(local)) return 'use-server';
+  // Only this tab's own acknowledgement can cover its edits. Another writer can
+  // reach the same (or a higher) server revision with entirely different content.
+  if (local.clientRevision <= local.baseRevision) {
     return 'use-server';
   }
   if (local.baseRevision === input.serverRevision) return 'restore-local';
@@ -32,9 +61,8 @@ export function readLocalLandingDraft(pageId: string): LocalLandingDraft | null 
   try {
     const raw = localStorage.getItem(keyFor(pageId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as LocalLandingDraft;
-    if (!parsed || parsed.pageId !== pageId || !parsed.spec || typeof parsed.spec !== 'object') return null;
-    if (!Number.isFinite(parsed.clientRevision) || !Number.isFinite(parsed.baseRevision)) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isLocalLandingDraft(parsed) || parsed.pageId !== pageId) return null;
     return parsed;
   } catch {
     return null;

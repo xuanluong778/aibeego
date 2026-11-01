@@ -1,6 +1,62 @@
 {
   "bundles": [
     {
+      "id": "release-ai-save-my-pages-ylqwkoyFe-wX",
+      "buildId": "ylqwkoyFe-wXoslxdS819",
+      "gitSha": "c3e20c6",
+      "label": "release-ai-save-my-pages",
+      "path": "deploy/aibeego-vps/bundles/release-ai-save-my-pages-ylqwkoyFe-wX",
+      "archivedAt": "2026-10-31T16:34:05.742Z"
+    },
+    {
+      "id": "release-ai-section-reconcile-trmaq5DpNm4t",
+      "buildId": "trmaq5DpNm4tojTFchAq1",
+      "gitSha": "c3e20c6",
+      "label": "release-ai-section-reconcile",
+      "path": "deploy/aibeego-vps/bundles/release-ai-section-reconcile-trmaq5DpNm4t",
+      "archivedAt": "2026-10-31T16:11:38.211Z"
+    },
+    {
+      "id": "release-compact-create-actions-eVNVCjocYjaj",
+      "buildId": "eVNVCjocYjajF4EpTDGnv",
+      "gitSha": "c3e20c6",
+      "label": "release-compact-create-actions",
+      "path": "deploy/aibeego-vps/bundles/release-compact-create-actions-eVNVCjocYjaj",
+      "archivedAt": "2026-10-31T15:59:41.780Z"
+    },
+    {
+      "id": "release-ai-create-actions-RQHlnIs_ALp8",
+      "buildId": "RQHlnIs_ALp8PG8vXXryN",
+      "gitSha": "c3e20c6",
+      "label": "release-ai-create-actions",
+      "path": "deploy/aibeego-vps/bundles/release-ai-create-actions-RQHlnIs_ALp8",
+      "archivedAt": "2026-10-31T15:42:44.660Z"
+    },
+    {
+      "id": "release-ai-brief-suggest-qz06JT0X23_u",
+      "buildId": "qz06JT0X23_uqa3069LDy",
+      "gitSha": "c3e20c6",
+      "label": "release-ai-brief-suggest",
+      "path": "deploy/aibeego-vps/bundles/release-ai-brief-suggest-qz06JT0X23_u",
+      "archivedAt": "2026-10-31T09:45:50.191Z"
+    },
+    {
+      "id": "release-ai-landing-yh1aJ2wPqb9w",
+      "buildId": "yh1aJ2wPqb9wxIDahiESk",
+      "gitSha": "c3e20c6",
+      "label": "release-ai-landing",
+      "path": "deploy/aibeego-vps/bundles/release-ai-landing-yh1aJ2wPqb9w",
+      "archivedAt": "2026-10-31T09:18:45.013Z"
+    },
+    {
+      "id": "release-create-template-picker-EtV0-uF0gh-7",
+      "buildId": "EtV0-uF0gh-7jyncVWAz7",
+      "gitSha": "c3e20c6",
+      "label": "release-create-template-picker",
+      "path": "deploy/aibeego-vps/bundles/release-create-template-picker-EtV0-uF0gh-7",
+      "archivedAt": "2026-10-31T07:26:20.310Z"
+    },
+    {
       "id": "release-lp-text-ew-grow-S7vXlJlYrg3q",
       "buildId": "S7vXlJlYrg3qVgqP4w8IB",
       "gitSha": "bb42e88",
@@ -103,54 +159,6 @@
       "label": "release-hide-sidebar-ai",
       "path": "deploy/aibeego-vps/bundles/release-hide-sidebar-ai-cv0UhAQLenzo",
       "archivedAt": "2026-10-27T16:07:23.884Z"
-    },
-    {
-      "id": "release-lp-ai-click-cxYYBCYuMR6m",
-      "buildId": "cxYYBCYuMR6mIyXRWZf7w",
-      "gitSha": "bb42e88",
-      "label": "release-lp-ai-click",
-      "path": "deploy/aibeego-vps/bundles/release-lp-ai-click-cxYYBCYuMR6m",
-      "archivedAt": "2026-10-27T15:50:20.537Z"
-    },
-    {
-      "id": "release-lp-text-ai-b9vPEzJCSOuP",
-      "buildId": "b9vPEzJCSOuPWaC4tmiBX",
-      "gitSha": "bb42e88",
-      "label": "release-lp-text-ai",
-      "path": "deploy/aibeego-vps/bundles/release-lp-text-ai-b9vPEzJCSOuP",
-      "archivedAt": "2026-10-27T15:20:26.086Z"
-    },
-    {
-      "id": "release-flow-section-h-UUv8gfCv_kWe",
-      "buildId": "UUv8gfCv_kWeWpgTzBZRX",
-      "gitSha": "bb42e88",
-      "label": "release-flow-section-h",
-      "path": "deploy/aibeego-vps/bundles/release-flow-section-h-UUv8gfCv_kWe",
-      "archivedAt": "2026-10-27T14:40:36.290Z"
-    },
-    {
-      "id": "release-section-resize-k2swrDizAH4v",
-      "buildId": "k2swrDizAH4v33Mu4PS7z",
-      "gitSha": "bb42e88",
-      "label": "release-section-resize",
-      "path": "deploy/aibeego-vps/bundles/release-section-resize-k2swrDizAH4v",
-      "archivedAt": "2026-10-27T14:28:12.677Z"
-    },
-    {
-      "id": "release-undo-ctrlz-btUtPkBv98RW",
-      "buildId": "btUtPkBv98RWJGRezlENm",
-      "gitSha": "bb42e88",
-      "label": "release-undo-ctrlz",
-      "path": "deploy/aibeego-vps/bundles/release-undo-ctrlz-btUtPkBv98RW",
-      "archivedAt": "2026-10-27T14:17:21.505Z"
-    },
-    {
-      "id": "rollback-1b5032b-cb7dOatf6l-M",
-      "buildId": "cb7dOatf6l-MUfKOMGBfy",
-      "gitSha": "1817cda",
-      "label": "rollback-1b5032b",
-      "path": "deploy/aibeego-vps/bundles/rollback-1b5032b-cb7dOatf6l-M",
-      "archivedAt": "2026-10-27T03:52:34.820Z"
     }
   ]
 }

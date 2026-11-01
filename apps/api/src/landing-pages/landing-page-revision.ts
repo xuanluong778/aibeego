@@ -1,4 +1,9 @@
 /** Optimistic concurrency for landing-page drafts. No I/O. */
+export function readLandingPageRequestHash(spec: unknown): string | null {
+  const hash = (spec as { meta?: { lastAutosaveRequestHash?: unknown } } | null)?.meta
+    ?.lastAutosaveRequestHash;
+  return typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash) ? hash : null;
+}
 
 export type AutosaveDecision =
   | { action: 'idempotent'; nextRevision: number }
@@ -24,7 +29,7 @@ export function readLandingPageRequestId(spec: unknown): string | null {
 
 /**
  * baseRevision is the revision the client last loaded or saved.
- * A second tab with the same base loses. A retried requestId is a no-op.
+ * A second tab with the same base loses. Only an identical request is a no-op.
  * Re-saving the current revision (publish flush with no new edits) does not bump.
  */
 export function decideLandingPageAutosave(input: {
@@ -33,10 +38,15 @@ export function decideLandingPageAutosave(input: {
   baseRevision: number | null;
   incomingRevision: number | null;
   requestId: string | null;
+  storedRequestHash?: string | null;
+  requestHash?: string | null;
 }): AutosaveDecision {
   const stored = Math.max(0, Math.floor(input.storedRevision) || 0);
   if (input.requestId && input.storedRequestId && input.requestId === input.storedRequestId) {
-    return { action: 'idempotent', nextRevision: stored };
+    // Old/colliding IDs without a matching receipt cannot acknowledge this draft.
+    return input.requestHash && input.storedRequestHash === input.requestHash
+      ? { action: 'idempotent', nextRevision: stored }
+      : { action: 'reject', storedRevision: stored };
   }
   if (input.baseRevision == null) {
     if (input.incomingRevision != null && input.incomingRevision < stored) {

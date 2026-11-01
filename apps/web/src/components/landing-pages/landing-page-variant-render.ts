@@ -331,7 +331,7 @@ export function extendedTokenStyle(tokens: LandingPageThemeTokens): CSSPropertie
   const onPrimary = (() => {
     const lum = hexRelativeLuminance(tokens.button || tokens.primary);
     if (lum == null) return '#ffffff';
-    return lum < 0.45 ? '#ffffff' : '#0B1220';
+    return lum < 0.179 ? '#ffffff' : '#0B1220';
   })();
   const mutedSafe = canvasIsDark
     ? tokens.muted || '#CBD5E1'

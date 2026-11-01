@@ -736,6 +736,7 @@ export function LandingPageGraphicsLibraryPanel({
   onInsertForm,
   onInsertBlockType,
   onOpenMediaLibrary,
+  onOpenFormLibrary,
   initialCategory = null,
   initialShapeGroup = null,
   iconsOnly = false,
@@ -747,6 +748,7 @@ export function LandingPageGraphicsLibraryPanel({
   onInsertForm?: (preset: LandingPageFormPreset) => void;
   onInsertBlockType?: (type: LandingPageBlockType) => void;
   onOpenMediaLibrary?: () => void;
+  onOpenFormLibrary?: () => void;
   /** Open directly into a category (e.g. Biểu tượng → graphics groups). */
   initialCategory?: LandingPageGraphicsCategoryId | null;
   /** Open inside category at icon/shape group (e.g. social). */
@@ -973,8 +975,22 @@ export function LandingPageGraphicsLibraryPanel({
                 key={cat.id}
                 type="button"
                 data-lp-graphics-category={cat.id}
-                className="group flex flex-col items-center gap-1.5 text-center"
+                draggable={cat.id === 'forms'}
+                onDragStart={
+                  cat.id === 'forms'
+                    ? (e) => {
+                        beginSidebarPresetDrag(e, { kind: 'form-library-open' }, cat.label, {
+                          subtitle: 'Thả vào canvas để chọn dạng biểu mẫu',
+                        });
+                      }
+                    : undefined
+                }
+                className="group flex flex-col items-center gap-1.5 text-center cursor-grab active:cursor-grabbing"
                 onClick={() => {
+                  if (cat.id === 'forms') {
+                    onOpenFormLibrary?.();
+                    return;
+                  }
                   setCategoryId(cat.id);
                   setShapeGroupId(null);
                   setQuery('');

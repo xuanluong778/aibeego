@@ -69,7 +69,7 @@ export const LP_ADD_ELEMENT_CATALOG: Array<{
   { type: 'Speaker', label: 'Speaker', icon: '👤' },
   { type: 'Guarantee', label: 'Guarantee', icon: '✓' },
   { type: 'FAQ', label: 'FAQ', icon: '▤' },
-  { type: 'LeadForm', label: 'LeadForm', icon: '▭' },
+  { type: 'LeadForm', label: 'Biểu mẫu', icon: '▭' },
   { type: 'CTA', label: 'CTA', icon: '⏺' },
   { type: 'Footer', label: 'Footer', icon: '▁' },
   { type: 'Countdown', label: 'Countdown', icon: '⏱' },
@@ -1089,8 +1089,22 @@ export function LandingPageBuilderSidebar({
                   key={item.type}
                   type="button"
                   data-lp-add-element={item.type}
+                  draggable={item.type === 'LeadForm'}
+                  onDragStart={
+                    item.type === 'LeadForm'
+                      ? (e) => {
+                          beginSidebarPresetDrag(e, { kind: 'form-library-open' }, item.label, {
+                            subtitle: 'Kéo thả vào canvas để chọn mẫu biểu mẫu',
+                          });
+                        }
+                      : undefined
+                  }
                   className="flex h-11 items-center gap-2 rounded-md px-2.5 text-left text-[13px] text-zinc-800 transition hover:bg-zinc-100"
                   onClick={() => {
+                    if (item.type === 'LeadForm') {
+                      // Không cho bấm vào biểu mẫu hiện các danh sách
+                      return;
+                    }
                     onAddBlock(item.type);
                     close();
                   }}

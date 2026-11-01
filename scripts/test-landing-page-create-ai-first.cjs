@@ -68,7 +68,7 @@ assert(brief.uspBenefits.length > 0, 'USP derived when omitted');
 
 const fallback = buildFallbackLandingPageAiCopy(brief);
 assert(fallback.mode === 'fallback', 'AI fallback copy');
-assert(fallback.theme && fallback.guarantee, 'Fallback has theme + guarantee');
+assert(fallback.theme && fallback.guarantee === '', 'Fallback keeps theme without inventing a guarantee');
 
 const applied = applyLandingPageAiCopyToSpec(createEmptyLandingPageSpec(), fallback);
 const types = applied.blocks.map((b) => b.type);

@@ -76,6 +76,7 @@ import {
   type LocalLandingDraft,
 } from './landing-page-draft-recovery';
 import { revalidatePublicLandingPage } from './revalidate-public-landing-page';
+import { createLandingPageAutosaveRequestId } from './landing-page-autosave-request';
 import { htmlNodeLabel, type HtmlNodeSnapshot, type HtmlPatchFn } from './landing-page-html-nodes';
 import { InspectorAccordion, InspectorEmptyHint } from './landing-page-inspector-ui';
 import {
@@ -94,6 +95,8 @@ import { LandingPageInspectorResponsiveVisibility } from './landing-page-inspect
 import { LandingPageElementVerticalToolbar } from './landing-page-element-vertical-toolbar';
 import { LandingPageSectionLibraryModal } from './landing-page-section-library-modal';
 import { LandingPageButtonLibraryModal } from './landing-page-button-library-modal';
+import { LandingPageFormLibraryModal } from './landing-page-form-library-modal';
+import type { LpFormLibraryTemplate } from './landing-page-form-library-catalog';
 import {
   getSectionLibraryTemplate,
   materializeSectionLibraryTemplate,
@@ -732,6 +735,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       setSaveMsg('Chọn ảnh trong thư viện để chèn vào vị trí thả');
       return;
     }
+    if (picker === 'forms') {
+      openFormLibrary(pos);
+      return;
+    }
     openRightAddComponents({ rootMode: 'add', addTab: 'elements', subView: picker });
     setSaveMsg('Chọn một mẫu bên phải để chèn vào vị trí thả');
   }
@@ -746,12 +753,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const sectionLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
   const [buttonLibraryOpen, setButtonLibraryOpen] = useState(false);
   const buttonLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
+  const [formLibraryOpen, setFormLibraryOpen] = useState(false);
+  const formLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
   useEffect(() => {
     // Release the drawer's focus trap before opening a library above it.
-    if (!inspectorDesktop && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen)) {
+    if (!inspectorDesktop && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen || formLibraryOpen)) {
       setInspectorPanelOpen(false);
     }
-  }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen]);
+  }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen, formLibraryOpen]);
   /** In-memory clipboards for canvas context menu (reuse dup/update — no new persist model). */
   const blockClipboardRef = useRef<LandingPageBlock | null>(null);
   const styleClipboardRef = useRef<LpCanvasClipboardStyle | null>(null);
@@ -768,7 +777,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   /** Serial autosave: only one in-flight; stale responses ignored. */
   const autosaveInflightRef = useRef(false);
   const autosaveQueuedRef = useRef(false);
-  const autosaveRequestIdRef = useRef(0);
+  const pendingAutosaveRef = useRef<{
+    requestId: string;
+    clientRevision: number;
+    baseRevision: number;
+    body: string;
+    localSpecJson: string;
+  } | null>(null);
   /** Resolvers waiting for in-flight autosave to finish (publish / manual flush). */
   const persistWaitersRef = useRef<Array<() => void>>([]);
   /** Set when server rejects our revision as stale — someone else saved a newer version.
@@ -938,7 +953,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     setInspectorTab((tab) => (tab === 'add' ? 'content' : tab));
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { discardLocal?: boolean }) => {
     setError(null);
     const data = await apiClient<PagePayload>(`/landing-pages/${pageId}`);
     setPage(data);
@@ -965,8 +980,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const serverRevision = readClientRevision(loaded);
     revisionRef.current = serverRevision;
     ackedRevisionRef.current = serverRevision;
-    const localDraft = readLocalLandingDraft(pageId);
+    // Discard only after the user chooses the server and it loads successfully.
+    if (opts?.discardLocal) clearLocalLandingDraft(pageId);
+    const localDraft = opts?.discardLocal ? null : readLocalLandingDraft(pageId);
     const recovery = decideDraftRecovery({ serverRevision, local: localDraft });
+    setPendingLocalDraft(null);
     if (recovery === 'restore-local' && localDraft) {
       try {
         const restoredBase = healTextLayerCoordinates(sanitizeLandingPagePersistSpec(localDraft.spec));
@@ -983,15 +1001,20 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         clearLocalLandingDraft(pageId);
       }
     } else if (recovery === 'conflict' && localDraft) {
+      // Keep the server visible, but pause writes while the local copy awaits a
+      // decision. In particular, an HTML upgrade must not replace it in storage.
+      dirtyRef.current = false;
       setPendingLocalDraft(localDraft);
-      setSaveMsg('Có bản nháp trên máy này cũ hơn bản server. Bản server đang mở.');
+      setSaveMsg('Có bản nháp chưa được xác nhận lưu trên máy này và server đã thay đổi. Bản server đang mở.');
     } else if (localDraft) {
       clearLocalLandingDraft(pageId);
     }
     autosaveInflightRef.current = false;
     autosaveQueuedRef.current = false;
-    saveConflictRef.current = false;
-    setSaveConflict(false);
+    pendingAutosaveRef.current = null;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    saveConflictRef.current = recovery === 'conflict';
+    setSaveConflict(recovery === 'conflict');
     // After first paint: hug free-section chrome to painted content (fixes legacy
     // frames that floated over / cut through neighbouring sections).
     requestAnimationFrame(() => {
@@ -1016,7 +1039,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const resolveSaveConflict = useCallback(async () => {
     setResolvingConflict(true);
     try {
-      await load();
+      await load({ discardLocal: true });
       setSaveMsg('Đã tải bản mới nhất từ server — chỉnh sửa chưa lưu trước đó (nếu có) đã bị bỏ qua');
     } catch (e) {
       setSaveMsg(e instanceof Error ? e.message : 'Tải bản mới nhất thất bại — thử lại');
@@ -1048,6 +1071,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       const rev = typeof updated.clientRevision === 'number' ? updated.clientRevision : readClientRevision(restored);
       revisionRef.current = rev;
       ackedRevisionRef.current = rev;
+      pendingAutosaveRef.current = null;
       dirtyRef.current = false;
       saveConflictRef.current = false;
       setSaveConflict(false);
@@ -1408,20 +1432,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       const hadQueue = autosaveQueuedRef.current;
       autosaveQueuedRef.current = false;
 
-      const startedAtRevision = revisionRef.current;
-      const baseRevision = ackedRevisionRef.current;
-      const requestId = `lp-as-${++autosaveRequestIdRef.current}`;
-      // Always prefer live canvas — never stale closure when caller omitted nextSpec.
-      const payloadSpec = nextSpec ?? specRef.current;
-      // Stamp revision into meta for server-side stale rejection (idempotent).
-      const stamped: LandingPageSpec = {
-        ...payloadSpec,
-        meta: {
-          ...(payloadSpec.meta || {}),
-          clientRevision: startedAtRevision,
-        },
-      };
-
       // Only manual "Lưu" toggles button saving state — background autosave must not
       // lock the UI on "Đang lưu…" during typing (reflush storms looked like a hang).
       if (manual) setSaving(true);
@@ -1435,15 +1445,33 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       };
       let needsImmediateFlush = false;
       try {
-        // Wire/DB only — never write response draftSpec back into live editor state.
-        const sanitized = sanitizeLandingPagePersistSpec(stamped);
-        const autosaveBody = JSON.stringify({
-          draftSpec: sanitized,
-          name: name ?? page?.name,
-          clientRevision: startedAtRevision,
-          baseRevision,
-          requestId,
-        });
+        // Keep uncertain writes byte-identical across retries/callers. New edits
+        // wait for this receipt before they can use the acknowledged base.
+        if (!pendingAutosaveRef.current) {
+          const payloadSpec = nextSpec ?? specRef.current;
+          const clientRevision = revisionRef.current;
+          const baseRevision = ackedRevisionRef.current;
+          const requestId = createLandingPageAutosaveRequestId();
+          const sanitized = sanitizeLandingPagePersistSpec({
+            ...payloadSpec,
+            meta: { ...(payloadSpec.meta || {}), clientRevision },
+          });
+          pendingAutosaveRef.current = {
+            requestId,
+            clientRevision,
+            baseRevision,
+            localSpecJson: JSON.stringify(payloadSpec),
+            body: JSON.stringify({
+              draftSpec: sanitized,
+              name: name ?? page?.name,
+              clientRevision,
+              baseRevision,
+              requestId,
+            }),
+          };
+        }
+        const request = pendingAutosaveRef.current;
+        const { requestId, clientRevision: startedAtRevision, body: autosaveBody } = request;
         let res: {
           updatedAt: string;
           rejected?: boolean;
@@ -1472,11 +1500,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         if (!res) throw lastErr instanceof Error ? lastErr : new Error('Lưu thất bại');
 
         const staleLocal = revisionRef.current > startedAtRevision;
-        if (!res.rejected && typeof res.clientRevision === 'number' && Number.isFinite(res.clientRevision)) {
-          ackedRevisionRef.current = Math.floor(res.clientRevision);
-          revisionRef.current = Math.max(revisionRef.current, ackedRevisionRef.current);
+        const rejected = res.rejected || res.reason === 'STALE_REVISION' ||
+          res.requestId !== requestId || res.clientRevision !== startedAtRevision;
+        pendingAutosaveRef.current = null;
+        if (!rejected) {
+          ackedRevisionRef.current = startedAtRevision;
         }
-        if (res.rejected || res.reason === 'STALE_REVISION') {
+        if (rejected) {
           // Someone else (another tab/session) saved a newer revision than the one we
           // based this write on. Do NOT bump our local revision past theirs and retry —
           // that would force our (older) draft over their saved content and silently
@@ -1498,7 +1528,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           dirtyRef.current = false;
           setSaveMsg(`Đã lưu ${new Date(res.updatedAt).toLocaleTimeString()}`);
         }
-        if (res.rejected) {
+        if (rejected) {
           writeLocalLandingDraft({
             pageId,
             spec: specRef.current,
@@ -1515,7 +1545,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             savedAt: new Date().toISOString(),
           });
         } else {
-          clearLocalLandingDraft(pageId);
+          // Another tab can have written a different local draft under this key.
+          // This ACK only covers the exact local snapshot sent by this operation.
+          const local = readLocalLandingDraft(pageId);
+          if (local && local.baseRevision === request.baseRevision &&
+              local.clientRevision === startedAtRevision &&
+              JSON.stringify(local.spec) === request.localSpecJson) {
+            clearLocalLandingDraft(pageId);
+          }
         }
       } catch (e) {
         const aborted =
@@ -1577,7 +1614,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }, [spec, page?.name, persist]);
 
   useEffect(() => {
-    if (!dirtyRef.current) return;
+    if (!dirtyRef.current || pendingLocalDraft) return;
     const timer = window.setTimeout(() => {
       if (!dirtyRef.current) return;
       writeLocalLandingDraft({
@@ -1589,11 +1626,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [spec, pageId]);
+  }, [spec, pageId, pendingLocalDraft]);
 
   useEffect(() => {
     const flush = () => {
-      if (!dirtyRef.current) return;
+      if (!dirtyRef.current || pendingLocalDraft) return;
       writeLocalLandingDraft({
         pageId,
         spec: specRef.current,
@@ -1608,7 +1645,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
     };
-  }, [pageId]);
+  }, [pageId, pendingLocalDraft]);
 
   // Canvas reserve after spec mutations (delete/duplicate/undo/redo/reload) is owned
   // solely by computeCanvasFreeReserveHeight via LandingPageRenderer's own render +
@@ -2355,6 +2392,45 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     setSaveMsg('Đã thêm Gallery với ảnh đã chọn');
   }
 
+  function openFormLibrary(pos?: LpSidebarInsertPos | null) {
+    formLibraryPosRef.current = pos ?? null;
+    setFormLibraryOpen(true);
+  }
+
+  function insertLibraryFormTemplate(template: LpFormLibraryTemplate) {
+    const current = specRef.current;
+    const blocks = [...current.blocks];
+    const insertAt = resolveInsertIndex(blocks, formLibraryPosRef.current ?? undefined);
+    const block = {
+      ...defaultBlock('LeadForm'),
+      type: 'LeadForm' as const,
+      headline: template.headline || '',
+      subheadline: template.subheadline || '',
+      submitLabel: template.submitLabel,
+      footerText: template.footerText || '',
+      successMessage: 'Cảm ơn bạn! Chúng tôi sẽ liên hệ sớm.',
+      formTheme: { ...template.formTheme },
+      style: {
+        ...(defaultBlock('LeadForm').style || {}),
+        ...(template.sectionStyle || {}),
+      },
+      fields: template.fields.map((row) => ({
+        ...row,
+        id: uid('fld'),
+      })),
+    };
+    blocks.splice(insertAt, 0, block);
+    pushHistory(
+      markLandingPageUserEdits(
+        sanitizeLandingPageDraftSpec({ ...current, blocks }),
+        [`${block.id}.headline`, `${block.id}.fields`, `${block.id}.submitLabel`],
+      ),
+    );
+    selectCanvas({ blockId: block.id, element: 'section' });
+    formLibraryPosRef.current = null;
+    setSaveMsg(`Đã chèn biểu mẫu «${template.label}»`);
+  }
+
   function openSectionLibrary(pos?: LpSidebarInsertPos | null) {
     sectionLibraryPosRef.current = pos ?? null;
     setSectionLibraryOpen(true);
@@ -2431,6 +2507,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         insertFormPreset(payload.preset, pos);
         return;
       case 'block-type':
+        if (payload.type === 'LeadForm') {
+          openFormLibrary(pos);
+          return;
+        }
         insertBlockTypeAt(payload.type, pos);
         return;
       case 'media':
@@ -2446,7 +2526,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       case 'button-library-open':
         openButtonLibrary(pos);
         return;
+      case 'form-library-open':
+        openFormLibrary(pos);
+        return;
       case 'add-picker-open':
+        if (payload.picker === 'forms') {
+          openFormLibrary(pos);
+          return;
+        }
         openAddPickerFromDrop(payload.picker, pos);
         return;
       default:
@@ -3013,31 +3100,25 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   function moveBlock(id: string, direction: 'up' | 'down') {
     if (!guardSectionUnlocked(id, 'Section đang khóa — mở khóa trước khi di chuyển')) return;
-    const from = spec.blocks.findIndex((b) => b.id === id);
+    const current = specRef.current;
+    const from = current.blocks.findIndex((b) => b.id === id);
     if (from < 0) return;
     const to = direction === 'up' ? from - 1 : from + 1;
-    if (to < 0 || to >= spec.blocks.length) return;
-    pushHistory(
-      sanitizeLandingPageDraftSpec({
-        ...spec,
-        blocks: reorderBlocks(spec.blocks, from, to),
-      }),
-    );
+    const target = current.blocks[to];
+    if (!target) return;
+    reorderBlockById(id, target.id);
   }
 
   function reorderBlockById(fromBlockId: string, toBlockId: string) {
     if (!guardSectionUnlocked(fromBlockId, 'Section đang khóa — mở khóa trước khi di chuyển')) {
       return;
     }
-    const from = spec.blocks.findIndex((b) => b.id === fromBlockId);
-    const to = spec.blocks.findIndex((b) => b.id === toBlockId);
+    const current = specRef.current;
+    const from = current.blocks.findIndex((b) => b.id === fromBlockId);
+    const to = current.blocks.findIndex((b) => b.id === toBlockId);
     if (from < 0 || to < 0 || from === to) return;
-    pushHistory(
-      sanitizeLandingPageDraftSpec({
-        ...spec,
-        blocks: reorderBlocks(spec.blocks, from, to),
-      }),
-    );
+    // Reorder the live draft only; retain every block and meta value verbatim.
+    pushHistory({ ...current, blocks: reorderBlocks(current.blocks, from, to) });
   }
 
   function reorderListItem(blockId: string, fromItemId: string, toItemId: string) {
@@ -3280,6 +3361,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }
 
   function toggleElementHidden(blockId: string, field: string) {
+    if (!guardSectionUnlocked(blockId, 'Section đang khóa — mở khóa trước khi ẩn/hiện phần tử')) return;
     const key = elementStyleKey(blockId, field);
     const current = specRef.current;
     const prev =
@@ -5519,6 +5601,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onInsertTemplate={insertLibraryButtonTemplate}
         />
 
+        <LandingPageFormLibraryModal
+          open={formLibraryOpen}
+          onClose={() => {
+            setFormLibraryOpen(false);
+            formLibraryPosRef.current = null;
+          }}
+          onInsertTemplate={insertLibraryFormTemplate}
+        />
+
         {textAiPopover ? (
           <LpCanvasAiQuickPopover
             state={textAiPopover}
@@ -5905,6 +5996,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               onOpenMediaLibrary={() => setMediaOpen(true)}
               onOpenSectionLibrary={() => openSectionLibrary(null)}
               onOpenButtonLibrary={() => openButtonLibrary(null)}
+              onOpenFormLibrary={() => openFormLibrary(null)}
               onInsertTitlePreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
@@ -5946,17 +6038,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 selectCanvas({ blockId: id, element: 'section' }, { keepAddPanel: true });
               }}
               onReorderBlocks={(fromIndex, toIndex) => {
+                // Indices belong to the rendered list; resolve its stable IDs,
+                // then let the shared handler reorder the latest live draft.
                 const moving = spec.blocks[fromIndex];
-                if (moving?.locked) {
-                  setSaveMsg('Section đang khóa — mở khóa trước khi di chuyển');
-                  return;
-                }
-                pushHistory(
-                  sanitizeLandingPageDraftSpec({
-                    ...spec,
-                    blocks: reorderBlocks(spec.blocks, fromIndex, toIndex),
-                  }),
-                );
+                const target = spec.blocks[toIndex];
+                if (!moving || !target) return;
+                canvasActionRef.current.reorderBlockById(moving.id, target.id);
               }}
               onDupBlock={dupBlock}
               onRemoveBlock={removeBlock}
@@ -6818,7 +6905,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                             <div className="flex flex-wrap gap-1.5">
                               <button
                                 type="button"
-                                className="rounded border border-white/10 px-2 py-1 text-[11px] hover:bg-white/5"
+                                disabled={isSectionLocked(selected.id)}
+                                className="rounded border border-white/10 px-2 py-1 text-[11px] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
                                 onClick={() =>
                                   canvasActionRef.current.toggleElementHidden(selected.id, field)
                                 }
@@ -7123,9 +7211,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       const cleaned = sanitizeLandingPageDraftSpec(restored);
                       specRef.current = cleaned;
                       setSpec(cleaned);
-                      setHistoryNav({ undo: true, redo: false });
+                      setHistoryNav({ undo: historyRef.current.length > 0, redo: futureRef.current.length > 0 });
                       revisionRef.current = readClientRevision(restored);
                       ackedRevisionRef.current = readClientRevision(restored);
+                      pendingAutosaveRef.current = null;
                       dirtyRef.current = false;
                       clearLocalLandingDraft(pageId);
                       setPendingLocalDraft(null);

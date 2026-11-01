@@ -239,6 +239,7 @@ export type LandingPagePricingPlan = {
   period?: string;
   features: string[];
   ctaLabel?: string;
+  ctaUrl?: string;
   highlighted?: boolean;
   /** Opt-in free drag within Pricing section (parity with list items). */
   positionMode?: import('./landing-page-free-position').LandingPagePositionMode;
@@ -319,6 +320,10 @@ export type LandingPageFormTheme = {
   radius?: string;
   /** serif titles like Canva form cards */
   titleFont?: 'serif' | 'sans';
+  inputRadius?: string;
+  inputUnderline?: boolean;
+  inputBorderBottom?: string;
+  buttonRadius?: string;
 };
 
 export type LandingPageLeadFormField = {
@@ -419,6 +424,10 @@ export type LandingPageSpec = {
     fieldSources?: Record<string, 'profile' | 'ai' | 'user'>;
     profileAppliedAt?: string | null;
     lastAiAt?: string | null;
+    /** A single generated spec is shared by preview, draft and Builder. */
+    aiGenerationId?: string;
+    aiTemplateSlug?: string;
+    aiSource?: 'ai' | 'fallback';
     /** Visual layout variant — independent of theme colors. */
     layout?: import('./landing-page-ui').LandingPageLayout;
     /** Optional category hint for layout resolution on older pages. */

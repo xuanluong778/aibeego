@@ -164,6 +164,7 @@ export function LandingPageInspectorElementActions(props: LandingPageInspectorEl
             <>
               <ActionBtn
                 title={isTextHidden ? 'Hiện phần tử' : 'Ẩn phần tử'}
+                disabled={sectionLocked}
                 onClick={onToggleHidden}
                 dataLp="toggle-hidden"
               >

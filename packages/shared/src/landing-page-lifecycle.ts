@@ -621,6 +621,9 @@ export function sanitizeLandingPageSpec(
             profileAppliedAt:
               typeof metaIn.profileAppliedAt === 'string' ? metaIn.profileAppliedAt : null,
             lastAiAt: typeof metaIn.lastAiAt === 'string' ? metaIn.lastAiAt : null,
+            ...(typeof metaIn.aiGenerationId === 'string' ? { aiGenerationId: metaIn.aiGenerationId.slice(0, 120) } : {}),
+            ...(typeof metaIn.aiTemplateSlug === 'string' ? { aiTemplateSlug: metaIn.aiTemplateSlug.slice(0, 80) } : {}),
+            ...(metaIn.aiSource === 'ai' || metaIn.aiSource === 'fallback' ? { aiSource: metaIn.aiSource } : {}),
             ...(layout ? { layout: layout as NonNullable<LandingPageSpec['meta']>['layout'] } : {}),
             ...(category ? { category } : {}),
             ...(designFamily ? { designFamily } : {}),
@@ -1002,10 +1005,11 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
         return withNestedFreeLayout(plan, {
           id: clampText(plan.id ?? uid('plan'), 64, 'persist'),
           name: clampText(plan.name ?? 'Gói', 80, mode),
-          price: clampText(plan.price ?? '', 40, mode),
+          price: clampText(plan.price ?? '', 80, mode),
           period: clampText(plan.period ?? '', 40, mode),
           features,
           ctaLabel: clampText(plan.ctaLabel ?? 'Chọn gói', 60, mode),
+          ...(plan.ctaUrl ? { ctaUrl: draftUrl(plan.ctaUrl) || '#lead-form' } : {}),
           highlighted: plan.highlighted === true,
         });
       }),

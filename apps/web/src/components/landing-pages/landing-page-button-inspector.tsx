@@ -1009,8 +1009,9 @@ export function LandingPageButtonInspector({
           <button
             type="button"
             data-lp-button-hide
+            disabled={block.locked === true}
             className={cn(
-              'rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition',
+              'rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40',
               isHidden
                 ? 'border-amber-400/40 bg-amber-400/15 text-amber-100'
                 : 'border-white/10 text-white/75 hover:bg-white/5',

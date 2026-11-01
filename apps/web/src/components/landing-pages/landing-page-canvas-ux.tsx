@@ -3203,6 +3203,7 @@ export function LandingPageCanvasTextToolbarHost({
       textStyle={textStyle}
       editing={false}
       locked={locked}
+      sectionLocked={Boolean(handlers.isBlockLocked?.(blockId))}
       onStyle={(patch) => handlers.onTextStyleChange?.(blockId, field, patch)}
       onAi={() => handlers.onAi(blockId)}
       onMoveUp={() => handlers.onMove(blockId, 'up')}
@@ -3240,6 +3241,7 @@ function TextEditToolbar({
   textStyle,
   editing = false,
   locked = false,
+  sectionLocked = false,
   onStyle,
   onAi,
   onMoveUp,
@@ -3262,6 +3264,7 @@ function TextEditToolbar({
   textStyle?: LandingPageInlineTextStyle;
   editing?: boolean;
   locked?: boolean;
+  sectionLocked?: boolean;
   onStyle?: (patch: Partial<LandingPageInlineTextStyle>) => void;
   onAi: () => void;
   onMoveUp?: () => void;
@@ -3838,6 +3841,7 @@ function TextEditToolbar({
           type="button"
           className={menuItem}
           data-lp-text-more-hide
+          disabled={sectionLocked}
           onClick={run(() => {
             onToggleHidden?.();
             setMoreOpen(false);
