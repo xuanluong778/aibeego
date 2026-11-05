@@ -354,7 +354,7 @@ export function LandingPageAddComponentsPanel({
 
 
   function renderComponentCard(card: QuickCard) {
-    const dropHint = 'Thả vào canvas → hiện mẫu để chọn';
+    const dropHint = card.kind === 'text' ? 'Thả vào canvas để chèn đoạn văn' : 'Thả vào canvas → hiện mẫu để chọn';
     const blockDragType = card.kind === 'block' ? card.blockType : null;
     let dragKind: 'section-library' | 'button-library' | 'block-type' | 'picker' | undefined;
     let onDragStart: ((e: DragEvent<HTMLButtonElement>) => void) | undefined;
@@ -422,7 +422,7 @@ export function LandingPageAddComponentsPanel({
     }
 
     const canDrag = Boolean(onDragStart);
-    return (
+    const cardNode = (
       <ComponentCard
         key={card.id}
         card={card}
@@ -432,6 +432,15 @@ export function LandingPageAddComponentsPanel({
         onDragStart={onDragStart}
       />
     );
+    return card.kind === 'text' ? (
+      <div key={card.id} className="flex min-w-0 flex-col gap-1">
+        {cardNode}
+        <button type="button" data-lp-open-text-library="1"
+          className="rounded px-1 py-1 text-[10px] text-slate-700 underline hover:bg-white"
+          onClick={() => runQuick(card)}>Chọn mẫu văn bản</button>
+      </div>
+    ) : cardNode;
+
   }
 
   const showSocial = Boolean(onInsertBoxPreset);
@@ -632,7 +641,7 @@ function ComponentCard({
       draggable={draggable}
       onDragStart={onDragStart}
       className={cn(
-        'flex flex-col items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-1.5 py-3 text-center shadow-sm transition hover:border-sky-200 hover:shadow-md',
+        'flex w-full flex-col items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-1.5 py-3 text-center shadow-sm transition hover:border-sky-200 hover:shadow-md',
         draggable && 'cursor-grab active:cursor-grabbing',
       )}
       onClick={(e) => {

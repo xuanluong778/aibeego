@@ -57,7 +57,7 @@ gate(
   notice.includes('/landing-page-builder-version.json') &&
     notice.includes('Để sau') &&
     archive.includes('landing-page-builder-version.json') &&
-    target.includes("barColor: '#00E174'") &&
+    !target.includes("#00E174") &&
     target.includes('container: hostBox'),
   'version id comes from the running bundle; split uses the full section gutters',
 );
@@ -102,6 +102,7 @@ function readContentColumns(style) {
   if (!Number.isFinite(n)) return 1;
   return Math.max(1, Math.min(12, Math.round(n)));
 }
+function readNativeColumnIndices(style) { return Array.isArray(style?.lpNativeColumnIndices) ? style.lpNativeColumnIndices : [readNativeColumnIndex(style)]; }
 function readNativeColumnIndex(style) {
   const n = Number(style && style.lpNativeColumnIndex);
   if (!Number.isFinite(n)) return 0;

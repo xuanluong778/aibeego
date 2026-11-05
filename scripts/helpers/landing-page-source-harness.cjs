@@ -143,6 +143,7 @@ function harness(locked = false, hidden = false) {
     pageId: 'p',
     page: { name: 'Page', status: 'DRAFT' },
     specRef: { current: snapshot(stored) },
+    sectionInsertCommitRef: { current: null },
     historyRef: { current: [] },
     futureRef: { current: [] },
     revisionRef: { current: 10 },
@@ -200,7 +201,7 @@ function harness(locked = false, hidden = false) {
     specWithEditableHtmlSections: () => null,
     apiClient: async (url, options) => {
       ctx.requests.push({ url, options });
-      if (!options) return { draftSpec: snapshot(stored) };
+      if (!options || !options.method || options.method==='GET') return { draftSpec: snapshot(stored) };
       const body = JSON.parse(options.body);
       const decision = decideSave({
         storedRevision: stored.meta.clientRevision,
@@ -241,6 +242,8 @@ function harness(locked = false, hidden = false) {
     ctx[name] = evaluate(definition(builder, name), ctx);
   ctx.createLandingPageAutosaveRequestId = evaluate(definition(parse(path.join(components, 'landing-page-autosave-request.ts')), 'createLandingPageAutosaveRequestId'), ctx);
   ctx.isLocalLandingDraft = evaluate(definition(recoverySource, 'isLocalLandingDraft'), ctx);
+  ctx.landingDraftContentKey = evaluate(definition(recoverySource, 'landingDraftContentKey'), ctx);
+  ctx.landingDraftsHaveSameContent = evaluate(definition(recoverySource, 'landingDraftsHaveSameContent'), ctx);
   ctx.decideDraftRecovery = evaluate(definition(recoverySource, 'decideDraftRecovery'), ctx);
   ctx.isSectionLevelElement = evaluate(definition(selectionSource, 'isSectionLevelElement'), ctx);
   ctx.inspectorTextFieldKey = evaluate(definition(fieldSource, 'inspectorTextFieldKey'), ctx);

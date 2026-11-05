@@ -1,0 +1,8 @@
+PASS Hidden Hero subheadline does not hide inserted paragraph; inline edit saves immediately
+PASS Single column left: new paragraph stays in new column; Undo/Redo/reload
+PASS Single column right: new paragraph stays in new column; Undo/Redo/reload
+PASS Benefits: right then gap creates exactly one column; empty/body drops use existing column
+PASS Text library: native drag of a specific preset and click selection remain usable
+PASS Escape and outside drop clear marker and add nothing
+PASS Existing native split: drop in right body then gap preserves native content positions
+PASS Preview + isolated public route + mobile preserve saved columns and readable text

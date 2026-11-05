@@ -87,6 +87,9 @@ export type LpSidebarInsertPos =
       edge: 'before' | 'after';
       columnIndex?: number;
       splitColumns?: number;
+      /** Existing native layout count; initializes persistence without adding a column. */
+      columnCount?: number;
+      nativeColumnIndices?: number[];
       clientX?: number;
       clientY?: number;
     }

@@ -60,9 +60,9 @@ function buildElementHiddenCss(spec: LandingPageSpec): string | null {
     if (sep <= 0) continue;
     const blockId = key.slice(0, sep).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const field = key.slice(sep + 2).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    // Inline text fields (headline, trustPoint:N, …)
+    // Scope hidden text to its owner; nested portal elements can use the same field name.
     rules.push(
-      `[data-lp-block-id="${blockId}"] [data-lp-inline-field="${field}"]{display:none!important}`,
+      `[data-lp-block-id="${blockId}"] [data-lp-inline-field="${field}"][data-lp-element-id^="${blockId}::"]{display:none!important}`,
     );
     // Element chrome (Hero trust icons, boxes keyed by data-lp-element-id)
     rules.push(
@@ -4437,19 +4437,21 @@ export function LandingPageRenderer({
           }}
           onDragOver={(e)=>{
             if(!canvasHandlers?.onInsertSidebarPreset || !isSidebarPresetDrag(e.dataTransfer.types))return;
-            if((e.target as Element|null)?.closest('[data-lp-block-id]'))return;
+            // Portal elements bubble through the renderer's React tree, bypassing the section shell.
+            const host=(e.target as Element|null)?.closest<HTMLElement>('[data-lp-section-chrome="1"]') || null;
             const payload=readSidebarDragPayload(e.dataTransfer);
-            const target=payload?resolveSidebarDropTarget(e.currentTarget,null,payload,e):null;
+            const target=payload?resolveSidebarDropTarget(e.currentTarget,host,payload,e):null;
             showSidebarDropTarget(target);e.dataTransfer.dropEffect=target?'copy':'none';
             if(target)e.preventDefault();
           }}
           onDragLeave={(e)=>{if(e.currentTarget.contains(e.relatedTarget as Node|null))return;const hit=document.elementFromPoint(e.clientX,e.clientY);if(hit&&e.currentTarget.contains(hit))return;showSidebarDropTarget(null);}}
           onDrop={(e)=>{
             if(!canvasHandlers?.onInsertSidebarPreset || !isSidebarPresetDrag(e.dataTransfer.types))return;
-            if((e.target as Element|null)?.closest('[data-lp-block-id]'))return;
+            // Portal elements bubble through the renderer's React tree, bypassing the section shell.
+            const host=(e.target as Element|null)?.closest<HTMLElement>('[data-lp-section-chrome="1"]') || null;
             e.preventDefault();e.stopPropagation();
             const payload=readSidebarDragPayload(e.dataTransfer);
-            const target=payload?resolveSidebarDropTarget(e.currentTarget,null,payload,e):null;
+            const target=payload?resolveSidebarDropTarget(e.currentTarget,host,payload,e):null;
             showSidebarDropTarget(null);
             if(payload && target)canvasHandlers.onInsertSidebarPreset(payload,target.position);
           }}

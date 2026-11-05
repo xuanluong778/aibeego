@@ -8,14 +8,14 @@ export type SidebarDropTarget = {
   region: DropRect;
   line?: DropRect;
   sectionId?: string;
-  barColor?: '#000000' | '#ffffff' | '#00E174';
+  barColor?: '#000000' | '#ffffff';
   /** Horizontal = flow slot; vertical = new/existing column. */
   orientation?: 'horizontal' | 'vertical';
   /** Canvas-space bounds in viewport pixels; keeps visual drop feedback inside its section. */
   sectionBounds?: DropRect;
   frame?: { blockId: string; gridIndex?: number };
 };
-const rect = (r: DOMRect): DropRect => ({
+const rect = (r: DropRect): DropRect => ({
   left: r.left,
   top: r.top,
   width: r.width,
@@ -92,7 +92,7 @@ export function sectionAnchor(
   return owner.contains(node) ? { node } : null;
 }
 
-/** White sections use a black bar; every other painted surface uses white. */
+/** Pick the higher-contrast monochrome bar on the composited section surface. */
 export function sectionDropBarColor(host: HTMLElement): '#000000' | '#ffffff' {
   const surface =
     Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(
@@ -125,7 +125,13 @@ export function sectionDropBarColor(host: HTMLElement): '#000000' | '#ffffff' {
       g: c.g * c.a + painted.g * (1 - c.a),
       b: c.b * c.a + painted.b * (1 - c.a),
     };
-  return painted.r >= 254.5 && painted.g >= 254.5 && painted.b >= 254.5 ? '#000000' : '#ffffff';
+  const linear = (v: number) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance =
+    0.2126 * linear(painted.r) + 0.7152 * linear(painted.g) + 0.0722 * linear(painted.b);
+  return luminance > 0.179 ? '#000000' : '#ffffff';
 }
 
 export const LP_DROP_BAR_HEIGHT = 20;
@@ -255,8 +261,25 @@ export function pickColumnBox(
   pointerX: number,
   container: DropRect,
   columns: DropRect[],
+  pointerY?: number,
 ): { box: DropRect; columnIndex: number; splitColumns?: number } {
-  const sorted = [...columns].sort((a, b) => a.left - b.left);
+  // Model order also matters when mobile stacks all columns at the same X.
+  const sorted = [...columns];
+  if (
+    pointerY !== undefined &&
+    columns.length > 1 &&
+    Math.abs(columns[0]!.left - columns[1]!.left) < 2
+  ) {
+    const i = columns.reduce(
+      (best, c, index) =>
+        Math.abs(pointerY - (c.top + c.height / 2)) <
+        Math.abs(pointerY - (columns[best]!.top + columns[best]!.height / 2))
+          ? index
+          : best,
+      0,
+    );
+    return { box: columns[i]!, columnIndex: i };
+  }
   const n = sorted.length;
   if (!n) return { box: container, columnIndex: 0 };
   const colRight = (c: DropRect) => c.left + c.width;
@@ -264,9 +287,14 @@ export function pickColumnBox(
   const last = sorted[n - 1]!;
   const first = sorted[0]!;
   const canSplit = n < LP_CONTENT_COLUMNS_MAX;
+  const edge = (c: DropRect) => (n === 1 ? columnEdgePx(c.width) : Math.min(24, c.width * 0.1));
   const newWidth = Math.max(48, container.width / (n + 1));
 
-  if (canSplit && pointerX >= colRight(last) - columnEdgePx(last.width) && pointerX <= containerRight + columnEdgePx(last.width)) {
+  if (
+    canSplit &&
+    pointerX >= colRight(last) - edge(last) &&
+    pointerX <= containerRight + edge(last)
+  ) {
     return {
       box: {
         left: colRight(last),
@@ -278,7 +306,11 @@ export function pickColumnBox(
       splitColumns: n + 1,
     };
   }
-  if (canSplit && pointerX >= container.left - columnEdgePx(first.width) && pointerX <= first.left + columnEdgePx(first.width)) {
+  if (
+    canSplit &&
+    pointerX >= container.left - edge(first) &&
+    pointerX <= first.left + edge(first)
+  ) {
     return {
       box: {
         left: Math.max(container.left, first.left - newWidth),
@@ -295,7 +327,7 @@ export function pickColumnBox(
       const a = sorted[i]!;
       const b = sorted[i + 1]!;
       const aRight = colRight(a);
-      if (pointerX >= aRight - columnEdgePx(a.width) && pointerX <= b.left + columnEdgePx(b.width)) {
+      if (pointerX >= aRight - edge(a) && pointerX <= b.left + edge(b)) {
         return {
           box: {
             left: aRight,
@@ -330,12 +362,17 @@ export function readColumnRects(host: HTMLElement): { container: DropRect; colum
   const hostBox = rect(host.getBoundingClientRect());
   const grid = host.querySelector<HTMLElement>('[data-lp-content-columns]');
   if (grid) {
-    const cells = Array.from(grid.querySelectorAll<HTMLElement>(':scope > [data-lp-content-column]'));
+    const cells = Array.from(
+      grid.querySelectorAll<HTMLElement>(':scope > [data-lp-content-column]'),
+    );
     if (cells.length) {
       return {
         container: hostBox,
         columns: cells
-          .sort((a, b) => Number(a.dataset.lpContentColumn || 0) - Number(b.dataset.lpContentColumn || 0))
+          .sort(
+            (a, b) =>
+              Number(a.dataset.lpContentColumn || 0) - Number(b.dataset.lpContentColumn || 0),
+          )
           .map((c) => rect(c.getBoundingClientRect())),
       };
     }
@@ -344,11 +381,26 @@ export function readColumnRects(host: HTMLElement): { container: DropRect; colum
     '[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]',
   );
   if (split) {
-    const kids = Array.from(split.children).filter((n): n is HTMLElement => n instanceof HTMLElement);
+    const kids = Array.from(split.children).filter(
+      (n): n is HTMLElement => n instanceof HTMLElement,
+    );
     if (kids.length >= 2) {
       return {
         container: hostBox,
-        columns: kids.map((c) => rect(c.getBoundingClientRect())),
+        columns: kids.map((c, i) => {
+          const actual = c.getBoundingClientRect();
+          if (actual.width >= 1 && actual.height >= 1) return rect(actual);
+          // A hidden image must not remove its native column's drop area.
+          const box = split.getBoundingClientRect();
+          const gap = Number.parseFloat(getComputedStyle(split).columnGap) || 0;
+          const width = (box.width - gap * (kids.length - 1)) / kids.length;
+          return {
+            left: box.left + i * (width + gap),
+            top: box.top,
+            width,
+            height: Math.max(64, box.height),
+          };
+        }),
       };
     }
   }
@@ -439,15 +491,23 @@ export function resolveSidebarDropTarget(
         };
     }
   }
-  if (host.dataset.lpBlockType === 'Header' || host.closest('[data-lp-html-document]'))
-    return null;
+  if (host.dataset.lpBlockType === 'Header' || host.closest('[data-lp-html-document]')) return null;
   const columns = readColumnRects(host);
-  const picked = pickColumnBox(point.clientX, columns.container, columns.columns);
+  const picked = pickColumnBox(point.clientX, columns.container, columns.columns, point.clientY);
+  const grid = host.querySelector('[data-lp-content-columns]');
+  const nativeColumnIndices = grid
+    ? Array.from(grid.querySelectorAll<HTMLElement>('[data-lp-native-group]'))
+        .sort((a, b) => Number(a.dataset.lpNativeGroup) - Number(b.dataset.lpNativeGroup))
+        .map((n) => Number(n.dataset.lpContentColumn))
+    : columns.columns.map((_, i) => i);
+  const existingColumns =
+    columns.columns.length > 1 ? { columnCount: columns.columns.length, nativeColumnIndices } : {};
+
   if (picked.splitColumns) {
     const splitBounds = intersectRects(columns.container, rect(r));
     return {
       sectionId,
-      barColor: '#00E174',
+      barColor,
       orientation: 'vertical',
       position: {
         mode: 'section-element',
@@ -456,6 +516,7 @@ export function resolveSidebarDropTarget(
         edge: 'after',
         columnIndex: picked.columnIndex,
         splitColumns: picked.splitColumns,
+        nativeColumnIndices,
       },
       region: picked.box,
       sectionBounds: rect(r),
@@ -471,8 +532,10 @@ export function resolveSidebarDropTarget(
   const add = (placement: LandingPageSectionPlacement) => {
     const resolved = sectionAnchor(host, placement);
     if (!resolved || seen.has(resolved.node) || !acceptsFlow(resolved.node)) return;
-    const n = resolved.node,
-      b = n.getBoundingClientRect(),
+    const n = resolved.node;
+    const cell = n.closest<HTMLElement>('[data-lp-content-column]');
+    if (cell && Number(cell.dataset.lpContentColumn) !== picked.columnIndex) return;
+    const b = n.getBoundingClientRect(),
       parent = n.parentElement!.getBoundingClientRect();
     if (
       b.width < 1 ||
@@ -516,6 +579,7 @@ export function resolveSidebarDropTarget(
       position: {
         mode: 'section-element',
         blockId: sectionId,
+        ...existingColumns,
         anchor: selected.placement.anchor,
         edge: selected.placement.edge,
         columnIndex: picked.columnIndex,
@@ -532,27 +596,40 @@ export function resolveSidebarDropTarget(
     columnIndex: picked.columnIndex,
   };
   const end = sectionAnchor(host, placement);
-  if (!end || end.node.clientHeight < 1) return null;
+  if (!end) return null;
+  const isColumn = end.node.matches('[data-lp-content-column]');
+  if (!isColumn && end.node.clientHeight < 1) return null;
   const flow = getComputedStyle(end.node);
   if (
     end.node.matches('[data-lp-frame],[data-lp-grid-block]') ||
-    flow.display.includes('grid') ||
-    (flow.display.includes('flex') && !flow.flexDirection.startsWith('column'))
+    (!isColumn &&
+      (flow.display.includes('grid') ||
+        (flow.display.includes('flex') && !flow.flexDirection.startsWith('column'))))
   )
     return null;
-  const b = end.node.getBoundingClientRect();
+  const measured = end.node.getBoundingClientRect();
+  const b =
+    isColumn && (measured.width < 1 || measured.height < 1)
+      ? { ...picked.box, bottom: picked.box.top + picked.box.height }
+      : measured;
   return {
     sectionId,
     barColor,
     position: {
       mode: 'section-element',
       blockId: sectionId,
+      ...existingColumns,
       anchor: placement.anchor,
       edge: 'after',
       columnIndex: picked.columnIndex,
     },
     region: rect(b),
     sectionBounds: rect(r),
-    line: slotBar(picked.box.left, picked.box.width, b.bottom, 'before'),
+    line: slotBar(
+      picked.box.left,
+      picked.box.width,
+      isColumn ? b.top : b.bottom,
+      isColumn ? 'after' : 'before',
+    ),
   };
 }

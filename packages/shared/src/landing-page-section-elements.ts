@@ -26,6 +26,17 @@ export function readNativeColumnIndex(style?: { lpNativeColumnIndex?: unknown } 
   return Math.max(0, Math.min(LP_CONTENT_COLUMNS_MAX - 1, Math.round(n)));
 }
 
+export function readNativeColumnIndices(
+  style?: { lpNativeColumnIndices?: unknown; lpNativeColumnIndex?: unknown } | null,
+): number[] {
+  const indices = style?.lpNativeColumnIndices;
+  return Array.isArray(indices) &&
+    indices.length &&
+    indices.every((n) => Number.isInteger(n) && n >= 0 && n < LP_CONTENT_COLUMNS_MAX)
+    ? [...indices]
+    : [readNativeColumnIndex(style)];
+}
+
 function withColumnIndex(
   placement: LandingPageSectionPlacement,
   input: Record<string, unknown>,
@@ -49,7 +60,8 @@ export function sanitizeSectionPlacement(input: unknown): LandingPageSectionPlac
   )
     return;
   const a = p.anchor as Record<string, unknown>;
-  if (a.kind === 'end') return withColumnIndex({ sectionId, anchor: { kind: 'end' }, edge: 'after' }, p);
+  if (a.kind === 'end')
+    return withColumnIndex({ sectionId, anchor: { kind: 'end' }, edge: 'after' }, p);
   const blockId = id(a.blockId);
   if (!blockId) return;
   if (a.kind === 'submit') {
@@ -69,17 +81,21 @@ export function applySplitColumnsToBlocks(
   hostId: string,
   splitColumns: number,
   insertIndex: number,
+  nativeColumns?: number[],
 ): LandingPageBlock[] {
   const host = blocks.find((b) => b.id === hostId && !b.sectionPlacement);
   if (!host) return blocks;
-  const current = readContentColumns(host.style);
+  const indices = nativeColumns || readNativeColumnIndices(host.style);
+  const current = Math.max(readContentColumns(host.style), ...indices.map((n) => n + 1));
   const want = Math.round(Number(splitColumns));
-  const at = Math.max(0, Math.min(LP_CONTENT_COLUMNS_MAX - 1, Math.round(Number(insertIndex) || 0)));
+  const at = Math.max(
+    0,
+    Math.min(LP_CONTENT_COLUMNS_MAX - 1, Math.round(Number(insertIndex) || 0)),
+  );
   if (!Number.isFinite(want) || want < 2) return blocks;
   const nextCount = Math.min(LP_CONTENT_COLUMNS_MAX, Math.max(current, want, at + 1));
   const creating = nextCount > current;
-  const nativeIndex = readNativeColumnIndex(host.style);
-  const nextNative = creating && at <= nativeIndex ? nativeIndex + 1 : nativeIndex;
+  const nextIndices = indices.map((n) => (creating && at <= n ? n + 1 : n));
   return blocks.map((b) => {
     if (b.id === hostId) {
       return {
@@ -87,7 +103,8 @@ export function applySplitColumnsToBlocks(
         style: {
           ...(b.style || {}),
           lpContentColumns: nextCount,
-          ...(nextNative > 0 ? { lpNativeColumnIndex: nextNative } : {}),
+          lpNativeColumnIndex: nextIndices[0],
+          lpNativeColumnIndices: nextIndices,
         },
       };
     }

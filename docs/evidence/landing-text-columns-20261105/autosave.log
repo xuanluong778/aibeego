@@ -1,0 +1,22 @@
+PASS two independent tabs never share a save request ID
+PASS different saves in one tab have different IDs
+PASS retry after lost response keeps byte-identical ID and payload
+PASS exhausted retries retain pending request; later edits flush only after its ACK
+PASS server rejects same ID with another draft and leaves revision/data untouched
+PASS server accepts an exact retry once, rejects ID reuse with changed base/name/payload
+PASS exact legacy retry remains identical when normalization allocates missing IDs
+PASS same revision with different content cannot be acknowledged as unchanged
+PASS legitimate no-edit flush is unchanged and does not bump revision
+PASS foreign/missing ID or wrong revision ACK cannot advance base or clear local
+PASS two real persist callbacks with common server preserve loser local and conflict
+PASS lost ACK followed by another writer never rebases the old pending draft
+PASS winner ACK only clears a local snapshot with matching content and revisions
+PASS UUID fallback uses actual cryptographic randomness without a tab counter
+{"total":14,"failed":0}
+PASS SEED_REVISION_ON_LOAD
+PASS STALE_NEVER_FORCE_OVERWRITES / CONFLICT_PAUSES_AUTOSAVE_NO_LOOP / UNIT_STALE_NEVER_ADVANCES_OR_REFLUSHES
+PASS AUTOSAVE_NO_BUTTON_LOCK
+PASS NO_TIGHT_REFUSH_LOOP
+PASS ABORT_PROPAGATES
+PASS INLINE_EDIT_NO_VALUE_CARET_LOOP
+PASS SERVER_STALE_STILL_BLOCKS

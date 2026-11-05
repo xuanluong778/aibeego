@@ -39,6 +39,8 @@ export type LandingPageCanvasStyle = {
   lpContentColumns?: number;
   /** Column that keeps the section's original flow content after a left split. */
   lpNativeColumnIndex?: number;
+  /** Positions of the original groups in an existing split layout. */
+  lpNativeColumnIndices?: number[];
   opacity?: number;
   fontFamily?: string;
   fontSize?: string;

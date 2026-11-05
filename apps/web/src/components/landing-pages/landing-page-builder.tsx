@@ -129,6 +129,7 @@ import {
 } from './landing-page-media-modal';
 import {
   ensureLandingPageTitleFonts,
+  LP_PARAGRAPH_PRESETS,
   type LandingPageListPreset,
   type LandingPageParagraphPreset,
   type LandingPageTitlePreset,
@@ -2630,6 +2631,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         openFormLibrary(pos);
         return;
       case 'add-picker-open':
+        if (payload.picker === 'text') {
+          pickerInsertPosRef.current = null;
+          consumeDropChoice(pos, () => insertParagraphPreset(LP_PARAGRAPH_PRESETS[0]!, pos));
+          return;
+        }
         if (payload.picker === 'forms') {
           openFormLibrary(pos);
           return;

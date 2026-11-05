@@ -5,7 +5,7 @@ import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
 import {
   applySplitColumnsToBlocks,
   readContentColumns,
-  readNativeColumnIndex,
+  readNativeColumnIndices,
 } from '@marketingspa/shared';
 import {
   InlineEditable,
@@ -32,21 +32,32 @@ export function attachNewSectionElement(
     throw Error('Section đích không còn tồn tại hoặc đang khóa. Chưa chèn element.');
   const oldIds = new Set(previous.blocks.map((b) => b.id));
   const added = next.blocks.filter((b) => !oldIds.has(b.id));
-  if (added.length !== 1)
-    throw Error('Loại element này không hỗ trợ vị trí đã thả.');
+  if (added.length !== 1) throw Error('Loại element này không hỗ trợ vị trí đã thả.');
   const allowed = ['Benefits', 'CTA', 'Gallery', 'LeadForm', 'Video', 'Countdown'];
   if (!allowed.includes(added[0]!.type) && typeof placement.columnIndex !== 'number')
     throw Error('Loại element này không hỗ trợ vị trí đã thả.');
+  // Shift only existing occupants. The new element already owns the new column.
+  const existing =
+    pos.mode === 'section-element' && (pos.splitColumns ?? pos.columnCount ?? 1) >= 2
+      ? applySplitColumnsToBlocks(
+          previous.blocks,
+          pos.blockId,
+          (pos.splitColumns ?? pos.columnCount)!,
+          pos.columnIndex ?? 0,
+          pos.nativeColumnIndices,
+        )
+      : previous.blocks;
+  const shifted = new Map(existing.map((b) => [b.id, b]));
   const attached = next.blocks.map((b) => {
+    if (oldIds.has(b.id)) {
+      const old = shifted.get(b.id)!;
+      return { ...b, style: old.style, sectionPlacement: old.sectionPlacement };
+    }
     if (b.id !== added[0]!.id) return b;
     const { freeLayout, responsiveFreeLayout, positionMode, ...rest } = b;
     return { ...rest, sectionPlacement: placement, spacing: 'none' } as LandingPageBlock;
   });
-  const split =
-    pos.mode === 'section-element' && pos.splitColumns && pos.splitColumns >= 2
-      ? applySplitColumnsToBlocks(attached, pos.blockId, pos.splitColumns, pos.columnIndex ?? 0)
-      : attached;
-  return { ...next, blocks: split };
+  return { ...next, blocks: attached };
 }
 
 function InsertedElement({
@@ -112,55 +123,90 @@ function InsertedElement({
   );
 }
 
-function ensureSectionColumns(host: HTMLElement, count: number, nativeIndex: number) {
-  if (count < 2) return;
-  const inner =
-    host.querySelector<HTMLElement>('[data-lp-container-inner]') ||
-    Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(
-      (n) => n.closest('[data-lp-section-chrome="1"]') === host,
+type ColumnState = { inner: HTMLElement; grid: HTMLElement; groups: ChildNode[][] };
+const columnStates = new WeakMap<HTMLElement, ColumnState>();
+
+function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: number[]) {
+  let state = columnStates.get(host);
+  if (state && !host.contains(state.inner)) {
+    columnStates.delete(host);
+    state = undefined;
+  }
+  if (!state && count < 2) {
+    const split = host.querySelector<HTMLElement>(
+      '[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]',
     );
-  if (!inner) return;
-  let grid = inner.querySelector<HTMLElement>(':scope > [data-lp-content-columns]');
-  if (!grid) {
-    grid = document.createElement('div');
-    grid.dataset.lpContentColumns = String(count);
-    const kids = Array.from(inner.childNodes);
-    const splitHost = inner.matches('[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]');
-    const splitKids = splitHost
-      ? kids.filter((n): n is HTMLElement => n instanceof HTMLElement)
-      : [];
-    if (splitKids.length >= 2) {
-      splitKids.forEach((kid, i) => {
-        const cell = document.createElement('div');
-        cell.dataset.lpContentColumn = String(i);
-        cell.style.minWidth = '0';
-        cell.appendChild(kid);
-        grid!.appendChild(cell);
+    if (split)
+      Array.from(split.children).forEach((node, i) => {
+        if (node instanceof HTMLElement) {
+          node.dataset.lpContentColumn = String(i);
+          node.dataset.lpNativeGroup = String(i);
+        }
       });
-    } else {
-      const native = document.createElement('div');
-      native.dataset.lpContentColumn = String(Math.max(0, Math.min(count - 1, nativeIndex)));
-      native.style.minWidth = '0';
-      for (const kid of kids) native.appendChild(kid);
-      grid.appendChild(native);
-    }
+    return;
+  }
+  if (!state) {
+    // Use the actual content container, above the section background and inside its copy.
+    const inner =
+      host.querySelector<HTMLElement>(
+        '[data-lp-container-inner],[data-lp-cta-split],[data-lp-form-split],.blank-container',
+      ) ||
+      Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(
+        (n) => n.closest('[data-lp-section-chrome="1"]') === host,
+      );
+    if (!inner) return;
+    const kids = Array.from(inner.childNodes).filter(
+      (n) => !(n instanceof HTMLElement && n.matches('[data-lp-section-element-slot]')),
+    );
+    const splitHost = inner.matches('[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]');
+    const groups =
+      splitHost && kids.filter((n) => n instanceof HTMLElement).length >= 2
+        ? kids.filter((n) => n instanceof HTMLElement).map((n) => [n])
+        : [kids];
+    if (splitHost)
+      for (const node of kids)
+        if (node instanceof HTMLElement) {
+          node.removeAttribute('data-lp-content-column');
+          node.removeAttribute('data-lp-native-group');
+        }
+    const grid = document.createElement('div');
+    grid.dataset.lpContentColumns = String(count);
+    grid.style.gridColumn = '1 / -1';
     inner.appendChild(grid);
+    state = { inner, grid, groups };
+    columnStates.set(host, state);
+  }
+  const { inner, grid, groups } = state;
+  if (count < 2) {
+    // Undo must restore the original React-owned nodes and remove all generated cells.
+    for (const group of groups) for (const node of group) inner.insertBefore(node, grid);
+    grid.remove();
+    columnStates.delete(host);
+    ensureSectionColumns(host, count, nativeIndices);
+    return;
   }
   grid.dataset.lpContentColumns = String(count);
-  grid.style.display = 'grid';
-  grid.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
-  grid.style.gap = '1.5rem';
-  grid.style.alignItems = 'start';
-  grid.style.width = '100%';
+  grid.style.setProperty('--lp-content-column-count', String(count));
   for (let i = 0; i < count; i++) {
     if (grid.querySelector(`:scope > [data-lp-content-column="${i}"]`)) continue;
     const cell = document.createElement('div');
     cell.dataset.lpContentColumn = String(i);
-    cell.style.minWidth = '0';
-    const next = Array.from(grid.children).find(
-      (n) => Number((n as HTMLElement).dataset.lpContentColumn) > i,
-    );
-    grid.insertBefore(cell, next || null);
+    grid.appendChild(cell);
+  }
+  groups.forEach((nodes, i) => {
+    const index = Math.max(0, Math.min(count - 1, nativeIndices[i] ?? i));
+    const cell = grid.querySelector<HTMLElement>(`:scope > [data-lp-content-column="${index}"]`)!;
+    cell.dataset.lpNativeGroup = String(i);
+    for (const node of nodes) if (node.parentNode !== cell) cell.appendChild(node);
+  });
+  for (const cell of Array.from(grid.children)) {
+    if (Number((cell as HTMLElement).dataset.lpContentColumn) >= count) cell.remove();
+    else if (
+      !groups.some(
+        (_, i) => (nativeIndices[i] ?? i) === Number((cell as HTMLElement).dataset.lpContentColumn),
+      )
+    )
+      cell.removeAttribute('data-lp-native-group');
   }
 }
 
@@ -184,7 +230,7 @@ export function LandingPageSectionElements({
   const columnSig = JSON.stringify(
     spec.blocks
       .filter((b) => !b.sectionPlacement)
-      .map((b) => [b.id, readContentColumns(b.style), readNativeColumnIndex(b.style)]),
+      .map((b) => [b.id, readContentColumns(b.style), readNativeColumnIndices(b.style)]),
   );
   useLayoutEffect(() => {
     const root = marker.current?.closest<HTMLElement>('[data-lp-canvas-root]');
@@ -194,9 +240,8 @@ export function LandingPageSectionElements({
       for (const hostBlock of spec.blocks) {
         if (hostBlock.sectionPlacement) continue;
         const count = readContentColumns(hostBlock.style);
-        if (count < 2) continue;
         const host = sectionHost(root, hostBlock.id);
-        if (host) ensureSectionColumns(host, count, readNativeColumnIndex(hostBlock.style));
+        if (host) ensureSectionColumns(host, count, readNativeColumnIndices(hostBlock.style));
       }
       const groups = new Map<string, LandingPageBlock[]>();
       for (const b of entries) {
@@ -269,7 +314,7 @@ export function LandingPageSectionElements({
   );
   return (
     <>
-      <style>{`[data-lp-content-columns]{display:grid;align-items:start;width:100%;gap:1.5rem}[data-lp-content-column]{min-width:0}[data-lp-section-element] [data-lp-inline-wrap]:is([data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"]):not([data-lp-heading-width-locked="1"]):not([data-lp-heading-width-live]){max-width:100%!important;width:100%!important;box-sizing:border-box}`}</style>
+      <style>{`[data-lp-canvas-root]{container-type:inline-size}[data-lp-content-columns]{display:grid;grid-template-columns:repeat(var(--lp-content-column-count),minmax(0,1fr));align-items:stretch;width:100%;gap:1.5rem;position:relative;z-index:1}[data-lp-content-column]{min-width:0;min-height:64px}@container(max-width:767px){[data-lp-content-columns]{grid-template-columns:minmax(0,1fr)}}[data-lp-section-element] [data-lp-inline-wrap]:is([data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"]):not([data-lp-heading-width-locked="1"]):not([data-lp-heading-width-live]){max-width:100%!important;width:100%!important;box-sizing:border-box}`}</style>
       <span hidden ref={marker} data-lp-section-element-mount />
       {slots.map((slot) =>
         createPortal(

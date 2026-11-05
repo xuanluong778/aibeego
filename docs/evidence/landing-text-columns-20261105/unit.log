@@ -1,0 +1,35 @@
+PASS native history one entry, nested flow ownership, persist/reload, clone IDs, layer tree, cascading delete, missing target, malformed anchor
+PASS deletion reanchors following content, clone text styles, invalid payloads, actual quick-rail/card callbacks suppress all clicks while navigation remains clickable
+PASS native duplicate section remaps nested form anchor and attached text styles
+PASS attach + history + persist new column regression left
+PASS attach + history + persist new column regression right
+PASS attach + history + persist new column regression gap
+PASS existing native split preserves both groups across gap insertion
+PASS body drop initializes an existing two-column layout without adding or shifting columns
+PASS VERTICAL_BAR — drop indicator draws a vertical column bar
+PASS SPLIT_POS — drop target stores splitColumns + columnIndex
+PASS PERSIST — split persists on host and wraps columns in the section
+PASS VERSION_NOTICE_USES_LIVE_BUILD — version id comes from the running bundle; split uses the full section gutters
+PASS CHROME_INSIDE_PAGE — toolbar stays inside the landing-page content box, never the inspector
+PASS EXTRACT_CHROME — placeVerticalToolbar source extracted
+PASS EXTRACT_PICK — pickColumnBox source extracted
+PASS EXTRACT_APPLY — applySplitColumnsToBlocks source extracted
+PASS COLUMN_SCOPED_HOST — {"box":{"left":100,"top":200,"width":300,"height":400},"columnIndex":0}
+PASS SPLIT_2_TO_3_RIGHT_EDGE — {"box":{"left":730,"top":200,"width":233.33333333333334,"height":400},"columnIndex":2,"splitColumns":3}
+PASS SPLIT_2_TO_3_GAP — {"box":{"left":400,"top":200,"width":233.33333333333334,"height":400},"columnIndex":1,"splitColumns":3}
+PASS SPLIT_1_TO_2_RIGHT — {"box":{"left":880,"top":100,"width":400,"height":360},"columnIndex":1,"splitColumns":2}
+PASS SPLIT_1_TO_2_LEFT — {"box":{"left":80,"top":100,"width":400,"height":360},"columnIndex":0,"splitColumns":2}
+PASS KEEP_1_COL_CENTER — {"box":{"left":80,"top":100,"width":800,"height":360},"columnIndex":0}
+PASS SPLIT_RIGHT_GUTTER — {"box":{"left":820,"top":100,"width":500,"height":360},"columnIndex":1,"splitColumns":2}
+PASS SPLIT_LEFT_GUTTER — {"box":{"left":80,"top":100,"width":500,"height":360},"columnIndex":0,"splitColumns":2}
+PASS SPLIT_3_TO_4 — {"box":{"left":740,"top":0,"width":165,"height":300},"columnIndex":3,"splitColumns":4}
+PASS SPLIT_5_TO_6 — {"box":{"left":720,"top":0,"width":120,"height":240},"columnIndex":5,"splitColumns":6}
+PASS CAP_AT_12 — {"box":{"left":560,"top":0,"width":40,"height":100},"columnIndex":11}
+PASS APPLY_SHIFT — {"host":{"lpContentColumns":3,"lpNativeColumnIndex":0,"lpNativeColumnIndices":[0]},"child":{"sectionId":"sec","anchor":{"kind":"end"},"edge":"after","columnIndex":2}}
+PASS APPLY_1_TO_2 — {"lpContentColumns":2,"lpNativeColumnIndex":0,"lpNativeColumnIndices":[0]}
+PASS TOOLBAR_FITS_RIGHT_INSIDE — {"left":586,"top":172,"side":"right"}
+PASS TOOLBAR_FLIPS_OR_PINS_INSIDE — {"left":930,"top":172,"side":"left"}
+PASS TOOLBAR_FULL_BLEED_SITS_ON_PAGE — {"left":1040,"top":342,"side":"right"}
+PASS TOOLBAR_BOUNDS_CUT_INSPECTOR — {"left":140,"top":40,"width":840,"height":800}
+PASS DROP_BAR_CLAMPED_INSIDE — {"left":1078,"top":100,"width":20,"height":400}
+COLUMN_SPLIT_READY=PASS
