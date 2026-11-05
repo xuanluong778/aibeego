@@ -204,7 +204,8 @@ export const LP_RESPONSIVE_FOUNDATION_CSS = `
 [data-lp-viewport="mobile"] [data-lp-faq-grid],
 [data-lp-viewport="mobile"] [data-lp-process-grid],
 [data-lp-viewport="mobile"] [data-lp-form-split],
-[data-lp-viewport="mobile"] [data-lp-cta-split] {
+[data-lp-viewport="mobile"] [data-lp-cta-split],
+[data-lp-viewport="mobile"] [data-lp-content-columns] {
   grid-template-columns: minmax(0, 1fr) !important;
 }
 [data-lp-viewport="mobile"] [data-lp-canvas-root] .sm\\:grid-cols-2,

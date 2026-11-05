@@ -4,8 +4,14 @@
  */
 
 import type { DragEvent as ReactDragEvent } from 'react';
+import type { SidebarDropTarget } from './landing-page-section-insert-target';
+import type { LandingPageSectionPlacement } from '@marketingspa/shared';
+import { LANDING_PAGE_BLOCK_TYPES } from '@marketingspa/shared';
 import type { LandingPageBlockType } from '@marketingspa/shared';
-import type { LandingPageButtonGroupPreset, LandingPageButtonPreset } from './landing-page-button-presets';
+import type {
+  LandingPageButtonGroupPreset,
+  LandingPageButtonPreset,
+} from './landing-page-button-presets';
 import type { LandingPageBoxPreset } from './landing-page-box-presets';
 import type {
   LandingPageListPreset,
@@ -29,9 +35,11 @@ export function requestCloseSidebarOverlay() {
 }
 
 /** True when this click is the ghost click after an HTML5 drag — skip insert. */
-export function suppressClickAfterSidebarDrag(
-  e: { currentTarget: EventTarget | null; preventDefault?: () => void; stopPropagation?: () => void },
-): boolean {
+export function suppressClickAfterSidebarDrag(e: {
+  currentTarget: EventTarget | null;
+  preventDefault?: () => void;
+  stopPropagation?: () => void;
+}): boolean {
   const el = e.currentTarget as HTMLElement | null;
   if (!el || el.dataset.lpDidDrag !== '1') return false;
   delete el.dataset.lpDidDrag;
@@ -61,9 +69,27 @@ export type LpSidebarPresetPayload =
   | {
       kind: 'add-picker-open';
       picker: 'text' | 'button' | 'forms' | 'graphics' | 'icon' | 'social' | 'media';
+      initialTab?: 'title' | 'paragraph' | 'list';
     };
 
 export type LpSidebarInsertPos =
+  | {
+      mode: 'image-target';
+      blockId: string;
+      gridIndex?: number;
+      clientX?: number;
+      clientY?: number;
+    }
+    | {
+      mode: 'section-element';
+      blockId: string;
+      anchor: LandingPageSectionPlacement['anchor'];
+      edge: 'before' | 'after';
+      columnIndex?: number;
+      splitColumns?: number;
+      clientX?: number;
+      clientY?: number;
+    }
   | { mode: 'after-selected'; clientX?: number; clientY?: number }
   | { mode: 'before'; blockId: string; clientX?: number; clientY?: number }
   | { mode: 'after'; blockId: string; clientX?: number; clientY?: number }
@@ -114,6 +140,28 @@ export function parseSidebarPresetPayload(raw: string): LpSidebarPresetPayload |
   try {
     const data = JSON.parse(raw) as LpSidebarPresetPayload;
     if (!data || typeof data !== 'object' || !('kind' in data)) return null;
+    if (
+      ![
+        'title',
+        'paragraph',
+        'list',
+        'button',
+        'button-group',
+        'box',
+        'form',
+        'block-type',
+        'media',
+        'section-preset',
+        'section-library-open',
+        'button-library-open',
+        'form-library-open',
+        'add-picker-open',
+      ].includes(data.kind)
+    )
+      return null;
+    if (data.kind === 'block-type' && !LANDING_PAGE_BLOCK_TYPES.includes(data.type)) return null;
+    if (data.kind === 'media' && (typeof data.url !== 'string' || typeof data.name !== 'string'))
+      return null;
     if (data.kind === 'section-preset') {
       if (!data.presetId || !Array.isArray(data.types) || data.types.length === 0) return null;
     }
@@ -139,7 +187,40 @@ export function parseSidebarPresetPayload(raw: string): LpSidebarPresetPayload |
   }
 }
 
-/** Start HTML5 drag from a sidebar preset (keeps click-to-add on the same control). */
+let activePayload: LpSidebarPresetPayload | null = null;
+let dropTarget: SidebarDropTarget | null = null;
+const dragListeners = new Set<() => void>();
+export function subscribeSidebarDrop(listener: () => void) {
+  dragListeners.add(listener);
+  return () => {
+    dragListeners.delete(listener);
+  };
+}
+export function getSidebarDropTarget() {
+  return dropTarget;
+}
+export function showSidebarDropTarget(next: SidebarDropTarget | null) {
+  if (JSON.stringify(next) === JSON.stringify(dropTarget)) return;
+  dropTarget = next;
+  for (const listener of dragListeners) listener();
+}
+export function readSidebarDragPayload(dt: DataTransfer): LpSidebarPresetPayload | null {
+  let raw = '';
+  try {
+    raw = dt.getData(LP_SIDEBAR_PRESET_MIME);
+  } catch {}
+  return raw ? parseSidebarPresetPayload(raw) : activePayload;
+}
+export function cancelSidebarDrag() {
+  activePayload = null;
+  showSidebarDropTarget(null);
+}
+export function ignoreSidebarElementClick(e: { preventDefault(): void; stopPropagation(): void }) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+/** Start a drag session; protected MIME is read from the session during dragover. */
 export function beginSidebarPresetDrag(
   e: ReactDragEvent,
   payload: LpSidebarPresetPayload,
@@ -147,6 +228,8 @@ export function beginSidebarPresetDrag(
   opts?: { subtitle?: string },
 ) {
   e.stopPropagation();
+  activePayload = payload;
+  showSidebarDropTarget(null);
   const json = JSON.stringify(payload);
   e.dataTransfer.setData(LP_SIDEBAR_PRESET_MIME, json);
   e.dataTransfer.setData('text/plain', previewLabel.slice(0, 80));
@@ -158,6 +241,7 @@ export function beginSidebarPresetDrag(
     payload.kind === 'section-library-open' ||
     payload.kind === 'button-library-open' ||
     payload.kind === 'add-picker-open';
+  if (payload.kind === 'media') document.body.setAttribute('data-lp-dragging-media', '1');
   if (payload.kind === 'section-library-open') {
     document.body.setAttribute('data-lp-dragging-section-library', '1');
   }
@@ -173,7 +257,12 @@ export function beginSidebarPresetDrag(
   if (src) {
     src.dataset.lpDidDrag = '1';
     const onDragEnd = () => {
+      cancelSidebarDrag();
+      document.removeEventListener('dragover', outside, true);
+      document.removeEventListener('drop', finish, true);
+      document.removeEventListener('keydown', escape, true);
       src.removeEventListener('dragend', onDragEnd);
+      document.body.removeAttribute('data-lp-dragging-media');
       document.body.removeAttribute('data-lp-dragging-section-library');
       document.body.removeAttribute('data-lp-dragging-button-library');
       document.body.removeAttribute('data-lp-dragging-add-picker');
@@ -187,72 +276,40 @@ export function beginSidebarPresetDrag(
         if (src.dataset.lpDidDrag === '1') delete src.dataset.lpDidDrag;
       }, 400);
     };
+    const outside = (event: DragEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('[data-lp-canvas-root]'))
+        showSidebarDropTarget(null);
+    };
+    const finish = () => {
+      window.setTimeout(onDragEnd, 0);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onDragEnd();
+    };
+    document.addEventListener('dragover', outside, true);
+    document.addEventListener('drop', finish, true);
+    document.addEventListener('keydown', escape, true);
     src.addEventListener('dragend', onDragEnd);
   }
 
-  const ghost = document.createElement('div');
-  ghost.setAttribute('data-lp-sidebar-drag-preview', '1');
-  if (payload.kind === 'section-preset') {
-    ghost.setAttribute('data-lp-section-preset-drag', payload.presetId);
-  }
-  if (payload.kind === 'section-library-open') {
-    ghost.setAttribute('data-lp-section-library-drag', '1');
-  }
-  if (payload.kind === 'button-library-open') {
-    ghost.setAttribute('data-lp-button-library-drag', '1');
-  }
-  if (payload.kind === 'add-picker-open') {
-    ghost.setAttribute('data-lp-add-picker-drag', payload.picker);
-  }
-  const title = document.createElement('div');
-  title.textContent = previewLabel.slice(0, 48) || 'Thêm block';
-  title.style.fontWeight = '700';
-  ghost.appendChild(title);
-  if (opts?.subtitle) {
-    const sub = document.createElement('div');
-    sub.textContent = opts.subtitle.slice(0, 72);
-    Object.assign(sub.style, {
-      marginTop: '2px',
-      fontSize: '10px',
-      fontWeight: '500',
-      opacity: '0.85',
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-    } as CSSStyleDeclaration);
-    ghost.appendChild(sub);
-  }
+  // Keep the canvas insertion bar as the only drag feedback; no floating text card.
+  const ghost = document.createElement('canvas');
+  ghost.width = 1;
+  ghost.height = 1;
+  ghost.setAttribute('data-lp-sidebar-transparent-drag-image', '1');
   Object.assign(ghost.style, {
     position: 'fixed',
-    top: '-1000px',
-    left: '-1000px',
-    zIndex: '99999',
+    left: '-10px',
+    top: '-10px',
+    width: '1px',
+    height: '1px',
     pointerEvents: 'none',
-    padding: '8px 14px',
-    borderRadius: '8px',
-    background:
-      payload.kind === 'section-preset' ||
-      payload.kind === 'section-library-open' ||
-      payload.kind === 'button-library-open' ||
-      payload.kind === 'add-picker-open'
-        ? payload.kind === 'button-library-open'
-          ? '#ea580c'
-          : payload.kind === 'add-picker-open'
-            ? '#0284c7'
-            : '#7c3aed'
-        : '#0f172a',
-    color: '#fff',
-    fontSize: '12px',
-    fontWeight: '700',
-    boxShadow: '0 8px 24px rgba(15,23,42,0.35)',
-    maxWidth: '260px',
-    overflow: 'hidden',
-  } as CSSStyleDeclaration);
+  });
   document.body.appendChild(ghost);
   try {
-    e.dataTransfer.setDragImage(ghost, 16, 16);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
   } catch {
-    /* ignore — some browsers reject custom drag images */
+    /* native drag remains usable */
   }
   window.setTimeout(() => ghost.remove(), 0);
 }

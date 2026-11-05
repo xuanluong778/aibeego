@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageBlockType } from '@marketingspa/shared';
 import { LP_ADD_ELEMENTS_LIVE } from './landing-page-builder-sidebar';
-import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag } from './landing-page-sidebar-dnd';
+import { beginSidebarPresetDrag, suppressClickAfterSidebarDrag, ignoreSidebarElementClick } from './landing-page-sidebar-dnd';
 import {
   LandingPageTextPresetsPanel,
   type LandingPageListPreset,
@@ -636,12 +636,13 @@ function ComponentCard({
         draggable && 'cursor-grab active:cursor-grabbing',
       )}
       onClick={(e) => {
-        if (suppressClickAfterSidebarDrag(e)) return;
+        if(card.kind!=='layers'){ignoreSidebarElementClick(e);return;}
         onClick();
       }}
+      onDoubleClick={card.kind==='layers'?undefined:ignoreSidebarElementClick}
       title={
         dragKind
-          ? `${card.label} — giữ kéo vào canvas để chọn mẫu, hoặc click`
+          ? `${card.label} — giữ kéo vào canvas để chọn mẫu`
           : card.label
       }
     >

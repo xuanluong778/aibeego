@@ -140,3 +140,16 @@ export * from './marketing-autopilot-command-center';
 // ssrf-fetch uses Node dns/net — import '@marketingspa/shared/ssrf-fetch' (server-only)
 
 export * from './landing-page-agency-portfolio-standard';
+export * from './landing-page-agency-variants';
+export * from './landing-page-restaurant-representative';
+export * from './landing-page-local-service-representative';
+
+export * from './landing-page-industry-variants';
+
+export * from './landing-page-website-representative';
+
+export * from './landing-page-template-vietnamese';
+
+export * from './landing-page-blank-starter';
+
+export * from './landing-page-section-elements';

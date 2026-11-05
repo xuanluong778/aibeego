@@ -51,6 +51,8 @@ export type FreeGuidesState = {
   guides: FreeGuide[];
   spacings: FreeSpacingLabel[];
   canvasSize: { width: number; height: number };
+  /** Guide coordinates are local to this surface, not always the page origin. */
+  surface?: HTMLElement;
 };
 
 const EMPTY_GUIDES: FreeGuidesState = {
@@ -86,6 +88,12 @@ export function FreeGuidesProvider({
       return;
     }
     host.style.display = 'block';
+    const parent = host.parentElement;
+    const origin = parent?.getBoundingClientRect();
+    const surface = s.surface?.getBoundingClientRect();
+    const scale = s.surface ? readCanvasPointerScale(s.surface) : 1;
+    host.style.left = `${origin && surface ? (surface.left - origin.left) / scale : 0}px`;
+    host.style.top = `${origin && surface ? (surface.top - origin.top) / scale : 0}px`;
     host.style.width = `${s.canvasSize.width}px`;
     host.style.height = `${s.canvasSize.height}px`;
     host.setAttribute('data-lp-guides-active', '1');
@@ -95,6 +103,7 @@ export function FreeGuidesProvider({
       line.setAttribute('data-lp-guide', g.orientation);
       line.setAttribute('data-lp-guide-kind', g.kind);
       line.style.position = 'absolute';
+      line.style.boxShadow = '0 0 0 1px rgba(255,255,255,.85)';
       line.style.borderColor = '#e11d8a';
       line.style.borderStyle = 'dashed';
       const isCenter = g.kind === 'center';
@@ -195,8 +204,8 @@ function ContentSafeAreaGuidesOverlay({
         el.style.top = `${topOffset}px`;
         el.style.height = `calc(100% - ${topOffset}px)`;
       }
-      if (leftEl) leftEl.style.left = `${safe.left}px`;
-      if (rightEl) rightEl.style.left = `${safe.right}px`;
+      if (leftEl) leftEl.style.left = `${Math.max(0, Math.min(safe.left, w))}px`;
+      if (rightEl) rightEl.style.left = `${Math.max(0, Math.min(safe.right, w))}px`;
       wrap.setAttribute('data-lp-content-safe-width', String(Math.round(safe.width)));
       wrap.setAttribute('data-lp-content-safe-left', String(Math.round(safe.left)));
       wrap.setAttribute('data-lp-content-safe-top', String(topOffset));
@@ -446,9 +455,13 @@ export function clientPointToSurfaceLocal(
 export function resolveFreeSurface(el: HTMLElement): HTMLElement {
   const surface = el.closest('[data-lp-free-surface]') as HTMLElement | null;
   if (surface) return surface;
-  const section = el.closest(
-    '[data-lp-section-chrome="1"],[data-lp-block-id]',
-  ) as HTMLElement | null;
+  const floating = el.closest('[data-lp-floating-text-section="1"]');
+  if (floating) {
+    const canvas = floating.closest<HTMLElement>('[data-lp-canvas-root]');
+    if (canvas) return canvas;
+  }
+  const section = (el.closest('[data-lp-section-chrome="1"]') ||
+    el.closest('[data-lp-block-id]')) as HTMLElement | null;
   if (section) return section;
   const canvas =
     (el.closest('[data-lp-canvas-root]') as HTMLElement | null) ||
@@ -567,8 +580,13 @@ type DragSession = {
   shiftLock: boolean;
   el: HTMLElement;
   canvasEl: HTMLElement;
+  originalStyle: string;
+  originalWidth: string;
+  originalMaxWidth: string;
   siblings: FreeRect[];
   canvasBox: FreeRect;
+  alignmentBounds: FreeRect;
+  constrainToSurface?: boolean;
   /** Content (offset) only — sections stay full-width. */
   safeArea?: ContentSafeArea | null;
   /** Enforce content column on drag/resize (text/image/button/card/box). */
@@ -928,16 +946,16 @@ export function useFreeDragBox({
         s.el?.getAttribute('data-lp-section-chrome') === '1';
       const flowHPending = Math.round(s.lastH);
       clearTransform();
-      // If we temporarily absolute-positioned a flow box but cancel, restore.
-      if (!commit && !layoutRef.current) {
-        s.el.style.position = '';
-        s.el.style.left = '';
-        s.el.style.top = '';
-        s.el.style.width = '';
-        s.el.style.height = '';
-        s.el.style.minHeight = '';
-        s.el.style.zIndex = '';
-        // Drop drag-temp spacers — otherwise they look like undeletable empty sections.
+      if (s.el.getAttribute('data-lp-text-hug') === '1') {
+        // Text width belongs to inlineTextStyles. Clearing it here makes Undo or
+        // the next gesture expand an unchanged React width to max-content.
+        s.el.style.width = s.originalWidth;
+        s.el.style.maxWidth = s.originalMaxWidth;
+      }
+      // React may see the same saved style before and after a canceled gesture.
+      // Restore the original inline styles explicitly, including its saved translate.
+      if (!commit) {
+        s.el.style.cssText = s.originalStyle;
         if (s.mode !== 'offset') syncCanvasFreeReserve(s.el);
       }
       if (flowResizeCommit) {
@@ -1203,24 +1221,10 @@ export function useFreeDragBox({
       const movingLeft = isOffset ? (sess.baseLeft ?? 0) + proposedX : proposedX;
       const movingTop = isOffset ? (sess.baseTop ?? 0) + proposedY : proposedY;
 
-      sess.canvasBox = {
+      if (!sess.constrainToSurface) sess.canvasBox = {
         ...sess.canvasBox,
         height: Math.max(sess.canvasBox.height, movingTop + sess.height + 240, sess.height + 560),
       };
-
-      // Text layers: 1:1 pointer tracking — snap to foreign guides caused jumps.
-      if (isOffset && sess.el.getAttribute('data-lp-text-hug') === '1') {
-        sess.lastX = Math.round(proposedX);
-        sess.lastY = Math.round(proposedY);
-        sess.lastW = sess.width;
-        sess.lastH = sess.height;
-        sess.lastRotate = sess.rotate;
-        sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
-        applyParentSectionLiveFit(sess.el);
-        publishGuidesRef.current?.(EMPTY_GUIDES);
-        emitFreeDragFrame();
-        return;
-      }
 
       const snap = computeFreeSnap({
         moving: {
@@ -1233,8 +1237,9 @@ export function useFreeDragBox({
         proposedX: movingLeft,
         proposedY: movingTop,
         canvas: sess.canvasBox,
+        alignmentBounds: sess.alignmentBounds,
         siblings: sess.siblings,
-        threshold: FREE_SNAP_THRESHOLD_PX,
+        threshold: FREE_SNAP_THRESHOLD_PX / scale,
         safeArea: sess.clampToSafeArea ? sess.safeArea : null,
         safeAreaThreshold: CONTENT_SAFE_AREA_SNAP_PX,
       });
@@ -1264,7 +1269,8 @@ export function useFreeDragBox({
         visible: true,
         guides: snap.guides,
         spacings: snap.spacings,
-        canvasSize: { width: sess.canvasBox.width, height: sess.canvasBox.height },
+        canvasSize: { width: sess.alignmentBounds.width, height: sess.alignmentBounds.height },
+        surface: sess.canvasEl,
       });
       emitFreeDragFrame();
     });
@@ -1388,6 +1394,9 @@ export function useFreeDragBox({
         surfaceEl.style.position = 'relative';
       }
 
+      const originalStyle = el.style.cssText;
+      const originalWidth = el.style.width;
+      const originalMaxWidth = el.style.maxWidth;
       const currentLayout = layoutRef.current;
       const canvasScale = readCanvasPointerScale(el);
       const surfaceRect = surfaceEl.getBoundingClientRect();
@@ -1544,7 +1553,8 @@ export function useFreeDragBox({
       // For offset mode, snap/clamp against the visual box inside the surface.
       const movingLeft = useOffset ? box.left - (currentLayout?.x ?? 0) + originX : originX;
       const movingTop = useOffset ? box.top - (currentLayout?.y ?? 0) + originY : originY;
-      const canvasH = Math.max(surfaceCss.height, dragH + 560, movingTop + dragH + 240);
+      const constrainToSurface = useOffset && Boolean(el.closest('[data-lp-section-element="1"]'));
+      const canvasH = constrainToSurface ? surfaceCss.height : Math.max(surfaceCss.height, dragH + 560, movingTop + dragH + 240);
 
       const clampToSafeArea = shouldClampToContentSafeArea(
         el,
@@ -1556,6 +1566,7 @@ export function useFreeDragBox({
 
       const session: DragSession = {
         kind: 'move',
+        constrainToSurface,
         pointerId,
         originX,
         originY,
@@ -1568,7 +1579,14 @@ export function useFreeDragBox({
         shiftLock: shiftKey,
         el,
         canvasEl: surfaceEl,
+        originalStyle,
+        originalWidth,
+        originalMaxWidth,
         siblings,
+        alignmentBounds: {
+          id: 'surface-alignment', left: 0, top: 0,
+          width: surfaceCss.width, height: surfaceCss.height,
+        },
         canvasBox: {
           id: 'surface',
           left: 0,

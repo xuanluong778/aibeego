@@ -1,4 +1,6 @@
 'use client';
+import { LandingPageSectionElements } from './landing-page-section-elements';
+import { resolveSidebarDropTarget } from './landing-page-section-insert-target';
 
 /**
  * Premium conversion-first Landing Page renderer.
@@ -6,8 +8,13 @@
  * meta.layout fall back to classic — fully compatible.
  */
 
-import { isAgencyPortfolioStandard, agencyPortfolioRenderMeta } from '@marketingspa/shared';
+import { isAgencyPortfolioStandard, agencyPortfolioRenderMeta } from './agency-portfolio-client';
+import { agencyPortfolioDirection, isRestaurantMenuRepresentative, isLocalServiceRepresentative, isWebsiteRepresentative, industryDirection } from '@marketingspa/shared';
+import { BlankStarterBlock } from './landing-page-blank-starter-block';
 import { AgencyPortfolioBlock } from './landing-page-agency-portfolio-blocks';
+import { RestaurantMenuBlock } from './landing-page-restaurant-blocks';
+import {WebsiteBriefBlock} from './landing-page-website-blocks';
+import { LocalServiceBlock } from './landing-page-local-service-blocks';
 import { scopeLegacyLandingPageCss } from './landing-page-legacy-css-scope';
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
@@ -72,6 +79,8 @@ import {
 import { isLandingPageBoxStyle } from './landing-page-box-presets';
 import {
   LP_SIDEBAR_PRESET_MIME,
+  readSidebarDragPayload,
+  showSidebarDropTarget,
   isSidebarPresetDrag,
   parseSidebarPresetPayload,
 } from './landing-page-sidebar-dnd';
@@ -593,7 +602,9 @@ function LeadFormCard({
   omitHead,
   standard = false,
   mode = 'preview',
+  plain = false,
 }: {
+  plain?: boolean;
   block: LandingPageLeadFormBlock;
   primary: string;
   onSubmit?: (fields: Record<string, string>, blockId: string) => Promise<void> | void;
@@ -609,6 +620,8 @@ function LeadFormCard({
   const [fieldErrors, setFieldErrors] = useState<Record<string,string>>({});
   const [success, setSuccess] = useState(false);
   const [plan, setPlan] = useState('');
+  const [industryChoice,setIndustryChoice]=useState<{key:string;label:string}|null>(null);
+  useEffect(()=>{if(!standard)return;const form=formRef.current;const choose=(event:Event)=>{const value=(event as CustomEvent).detail;if(value&&['dining_option','service_package','website_scope'].includes(value.key)&&typeof value.label==='string')setIndustryChoice({key:value.key,label:value.label.slice(0,200)});};form?.addEventListener('lp-industry-choice',choose);return()=>form?.removeEventListener('lp-industry-choice',choose);},[standard]);
   useEffect(() => {
     if (!standard) return;
     const form = formRef.current;
@@ -646,6 +659,8 @@ function LeadFormCard({
         <select
           name={f.name}
           required={f.required}
+          aria-invalid={standard && fieldErrors[f.name] ? true : undefined}
+          aria-describedby={standard && fieldErrors[f.name] ? `error-${block.id}-${f.id}` : undefined}
           aria-required={f.required || undefined}
           className="min-h-[48px] w-full px-3 py-2.5 text-base outline-none"
           style={{
@@ -759,8 +774,8 @@ function LeadFormCard({
       style={{
         background: theme.background || 'var(--lp-surface)',
         borderRadius: radius,
-        boxShadow: standard ? '0 12px 30px rgba(15,23,42,.04)' : theme.background ? '0 12px 40px rgba(15,23,42,0.14)' : '0 12px 40px rgba(15,23,42,0.12)',
-        padding: standard ? 'var(--agency-form-padding, 30px)' : compact ? '1.25rem' : '1.75rem',
+        boxShadow: plain ? 'none' : standard ? '0 12px 30px rgba(15,23,42,.04)' : theme.background ? '0 12px 40px rgba(15,23,42,0.14)' : '0 12px 40px rgba(15,23,42,0.12)',
+        padding: plain ? '0' : standard ? 'var(--agency-form-padding, 30px)' : compact ? '1.25rem' : '1.75rem',
         border: theme.border || `2px solid ${primary}33`,
       }}
       onFocus={() => {
@@ -795,6 +810,7 @@ function LeadFormCard({
           else fields[k] = s;
         }
         if (standard && plan) fields.cooperation = plan;
+        if(standard&&industryChoice)fields[industryChoice.key]=industryChoice.label;
         setPending(true);
         setFormError(null);
         void Promise.resolve().then(() => standard && mode === 'preview'
@@ -807,6 +823,7 @@ function LeadFormCard({
           .finally(() => setPending(false));
       }}
     >
+      {standard&&industryChoice?<p data-industry-selection>Lựa chọn quan tâm: {industryChoice.label}</p>:null}
       {standard && plan ? <p className="agency-selection">Cách hợp tác quan tâm: {plan}</p> : null}
       {standard && success ? <div className="agency-form-success" role="status"><h3>{block.successMessage || 'Đã nhận được yêu cầu của bạn.'}</h3>{mode === 'preview' ? <p>Đây là trạng thái mô phỏng trong bản thiết kế. Không có thông tin nào được gửi đi.</p> : null}<button type="button" className="btn btn-outline" onClick={() => setSuccess(false)}>Gửi yêu cầu khác</button></div> : null}
       {omitHead ? null : showCanvasInlineField(block.headline, canvas, block.id, 'headline') ? (
@@ -956,9 +973,9 @@ function LeadFormCard({
             className="font-bold"
             style={{ color: buttonColor }}
           />
-        <span aria-hidden>{standard ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg> : '→'}</span>
+        {!plain ? <span aria-hidden>{standard ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg> : '→'}</span> : null}
       </button>
-      <p className={`flex items-center justify-center gap-1.5 text-center text-[11px] ${standard ? 'agency-form-footer' : ''}`} style={{ color: mutedColor }}>
+      {!plain || block.footerText ? <p className={`flex items-center justify-center gap-1.5 text-center text-[11px] ${standard ? 'agency-form-footer' : ''}`} style={{ color: mutedColor }}>
         <span aria-hidden>{standard ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 14v3"/></svg> : '🔒'}</span>
         <InlineEditable
             as="span"
@@ -971,7 +988,7 @@ function LeadFormCard({
             className="text-[11px]"
             style={{ color: mutedColor }}
           />
-      </p>
+      </p> : null}
     </form>
   );
 }
@@ -4096,8 +4113,12 @@ export function LandingPageRenderer({
     el.textContent = scopeLegacyLandingPageCss(LP_PREMIUM_VISUAL_AXIS_CSS);
     document.head.appendChild(el);
   }, []);
+  const blankStarter = spec.meta?.rendererVersion === 'blank-starter-v1';
   const agencyStandard = isAgencyPortfolioStandard(spec);
-  const tokens = agencyStandard ? normalizeLandingPageThemeTokens(spec.themeTokens, spec.theme) : mergeDesignFamilyTokens(
+  const restaurantPilot = isRestaurantMenuRepresentative(spec);
+  const servicePilot = isLocalServiceRepresentative(spec);
+  const websitePilot = isWebsiteRepresentative(spec);
+  const tokens = agencyStandard || restaurantPilot || servicePilot || websitePilot ? normalizeLandingPageThemeTokens(spec.themeTokens, spec.theme) : mergeDesignFamilyTokens(
     normalizeLandingPageThemeTokens(spec.themeTokens, spec.theme),
     spec.meta?.designFamily,
   );
@@ -4118,7 +4139,11 @@ export function LandingPageRenderer({
     !agencyStandard &&
       leadForm &&
       hero &&
-      (layout === 'lead_gen' || heroVariant === 'floating-card'),
+      (layout === 'lead_gen' || heroVariant === 'floating-card') &&
+      // Old saved specs retain the previous composition contract. New Vietnamese
+      // templates keep their standalone form when this Hero does not render one.
+      (spec.meta?.templateCopyVersion !== 'vi-VN-v1' ||
+        resolveHeroComposition(hero.variant, layout, true) === 'floating-card'),
   );
   const canvasBlocks = hero
     ? [hero, ...spec.blocks.filter((b) => b.type !== 'Hero')]
@@ -4187,6 +4212,7 @@ export function LandingPageRenderer({
   const selectedElement = primaryTarget?.element ?? canvasHandlers?.selection?.element;
 
   useEffect(() => {
+    if (restaurantPilot || servicePilot || websitePilot) return; // Review pilots serve their own local font faces.
     if (agencyStandard) {
       if (!tokens.fontFamily.includes('Agency Portfolio Be Vietnam Pro')) ensureLandingPageCatalogFonts(tokens.fontFamily);
       return; // The approved Vietnamese font is served locally by this pilot.
@@ -4306,7 +4332,7 @@ export function LandingPageRenderer({
       ensureLandingPageCatalogFonts('"Cormorant Garamond"');
       ensureLandingPageCatalogFonts('"DM Sans"');
     }
-  }, [tokens.fontFamily, goldStandard, designFamilyAttr, agencyStandard]);
+  }, [tokens.fontFamily, goldStandard, designFamilyAttr, agencyStandard, restaurantPilot, servicePilot, websitePilot]);
 
   useEffect(() => {
     const styles = (spec.meta as { inlineTextStyles?: Record<string, unknown> } | undefined)?.inlineTextStyles;
@@ -4337,13 +4363,15 @@ export function LandingPageRenderer({
     [htmlDocument],
   );
   const useHtmlSections = sectionById.size > 0 && Boolean(isolatedPage);
-  const visibleBlocks = useHtmlSections || !htmlDocument ? spec.blocks : [];
+  const visibleBlocks = useHtmlSections || !htmlDocument ? spec.blocks.filter(b => !b.sectionPlacement) : [];
 
   return (
     <div
       className={className}
-      data-lp-style-scope={agencyStandard ? 'agency-portfolio-v2' : 'legacy'}
-      data-lp-renderer={agencyStandard ? 'agency-portfolio-v2' : 'legacy'}
+      data-lp-style-scope={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
+      data-lp-renderer={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
+      data-agency-direction={agencyPortfolioDirection(spec)}
+      data-industry-direction={industryDirection(spec)}
       data-lp-layout={layout}
       data-lp-category={category}
       data-lp-gold-standard={goldStandard}
@@ -4386,7 +4414,7 @@ export function LandingPageRenderer({
         viewport={viewport}
       >
         <LandingPagePublicMetaProvider
-          meta={(agencyStandard ? agencyPortfolioRenderMeta(spec, viewport) || null : spec.meta || null) as Record<string, unknown> | null}
+          meta={(agencyStandard || restaurantPilot || servicePilot || websitePilot ? agencyPortfolioRenderMeta(spec, viewport) || null : spec.meta || null) as Record<string, unknown> | null}
         >
         <article
           data-lp-canvas-root="1"
@@ -4407,35 +4435,23 @@ export function LandingPageRenderer({
               : tokenStyle(tokens)),
             ...(canvasFreeReserve > 0 ? { minHeight: canvasFreeReserve } : null),
           }}
-          onDragOver={(e) => {
-            if (!canvasHandlers?.onInsertSidebarPreset) return;
-            if (!isSidebarPresetDrag(e.dataTransfer.types)) return;
-            // Let section shells handle drops when over a block.
-            if ((e.target as HTMLElement | null)?.closest?.('[data-lp-block-id]')) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
-            e.currentTarget.setAttribute('data-lp-canvas-preset-over', '1');
+          onDragOver={(e)=>{
+            if(!canvasHandlers?.onInsertSidebarPreset || !isSidebarPresetDrag(e.dataTransfer.types))return;
+            if((e.target as Element|null)?.closest('[data-lp-block-id]'))return;
+            const payload=readSidebarDragPayload(e.dataTransfer);
+            const target=payload?resolveSidebarDropTarget(e.currentTarget,null,payload,e):null;
+            showSidebarDropTarget(target);e.dataTransfer.dropEffect=target?'copy':'none';
+            if(target)e.preventDefault();
           }}
-          onDragLeave={(e) => {
-            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-            e.currentTarget.removeAttribute('data-lp-canvas-preset-over');
-          }}
-          onDrop={(e) => {
-            if (!canvasHandlers?.onInsertSidebarPreset) return;
-            e.currentTarget.removeAttribute('data-lp-canvas-preset-over');
-            if ((e.target as HTMLElement | null)?.closest?.('[data-lp-block-id]')) return;
-            const raw = e.dataTransfer.getData(LP_SIDEBAR_PRESET_MIME);
-            if (!raw) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const payload = parseSidebarPresetPayload(raw);
-            if (payload) {
-              canvasHandlers.onInsertSidebarPreset(payload, {
-                mode: 'end',
-                clientX: e.clientX,
-                clientY: e.clientY,
-              });
-            }
+          onDragLeave={(e)=>{if(e.currentTarget.contains(e.relatedTarget as Node|null))return;const hit=document.elementFromPoint(e.clientX,e.clientY);if(hit&&e.currentTarget.contains(hit))return;showSidebarDropTarget(null);}}
+          onDrop={(e)=>{
+            if(!canvasHandlers?.onInsertSidebarPreset || !isSidebarPresetDrag(e.dataTransfer.types))return;
+            if((e.target as Element|null)?.closest('[data-lp-block-id]'))return;
+            e.preventDefault();e.stopPropagation();
+            const payload=readSidebarDragPayload(e.dataTransfer);
+            const target=payload?resolveSidebarDropTarget(e.currentTarget,null,payload,e):null;
+            showSidebarDropTarget(null);
+            if(payload && target)canvasHandlers.onInsertSidebarPreset(payload,target.position);
           }}
         >
           {htmlDocument && !useHtmlSections ? (
@@ -4512,6 +4528,29 @@ export function LandingPageRenderer({
               tablet: rs.tablet?.display === 'none',
               mobile: rs.mobile?.display === 'none',
             };
+            if (blankStarter && ['Header', 'Hero', 'LeadForm', 'Features', 'CTA', 'Footer'].includes(block.type)) {
+              return <div key={block.id} data-lp-block-slot={block.id}>
+                <SelectableShell blockId={block.id} label={`Section ${block.type}`}
+                  selected={Boolean(canvasHandlers?.isSectionPrimary?.(block.id))}
+                  selectedElement={primaryTarget?.blockId === block.id ? primaryTarget.element : undefined}
+                  handlers={canvasHandlers} allowReorder
+                  designClassName={safeCustomClassName((block.style as Record<string, unknown>)?.className)}
+                  publicFreeLayout={canvasHandlers ? null : resolvePublicSectionFreeLayout(block)}
+                  responsiveHide={responsiveHide} surfaceBlock={block}>
+                  <BlankStarterBlock block={block} canvas={canvasHandlers}
+                    renderForm={block.type === 'LeadForm' ? <LeadFormCard block={block} primary={primary}
+                      onSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} omitHead plain mode={mode} /> : null} />
+                </SelectableShell>
+              </div>;
+            }
+            if (restaurantPilot || servicePilot || websitePilot) {
+              const IndustryBlock=websitePilot?WebsiteBriefBlock:servicePilot?LocalServiceBlock:RestaurantMenuBlock;
+              return <div key={block.id} data-lp-block-slot={block.id}>
+                <SelectableShell blockId={block.id} label={`Section ${block.type}`} selected={Boolean(canvasHandlers?.isSectionPrimary?.(block.id))} selectedElement={primaryTarget?.blockId===block.id?primaryTarget.element:undefined} handlers={canvasHandlers} allowReorder={block.type!=='Hero'} designClassName={safeCustomClassName((block.style as Record<string,unknown>)?.className)} publicFreeLayout={canvasHandlers?null:resolvePublicSectionFreeLayout(block)} responsiveHide={responsiveHide} surfaceBlock={block}>
+                  <IndustryBlock block={block} spec={spec} canvas={canvasHandlers} renderForm={block.type==='LeadForm'?<LeadFormCard block={block} primary={primary} onSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} omitHead standard mode={mode}/>:null}/>
+                </SelectableShell>
+              </div>;
+            }
             if (agencyStandard && ['Header', 'Hero', 'Benefits', 'Features', 'Gallery', 'Process', 'Pricing', 'FAQ', 'CTA', 'LeadForm', 'Footer'].includes(block.type)) {
               return (
                 <div key={block.id} data-lp-block-slot={block.id}>
@@ -4635,6 +4674,7 @@ export function LandingPageRenderer({
               </div>
             );
           })}
+          <LandingPageSectionElements spec={spec} canvas={canvasHandlers} renderNative={block=><MemoBlockView block={block} primary={primary} layout={layout} category={category} mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} goldStandard={goldStandard}/>} />
         </article>
         </LandingPagePublicMetaProvider>
       </FreeGuidesProvider>

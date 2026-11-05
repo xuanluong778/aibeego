@@ -76,7 +76,12 @@ export type LandingPageGraphicsAsset =
       label: string;
       category: LandingPageGraphicsCategoryId;
       keywords?: string;
-      subgroup?: LandingPageShapeGroupId | LandingPageGraphicsIconGroupId | LandingPagePhotoGroupId | LandingPageChartGroupId | LandingPageFormGroupId;
+      subgroup?:
+        | LandingPageShapeGroupId
+        | LandingPageGraphicsIconGroupId
+        | LandingPagePhotoGroupId
+        | LandingPageChartGroupId
+        | LandingPageFormGroupId;
       premium?: boolean;
       preset: LandingPageBoxPreset;
     }
@@ -115,8 +120,7 @@ export type LandingPageGraphicsAsset =
       previewLabel?: string;
     };
 
-const LANDSCAPE =
-  'linear-gradient(180deg, #7dd3fc 0%, #7dd3fc 42%, #86efac 42%, #4ade80 100%)';
+const LANDSCAPE = 'linear-gradient(180deg, #7dd3fc 0%, #7dd3fc 42%, #86efac 42%, #4ade80 100%)';
 
 const GRAPHICS_CLIP_IDS = new Set([
   'clip-star4',
@@ -150,7 +154,9 @@ const GRAPHICS_CLIP_IDS = new Set([
 
 /** Map every existing box preset into a graphics category — never drop presets.
  * Former «Hình dạng» bucket is now «Hình Hộp» (`boxes`). */
-export function boxPresetGraphicsCategory(preset: LandingPageBoxPreset): LandingPageGraphicsCategoryId {
+export function boxPresetGraphicsCategory(
+  preset: LandingPageBoxPreset,
+): LandingPageGraphicsCategoryId {
   if (isLandingPageGridPreset(preset)) return 'grids';
   if (isLandingPageFramePreset(preset)) return 'frames';
   if (GRAPHICS_CLIP_IDS.has(preset.id)) return 'graphics';
@@ -165,7 +171,12 @@ function extraBox(
   label: string,
   category: LandingPageGraphicsCategoryId,
   style: LandingPageBoxPreset['style'],
-  subgroup?: LandingPageShapeGroupId | LandingPageGraphicsIconGroupId | LandingPagePhotoGroupId | LandingPageChartGroupId | LandingPageFormGroupId,
+  subgroup?:
+    | LandingPageShapeGroupId
+    | LandingPageGraphicsIconGroupId
+    | LandingPagePhotoGroupId
+    | LandingPageChartGroupId
+    | LandingPageFormGroupId,
 ): LandingPageGraphicsAsset {
   const preset: LandingPageBoxPreset = {
     id,
@@ -221,21 +232,33 @@ const LP_GRAPHICS_EXTRA_ASSETS: LandingPageGraphicsAsset[] = [
   }),
 
   // Graphics illustrations
-  extraBox('illust-sunflower', 'Hoa', 'graphics', {
-    lpBox: 'illust-sunflower',
-    width: '88px',
-    height: '88px',
-    background: '#f59e0b',
-    borderRadius: '999px',
-    boxShadow: '0 0 0 10px #fde68a, 0 0 0 18px #fbbf24',
-  }, 'scrapbook'),
-  extraBox('illust-leaf', 'Lá', 'graphics', {
-    lpBox: 'illust-leaf',
-    width: '72px',
-    height: '100px',
-    background: '#22c55e',
-    borderRadius: '80% 0 80% 0',
-  }, 'scrapbook'),
+  extraBox(
+    'illust-sunflower',
+    'Hoa',
+    'graphics',
+    {
+      lpBox: 'illust-sunflower',
+      width: '88px',
+      height: '88px',
+      background: '#f59e0b',
+      borderRadius: '999px',
+      boxShadow: '0 0 0 10px #fde68a, 0 0 0 18px #fbbf24',
+    },
+    'scrapbook',
+  ),
+  extraBox(
+    'illust-leaf',
+    'Lá',
+    'graphics',
+    {
+      lpBox: 'illust-leaf',
+      width: '72px',
+      height: '100px',
+      background: '#22c55e',
+      borderRadius: '80% 0 80% 0',
+    },
+    'scrapbook',
+  ),
 
   // Tables / sheets look
   extraBox('table-simple', 'Bảng đơn', 'tables', {
@@ -281,7 +304,8 @@ const LP_GRAPHICS_EXTRA_ASSETS: LandingPageGraphicsAsset[] = [
     width: '100px',
     height: '110px',
     background: LANDSCAPE,
-    clipPath: 'polygon(20% 12%, 35% 8%, 42% 18%, 58% 18%, 65% 8%, 80% 12%, 88% 28%, 82% 100%, 18% 100%, 12% 28%)',
+    clipPath:
+      'polygon(20% 12%, 35% 8%, 42% 18%, 58% 18%, 65% 8%, 80% 12%, 88% 28%, 82% 100%, 18% 100%, 12% 28%)',
   }),
   extraBox('mockup-phone', 'Mockup điện thoại', 'mockup', {
     lpBox: 'mockup-phone',
@@ -551,7 +575,8 @@ export const LP_GRAPHICS_CATEGORIES: LandingPageGraphicsCategory[] = [
         <span
           className="h-10 w-9 bg-white shadow"
           style={{
-            clipPath: 'polygon(18% 10%, 35% 6%, 42% 18%, 58% 18%, 65% 6%, 82% 10%, 90% 28%, 84% 95%, 16% 95%, 10% 28%)',
+            clipPath:
+              'polygon(18% 10%, 35% 6%, 42% 18%, 58% 18%, 65% 6%, 82% 10%, 90% 28%, 84% 95%, 16% 95%, 10% 28%)',
           }}
         />
         <span
@@ -567,9 +592,13 @@ export const LP_GRAPHICS_CATEGORIES: LandingPageGraphicsCategory[] = [
     tileClass: 'from-purple-300 to-indigo-700',
     icon: (
       <span className="relative flex h-12 w-12 items-end justify-center pb-1">
-        <span className="absolute inset-x-2 bottom-2 h-6 opacity-40" style={{
-          background: 'repeating-linear-gradient(90deg, transparent, transparent 6px, #fff 6px, #fff 7px), repeating-linear-gradient(0deg, transparent, transparent 6px, #fff 6px, #fff 7px)',
-        }} />
+        <span
+          className="absolute inset-x-2 bottom-2 h-6 opacity-40"
+          style={{
+            background:
+              'repeating-linear-gradient(90deg, transparent, transparent 6px, #fff 6px, #fff 7px), repeating-linear-gradient(0deg, transparent, transparent 6px, #fff 6px, #fff 7px)',
+          }}
+        />
         <span className="relative h-8 w-8 rounded-md bg-gradient-to-br from-indigo-300 to-indigo-700 shadow-lg" />
       </span>
     ),
@@ -693,7 +722,8 @@ function assetPreview(asset: LandingPageGraphicsAsset, compact?: boolean): React
             background: style.background || '#fff',
             backgroundImage: style.backgroundImage,
             backgroundSize:
-              style.backgroundSize || (isChart ? '72% 72%' : style.backgroundImage ? 'cover' : undefined),
+              style.backgroundSize ||
+              (isChart ? '72% 72%' : style.backgroundImage ? 'cover' : undefined),
             backgroundRepeat: style.backgroundRepeat || 'no-repeat',
             backgroundPosition: style.backgroundPosition || 'center',
             borderRadius: 8,
@@ -703,8 +733,11 @@ function assetPreview(asset: LandingPageGraphicsAsset, compact?: boolean): React
       );
     }
     const scale =
-      Math.min(1, 72 / (parseFloat(String(style.width)) || 88), 56 / (parseFloat(String(style.height)) || 56)) ||
-      0.7;
+      Math.min(
+        1,
+        72 / (parseFloat(String(style.width)) || 88),
+        56 / (parseFloat(String(style.height)) || 56),
+      ) || 0.7;
     return (
       <span
         className="origin-center"
@@ -741,6 +774,7 @@ export function LandingPageGraphicsLibraryPanel({
   initialShapeGroup = null,
   iconsOnly = false,
   panelTitle,
+  embedded = false,
   className,
 }: {
   onClose: () => void;
@@ -756,6 +790,8 @@ export function LandingPageGraphicsLibraryPanel({
   /** Skip top category grid; stay inside graphics icon groups. */
   iconsOnly?: boolean;
   panelTitle?: string;
+  /** Render in normal flow inside an existing library dialog. */
+  embedded?: boolean;
   /** Optional class merge (e.g. right-rail embedded). */
   className?: string;
 }) {
@@ -863,7 +899,12 @@ export function LandingPageGraphicsLibraryPanel({
             ♛
           </span>
         ) : null}
-        <span className={cn('flex w-full items-center justify-center', compact ? 'h-14' : 'min-h-[72px]')}>
+        <span
+          className={cn(
+            'flex w-full items-center justify-center',
+            compact ? 'h-14' : 'min-h-[72px]',
+          )}
+        >
           {assetPreview(asset, compact)}
         </span>
         {!compact ? (
@@ -904,11 +945,15 @@ export function LandingPageGraphicsLibraryPanel({
   return (
     <div
       data-lp-graphics-library
+      data-lp-library-embedded={embedded ? '1' : undefined}
       data-lp-box-presets-panel
       data-lp-icons-only={iconsOnly ? '1' : undefined}
       data-lp-graphics-view={categoryId ? (shapeGroupId ? 'shape-group' : 'assets') : 'categories'}
       className={cn(
-        'absolute left-full top-0 z-40 ml-2 flex h-[min(82vh,680px)] w-[min(360px,calc(100vw-5rem))] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl',
+        'flex flex-col overflow-hidden bg-white',
+        embedded
+          ? 'relative min-h-0 min-w-0 w-full flex-1'
+          : 'absolute left-full top-0 z-40 ml-2 h-[min(82vh,680px)] w-[min(360px,calc(100vw-5rem))] rounded-xl border border-zinc-200 shadow-xl',
         className,
       )}
     >

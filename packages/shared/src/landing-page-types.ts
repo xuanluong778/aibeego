@@ -163,6 +163,8 @@ export type LandingPageThemeTokens = {
 };
 
 export type LandingPageBlockBase = {
+  /** Native element inserted in a section flow; absent on legacy page blocks. */
+  sectionPlacement?: import('./landing-page-section-elements').LandingPageSectionPlacement;
   id: string;
   type: LandingPageBlockType;
   enabled: boolean;
@@ -404,6 +406,8 @@ export type LandingPageSpec = {
   meta?: {
     /** Stamped catalog generation id — drives ensureSystemTemplates DB sync. */
     catalogVersion?: string;
+    /** Creation-only Vietnamese copy edition; absent on existing saved pages. */
+    templateCopyVersion?: 'vi-VN-v1';
     /** Persisted rendering contract; missing/unknown values use legacy. */
     rendererVersion?: string;
     /**

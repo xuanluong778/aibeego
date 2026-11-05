@@ -802,6 +802,8 @@ export function computeFreeSnap(input: {
   proposedX: number;
   proposedY: number;
   canvas: FreeRect;
+  /** Visible surface used for alignment; movement bounds may have extra vertical room. */
+  alignmentBounds?: FreeRect;
   siblings: FreeRect[];
   threshold?: number;
   /**
@@ -812,6 +814,7 @@ export function computeFreeSnap(input: {
   /** Override snap threshold for safe-area guides only (default CONTENT_SAFE_AREA_SNAP_PX). */
   safeAreaThreshold?: number;
 }): FreeSnapResult {
+  const alignment = input.alignmentBounds || input.canvas;
   const thr = input.threshold ?? FREE_SNAP_THRESHOLD_PX;
   const safeThr = input.safeAreaThreshold ?? CONTENT_SAFE_AREA_SNAP_PX;
   const w = input.moving.width;
@@ -851,12 +854,12 @@ export function computeFreeSnap(input: {
   };
 
   // Canvas edges + center
-  addX(input.canvas.left, input.canvas.left, 'canvas');
-  addX(input.canvas.left + input.canvas.width - w, right(input.canvas), 'canvas');
-  addX(centerX(input.canvas) - w / 2, centerX(input.canvas), 'center');
-  addY(input.canvas.top, input.canvas.top, 'canvas');
-  addY(input.canvas.top + input.canvas.height - h, bottom(input.canvas), 'canvas');
-  addY(centerY(input.canvas) - h / 2, centerY(input.canvas), 'center');
+  addX(alignment.left, alignment.left, 'canvas');
+  addX(alignment.left + alignment.width - w, right(alignment), 'canvas');
+  addX(centerX(alignment) - w / 2, centerX(alignment), 'center');
+  addY(alignment.top, alignment.top, 'canvas');
+  addY(alignment.top + alignment.height - h, bottom(alignment), 'canvas');
+  addY(centerY(alignment) - h / 2, centerY(alignment), 'center');
 
   // Content safe-area vertical guides (builder) — snap within ~7px
   if (input.safeArea && input.safeArea.width > 0) {
@@ -963,8 +966,8 @@ export function computeFreeSnap(input: {
 
   // After clamp: still show canvas center guides when the box center is near midlines
   // (covers full-width / maxX=0 cases where snap delta never fired).
-  const cxCanvas = centerX(input.canvas);
-  const cyCanvas = centerY(input.canvas);
+  const cxCanvas = centerX(alignment);
+  const cyCanvas = centerY(alignment);
   const boxCx = x + w / 2;
   const boxCy = y + h / 2;
   if (Math.abs(boxCx - cxCanvas) <= thr) {

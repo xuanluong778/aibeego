@@ -7,8 +7,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { isAgencyPortfolioStandard } from '@marketingspa/shared';
 import type { LandingPageSpec } from '@marketingspa/shared';
+import { isAgencyPortfolioStandard } from './agency-portfolio-client';
 import { getApiBaseUrl } from '@/lib/api-client';
 import { interpretPublicLeadResponse } from '@/components/landing-pages/landing-page-public-lead';
 

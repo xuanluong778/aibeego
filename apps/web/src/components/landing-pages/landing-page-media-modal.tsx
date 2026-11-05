@@ -323,6 +323,7 @@ export function LandingPageMediaModal({ open, pageId, onClose, onUse }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      <style>{`body[data-lp-dragging-media="1"] [data-lp-media-modal]{opacity:0!important;pointer-events:none!important}body[data-lp-dragging-media="1"] [data-lp-media-modal] *{pointer-events:none!important}`}</style>
       <div
         className="flex h-[min(90vh,880px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         data-lp-media-dialog

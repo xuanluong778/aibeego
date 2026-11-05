@@ -7,7 +7,7 @@ export function scopeLegacyLandingPageCss(css: string): string {
   const cached = cache.get(css);
   if (cached) return cached;
   const guard =
-    ':not(:where([data-lp-style-scope="agency-portfolio-v2"], [data-lp-style-scope="agency-portfolio-v2"] *))';
+    ':not(:where([data-lp-style-scope="agency-portfolio-v2"], [data-lp-style-scope="agency-portfolio-v2"] *)):not(:where([data-lp-style-scope="restaurant-menu-v2"], [data-lp-style-scope="restaurant-menu-v2"] *)):not(:where([data-lp-style-scope="local-service-v2"], [data-lp-style-scope="local-service-v2"] *)):not(:where([data-lp-style-scope="website-brief-v2"], [data-lp-style-scope="website-brief-v2"] *)):not(:where([data-lp-style-scope="blank-starter-v1"], [data-lp-style-scope="blank-starter-v1"] *))';
   function selector(value: string): string {
     const s = value.trim();
     let depth = 0,

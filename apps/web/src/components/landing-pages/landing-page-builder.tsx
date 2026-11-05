@@ -1,4 +1,11 @@
 'use client';
+import { LandingPageBuilderVersionNotice } from './landing-page-builder-version-notice';
+import { sectionElementDeletionIds, removeSectionElements } from '@marketingspa/shared';
+import { LandingPageElementLibraryModal, type ElementLibraryPicker } from './landing-page-element-library-modal';
+import { LandingPageSidebarDropIndicator } from './landing-page-sidebar-drop-indicator';
+import { attachNewSectionElement } from './landing-page-section-elements';
+import { sectionHost, sectionAnchor, sectionPlacementFromInsertPos } from './landing-page-section-insert-target';
+
 import { agencyPortfolioInlineStyle } from '@marketingspa/shared';
 
 import {
@@ -261,7 +268,7 @@ function cloneSpec(spec: LandingPageSpec): LandingPageSpec {
 
 /** Title / paragraph-only Benefits used as free text layers on the canvas. */
 function isLpTextLayerBlock(block: LandingPageBlock): boolean {
-  return isFloatingTextLayerBlock(block);
+  return !block.sectionPlacement && isFloatingTextLayerBlock(block);
 }
 
 /**
@@ -521,7 +528,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   function scrollCanvasToSection(blockId: string) {
     const el = document.querySelector(
-      `[data-lp-canvas-root] [data-lp-block-id="${CSS.escape(blockId)}"][data-lp-section-chrome="1"]`,
+      `[data-lp-canvas-root] [data-lp-block-id="${CSS.escape(blockId)}"]:is([data-lp-section-chrome="1"],[data-lp-section-element="1"])`,
     ) as HTMLElement | null;
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -702,6 +709,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const [sectionLibraryOpen, setSectionLibraryOpen] = useState(false);
   /** Insert position from sidebar→canvas drop while user picks a preset in the rail. */
   const pickerInsertPosRef = useRef<LpSidebarInsertPos | null>(null);
+  const sectionInsertCommitRef=useRef<LpSidebarInsertPos|null>(null);
+  const [elementLibraryPicker,setElementLibraryPicker]=useState<ElementLibraryPicker|null>(null);
+  const [elementLibraryError,setElementLibraryError]=useState('');
 
   const openRightAddComponents = useCallback(
     (opts?: {
@@ -726,22 +736,82 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     [inspectorDesktop, inspectorMode],
   );
 
+  function consumeDropChoice(
+    pos: LpSidebarInsertPos | null | undefined,
+    action: () => void,
+  ): boolean {
+    try {
+      if (
+        pos &&
+        ['section-element', 'before', 'after', 'inside', 'image-target'].includes(pos.mode)
+      ) {
+        const id = 'blockId' in pos ? pos.blockId : '';
+        const host = specRef.current.blocks.find(
+          (b) => b.id === id && (pos.mode === 'image-target' || !b.sectionPlacement),
+        );
+        if (!host || host.locked)
+          throw Error('Section đích không còn tồn tại hoặc đang khóa. Chưa chèn element.');
+        const placement = sectionPlacementFromInsertPos(pos);
+        if (placement) {
+          const root = canvasScrollRef.current?.querySelector<HTMLElement>('[data-lp-canvas-root]');
+          const node = root ? sectionHost(root, id) : null;
+          const splitting =
+            pos.mode === 'section-element' &&
+            typeof pos.splitColumns === 'number' &&
+            pos.splitColumns >= 2;
+          if (!node || (!splitting && !sectionAnchor(node, placement)))
+            throw Error('Vị trí chèn đã thay đổi. Hãy đóng thư viện và kéo lại.');
+        }
+      }
+      sectionInsertCommitRef.current = pos?.mode === 'section-element' ? pos : null;
+      action();
+      setElementLibraryError('');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Chưa chèn được element.';
+      setElementLibraryError(message);
+      setSaveMsg(message);
+      return false;
+    } finally {
+      sectionInsertCommitRef.current = null;
+    }
+  }
+  function closeElementLibrary() {
+    setElementLibraryPicker(null);
+    setElementLibraryError('');
+    pickerInsertPosRef.current = null;
+  }
+  function chooseElementPreset(action: (pos: LpSidebarInsertPos) => void) {
+    const pos = pickerInsertPosRef.current;
+    if (!pos) {
+      setElementLibraryError('Vị trí thả không còn hiệu lực. Hãy kéo lại element.');
+      return;
+    }
+    if (consumeDropChoice(pos, () => action(pos))) closeElementLibrary();
+  }
   function openAddPickerFromDrop(
     picker: 'text' | 'button' | 'forms' | 'graphics' | 'icon' | 'social' | 'media',
     pos?: LpSidebarInsertPos | null,
+    initialTab?: 'title' | 'paragraph' | 'list',
   ) {
     pickerInsertPosRef.current = pos ?? null;
+    setElementLibraryError('');
     if (picker === 'media') {
       setMediaOpen(true);
-      setSaveMsg('Chọn ảnh trong thư viện để chèn vào vị trí thả');
       return;
     }
     if (picker === 'forms') {
       openFormLibrary(pos);
       return;
     }
-    openRightAddComponents({ rootMode: 'add', addTab: 'elements', subView: picker });
-    setSaveMsg('Chọn một mẫu bên phải để chèn vào vị trí thả');
+    if (picker === 'button') {
+      openButtonLibrary(pos);
+      return;
+    }
+    setElementLibraryPicker({
+      kind: picker,
+      ...(picker === 'text' && initialTab ? { initialTab } : {}),
+    });
   }
 
   useEffect(() => {
@@ -758,10 +828,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const formLibraryPosRef = useRef<LpSidebarInsertPos | null>(null);
   useEffect(() => {
     // Release the drawer's focus trap before opening a library above it.
-    if (!inspectorDesktop && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen || formLibraryOpen)) {
+    if (!inspectorDesktop && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen || formLibraryOpen || elementLibraryPicker)) {
       setInspectorPanelOpen(false);
     }
-  }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen, formLibraryOpen]);
+  }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen, formLibraryOpen, elementLibraryPicker]);
   /** In-memory clipboards for canvas context menu (reuse dup/update — no new persist model). */
   const blockClipboardRef = useRef<LandingPageBlock | null>(null);
   const styleClipboardRef = useRef<LpCanvasClipboardStyle | null>(null);
@@ -882,6 +952,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     // Sync specRef immediately so rapid back-to-back edits (slider/color) do not
     // push duplicate pre-edit snapshots before React re-renders.
     const prev = specRef.current;
+    if(sectionInsertCommitRef.current)next=attachNewSectionElement(prev,next,sectionInsertCommitRef.current);
     // Skip no-op pushes (e.g. color onChange + onBlur committing the same value).
     // Duplicate snapshots make Undo look broken — first pop restores an identical draft.
     try {
@@ -956,7 +1027,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   const load = useCallback(async (opts?: { discardLocal?: boolean }) => {
     setError(null);
-    const data = await apiClient<PagePayload>(`/landing-pages/${pageId}`);
+    const data = await apiClient<PagePayload>(`/landing-pages/${pageId}`, { cache: 'no-store' });
     setPage(data);
     // Loaded from DB — persist-normalized (no edge whitespace junk).
     const persisted = healTextLayerCoordinates(sanitizeLandingPagePersistSpec(data.draftSpec));
@@ -964,6 +1035,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const loaded = upgraded
       ? healTextLayerCoordinates(sanitizeLandingPagePersistSpec(upgraded))
       : persisted;
+    specRef.current = loaded;
     setSpec(loaded);
     setHtmlNode(null);
     inspectorSuppressOpenRef.current = true;
@@ -979,12 +1051,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     dirtyRef.current = Boolean(upgraded);
     // Seed from stored meta — resetting to 0 makes every save STALE vs DB and hangs "Đang lưu…".
     const serverRevision = readClientRevision(loaded);
-    revisionRef.current = serverRevision;
+    revisionRef.current = serverRevision + (upgraded ? 1 : 0);
     ackedRevisionRef.current = serverRevision;
     // Discard only after the user chooses the server and it loads successfully.
     if (opts?.discardLocal) clearLocalLandingDraft(pageId);
     const localDraft = opts?.discardLocal ? null : readLocalLandingDraft(pageId);
-    const recovery = decideDraftRecovery({ serverRevision, local: localDraft });
+    const recovery = decideDraftRecovery({ serverRevision, serverSpec: persisted, local: localDraft });
     setPendingLocalDraft(null);
     if (recovery === 'restore-local' && localDraft) {
       try {
@@ -993,6 +1065,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         const restored = restoredUpgrade
           ? healTextLayerCoordinates(sanitizeLandingPagePersistSpec(restoredUpgrade))
           : restoredBase;
+        specRef.current = restored;
         setSpec(restored);
         revisionRef.current = localDraft.clientRevision;
         ackedRevisionRef.current = localDraft.baseRevision;
@@ -1068,6 +1141,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         },
       );
       const restored = healTextLayerCoordinates(sanitizeLandingPagePersistSpec(updated.draftSpec));
+      specRef.current = restored;
       setSpec(restored);
       const rev = typeof updated.clientRevision === 'number' ? updated.clientRevision : readClientRevision(restored);
       revisionRef.current = rev;
@@ -1747,7 +1821,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         return;
       }
       // Let modal/menu dismissal run before the canvas handles deselection.
-      if (e.key === 'Escape' && document.querySelector('[data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal], [role="menu"][data-state="open"]')) return;
+      if (e.key === 'Escape' && document.querySelector('[data-lp-element-library-modal], [data-lp-form-library-modal], [data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal], [role="menu"][data-state="open"]')) return;
       if (isEditableKeyboardTarget(e.target)) return;
       if ((e.target as HTMLElement | null)?.closest?.('[data-lp-inline-editing="1"]')) return;
       if (document.querySelector('[data-lp-html-document][data-lp-inline-editing="1"]')) return;
@@ -1956,6 +2030,20 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }
 
   function resolveInsertIndex(blocks: LandingPageBlock[], pos?: LpSidebarInsertPos): number {
+    if (pos?.mode === 'section-element') {
+      const matching = blocks
+        .map((b, i) => ({ b, i }))
+        .filter(
+          ({ b }) =>
+            b.sectionPlacement?.sectionId === pos.blockId &&
+            b.sectionPlacement.edge === pos.edge &&
+            JSON.stringify(b.sectionPlacement.anchor) === JSON.stringify(pos.anchor),
+        );
+      if (matching.length)
+        return pos.edge === 'after' ? matching[0]!.i : matching[matching.length - 1]!.i + 1;
+      const host = blocks.findIndex((b) => b.id === pos.blockId);
+      return host + 1;
+    }
     if (pos?.mode === 'end') return blocks.length;
     if (pos?.mode === 'start') return 0;
     if (pos?.mode === 'before') {
@@ -2487,35 +2575,46 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   function insertSidebarPreset(payload: LpSidebarPresetPayload, pos: LpSidebarInsertPos) {
     switch (payload.kind) {
       case 'title':
-        insertTitlePreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertTitlePreset(payload.preset, pos));
         return;
       case 'paragraph':
-        insertParagraphPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertParagraphPreset(payload.preset, pos));
         return;
       case 'list':
-        insertListPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertListPreset(payload.preset, pos));
         return;
       case 'button':
-        insertButtonPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertButtonPreset(payload.preset, pos));
         return;
       case 'button-group':
-        insertButtonGroupPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertButtonGroupPreset(payload.preset, pos));
         return;
       case 'box':
-        insertBoxPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertBoxPreset(payload.preset, pos));
         return;
       case 'form':
-        insertFormPreset(payload.preset, pos);
+        consumeDropChoice(pos, () => insertFormPreset(payload.preset, pos));
         return;
       case 'block-type':
         if (payload.type === 'LeadForm') {
           openFormLibrary(pos);
           return;
         }
-        insertBlockTypeAt(payload.type, pos);
+        pickerInsertPosRef.current = pos;
+        setElementLibraryError('');
+        setElementLibraryPicker({ kind: 'block', type: payload.type });
         return;
       case 'media':
-        insertMediaGalleryAt(payload, pos);
+        pickerInsertPosRef.current = null;
+        consumeDropChoice(pos, () => {
+          if (pos.mode === 'image-target')
+            applyBlockImage(
+              pos.blockId,
+              payload.url,
+              pos.gridIndex === undefined ? undefined : { gridIndex: pos.gridIndex },
+            );
+          else insertMediaGalleryAt(payload, pos);
+        });
         return;
       case 'section-preset':
         addBlocks(payload.types, { pos, select: 'first' });
@@ -2535,7 +2634,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           openFormLibrary(pos);
           return;
         }
-        openAddPickerFromDrop(payload.picker, pos);
+        openAddPickerFromDrop(payload.picker, pos, payload.initialTab);
         return;
       default:
         return;
@@ -2581,6 +2680,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   /** Apply media URL to selected block/item, or insert a Gallery with that image. */
   function applyMediaToSelection(item: LpMediaItem) {
     const url = item.url;
+    const pendingDrop=pickerInsertPosRef.current;
+    if(pendingDrop){
+      if(consumeDropChoice(pendingDrop,()=>{if(pendingDrop.mode==='image-target')applyBlockImage(pendingDrop.blockId,url,pendingDrop.gridIndex===undefined?undefined:{gridIndex:pendingDrop.gridIndex});else insertMediaGalleryAt({url,name:item.name},pendingDrop);})){pickerInsertPosRef.current=null;setMediaOpen(false);}
+      return;
+    }
     const textBoxMedia = textBoxMediaRef.current;
     if (textBoxMedia) {
       textBoxMediaRef.current = null;
@@ -2890,6 +2994,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
    * Fixes legacy saves where frame floated over the next section (wrong origin / tall height).
    */
   function healFreeSectionFramesToContent() {
+    if (saveConflictRef.current) return;
     const current = specRef.current;
     const root = document.querySelector('[data-lp-canvas-root]') as HTMLElement | null;
     if (!root) return;
@@ -2936,8 +3041,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       } as LandingPageBlock;
     });
     if (!changed) return;
-    // Silent adopt — no history entry (load/heal, not a user edit).
+    // A silent layout repair still changes persisted content and needs a new revision.
     const next = { ...current, blocks: nextBlocks };
+    revisionRef.current += 1;
     specRef.current = next;
     setSpec(next);
     dirtyRef.current = true;
@@ -2992,11 +3098,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       setSaveMsg('Section đang khóa — mở khóa trước khi xóa');
       return;
     }
-    const removeSet = new Set(toRemove);
+    const removeSet = sectionElementDeletionIds(current.blocks,toRemove);
     pushHistory(
       sanitizeLandingPageDraftSpec({
         ...current,
-        blocks: current.blocks.filter((b) => !removeSet.has(b.id)),
+        blocks: removeSectionElements(current.blocks,toRemove),
       }),
     );
     if (
@@ -3019,7 +3125,49 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const copy = duplicateBlock(block);
     const idx = specRef.current.blocks.findIndex((b) => b.id === id);
     const blocks = [...specRef.current.blocks];
-    blocks.splice(idx + 1, 0, copy);
+    const children = specRef.current.blocks.filter((b) => b.sectionPlacement?.sectionId === id);
+    const childrenCopies = children.map((b) => duplicateBlock(b));
+    const copies = new Map([
+      [id, copy.id],
+      ...children.map((b, i) => [b.id, childrenCopies[i]!.id] as [string, string]),
+    ]);
+    if (children.length || block.sectionPlacement) {
+      const originals = [block, ...children],
+        duplicates = [copy, ...childrenCopies];
+      originals.forEach((source, index) => {
+        for (const key of ['items', 'plans', 'fields']) {
+          const rows = (source as unknown as Record<string, Array<{ id: string }>>)[key];
+          const clonedRows = (
+            duplicates[index] as unknown as Record<string, Array<{ id: string }>>
+          )[key];
+          if (Array.isArray(rows) && Array.isArray(clonedRows))
+            rows.forEach((row, i) => {
+              if (clonedRows[i]) copies.set(row.id, clonedRows[i]!.id);
+            });
+        }
+      });
+    }
+    const remapCopyKey = (key: string) =>
+      key
+        .split(/(::|:|\.)/)
+        .map((part) => copies.get(part) || part)
+        .join('');
+    for (const child of childrenCopies) {
+      const p = child.sectionPlacement!;
+      child.sectionPlacement = {
+        ...p,
+        sectionId: copy.id,
+        anchor:
+          p.anchor.kind === 'end'
+            ? p.anchor
+            : {
+                ...p.anchor,
+                blockId: copies.get(p.anchor.blockId) || p.anchor.blockId,
+                ...(p.anchor.kind === 'field' ? { field: remapCopyKey(p.anchor.field) } : {}),
+              },
+      };
+    }
+    blocks.splice(idx + 1, 0, copy, ...childrenCopies);
 
     // Copy per-field inline text styles / hide / lock keys for the duplicated block.
     const meta = { ...(specRef.current.meta || {}) } as {
@@ -3035,10 +3183,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const remapKeyed = <T,>(map?: Record<string, T>) => {
       if (!map) return map;
       const next = { ...map };
-      const prefix = `${id}::`;
-      for (const [key, val] of Object.entries(map)) {
-        if (!key.startsWith(prefix)) continue;
-        next[`${copy.id}::${key.slice(prefix.length)}`] = val;
+      for (const [sourceId, targetId] of copies) {
+        const prefix = `${sourceId}::`;
+        for (const [key, val] of Object.entries(map)) {
+          if (key.startsWith(prefix))
+            next[`${targetId}::${remapCopyKey(key.slice(prefix.length))}`] = val;
+        }
       }
       return next;
     };
@@ -4306,6 +4456,27 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const key = `${blockId}::${field}`;
     const current = specRef.current;
     const block = current.blocks.find((b) => b.id === blockId);
+    if (block?.sectionPlacement) {
+      const host = current.blocks.find((b) => b.id === block.sectionPlacement!.sectionId);
+      if (!host || host.locked) return;
+      const map = current.meta?.elementFreeLayouts || {};
+      const { x, y, width, rotate } = payload.freeLayout;
+      pushHistory(markLandingPageUserEdits({
+        ...current,
+        meta: {
+          ...current.meta,
+          elementFreeLayouts: {
+            ...map,
+            [key]: {
+              x, y,
+              ...(width != null ? { width } : {}),
+              ...(rotate != null ? { rotate } : {}),
+            },
+          },
+        },
+      }, [`${key}.freeLayout`]));
+      return;
+    }
     // Text-layer sections (Heading/Paragraph): element drag moves the SECTION.
     // Never persist a second translate on the text node — that double-applied
     // transform and let y go negative into neighbouring sections.
@@ -4789,7 +4960,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         canvasActionRef.current.reorderListItem(blockId, fromItemId, toItemId),
       onInsertSidebarPreset: (payload, pos) =>
         canvasActionRef.current.insertSidebarPreset(payload, pos),
-      onApplyBlockImage: (blockId, url, opts) => applyBlockImage(blockId, url, opts),
+      onApplyBlockImage: (blockId, url, opts) => { applyBlockImage(blockId, url, opts); pickerInsertPosRef.current=null; setMediaOpen(false); },
       onAi: (blockId) => canvasActionRef.current.focusInspectorAi(blockId),
       onReplaceImage: (blockId) => canvasActionRef.current.triggerReplaceImage(blockId),
       onSectionBackgroundAction: (blockId, action) =>
@@ -5296,7 +5467,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               data-lp-save-conflict-toast
             >
               <span className="min-w-0 flex-1 basis-full break-words text-amber-200 sm:basis-auto">
-                {saveMsg || 'Có bản mới hơn ở nơi khác'}
+                {pendingLocalDraft ? 'Máy này có chỉnh sửa chưa được xác nhận lưu. Bản trên máy chủ đang mở; bạn có thể giữ lại bản máy hoặc dùng bản đã lưu.' : 'Bản nháp đã được lưu từ một tab hoặc phiên khác. Chỉnh sửa trên máy này vẫn được giữ lại; chọn bản muốn tiếp tục.'}
               </span>
               <Button
                 size="sm"
@@ -5304,7 +5475,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 disabled={resolvingConflict}
                 onClick={() => void resolveSaveConflict()}
               >
-                {resolvingConflict ? 'Đang tải…' : 'Tải bản mới nhất'}
+                {resolvingConflict ? 'Đang tải…' : 'Dùng bản trên máy chủ'}
               </Button>
               {pendingLocalDraft ? (
                 <Button
@@ -5567,12 +5738,40 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             : null),
         }}
       >
+        <LandingPageBuilderVersionNotice onUpdate={async () => {
+          if (saveConflictRef.current || pendingLocalDraft) throw new Error('Hãy chọn bản nháp muốn tiếp tục trước khi cập nhật giao diện. Chỉnh sửa của bạn vẫn được giữ lại.');
+          flushCanvasEdit();
+          if (dirtyRef.current && !saveConflictRef.current) await persist(specRef.current, page.name, { manual: true });
+          if (dirtyRef.current && !pendingLocalDraft) {
+            writeLocalLandingDraft({ pageId, spec: specRef.current, baseRevision: ackedRevisionRef.current, clientRevision: revisionRef.current, savedAt: new Date().toISOString() });
+          }
+          const stored = readLocalLandingDraft(pageId);
+          if (dirtyRef.current && !pendingLocalDraft && (!stored || JSON.stringify(stored.spec) !== JSON.stringify(specRef.current))) {
+            throw new Error('Chưa giữ được chỉnh sửa trên máy. Hãy lưu hoặc tải bản sao trước khi cập nhật giao diện.');
+          }
+          window.location.reload();
+        }} />
+        <LandingPageSidebarDropIndicator />
+        {elementLibraryError && !elementLibraryPicker && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen || formLibraryOpen) ? (
+          <p role="alert" className="fixed left-1/2 top-6 z-[260] max-w-[90vw] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-800 shadow-lg">{elementLibraryError}</p>
+        ) : null}
+        <LandingPageElementLibraryModal picker={elementLibraryPicker} error={elementLibraryError} onClose={closeElementLibrary}
+          onTitle={preset=>chooseElementPreset(pos=>insertTitlePreset(preset,pos))}
+          onParagraph={preset=>chooseElementPreset(pos=>insertParagraphPreset(preset,pos))}
+          onList={preset=>chooseElementPreset(pos=>insertListPreset(preset,pos))}
+          onBox={preset=>chooseElementPreset(pos=>insertBoxPreset(preset,pos))}
+          onForm={preset=>chooseElementPreset(pos=>insertFormPreset(preset,pos))}
+          onBlock={type=>chooseElementPreset(pos=>insertBlockTypeAt(type,pos))}
+          onMedia={()=>{setElementLibraryPicker(null);setMediaOpen(true);}}
+        />
         <LandingPageMediaModal
           open={mediaOpen}
           pageId={pageId}
           onClose={() => {
             textBoxMediaRef.current = null;
             sectionMediaRef.current = null;
+            pickerInsertPosRef.current = null;
+            setElementLibraryError('');
             setMediaOpen(false);
           }}
           onUse={(item) => applyMediaToSelection(item)}
@@ -5583,9 +5782,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onClose={() => {
             setSectionLibraryOpen(false);
             sectionLibraryPosRef.current = null;
+            pickerInsertPosRef.current = null;
+            setElementLibraryError('');
           }}
-          onInsertTemplate={insertLibrarySectionTemplate}
-          onInsertBlank={insertBlankSection}
+          onInsertTemplate={id=>consumeDropChoice(sectionLibraryPosRef.current,()=>insertLibrarySectionTemplate(id))}
+          onInsertBlank={()=>consumeDropChoice(sectionLibraryPosRef.current,insertBlankSection)}
           pageTheme={spec.theme}
           pageThemeTokens={spec.themeTokens}
         />
@@ -5595,8 +5796,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onClose={() => {
             setButtonLibraryOpen(false);
             buttonLibraryPosRef.current = null;
+            pickerInsertPosRef.current = null;
+            setElementLibraryError('');
           }}
-          onInsertTemplate={insertLibraryButtonTemplate}
+          onInsertTemplate={id=>consumeDropChoice(buttonLibraryPosRef.current,()=>insertLibraryButtonTemplate(id))}
         />
 
         <LandingPageFormLibraryModal
@@ -5604,8 +5807,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onClose={() => {
             setFormLibraryOpen(false);
             formLibraryPosRef.current = null;
+            pickerInsertPosRef.current = null;
+            setElementLibraryError('');
           }}
-          onInsertTemplate={insertLibraryFormTemplate}
+          onInsertTemplate={template=>consumeDropChoice(formLibraryPosRef.current,()=>insertLibraryFormTemplate(template))}
         />
 
         {textAiPopover ? (
@@ -5998,36 +6203,43 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               onInsertTitlePreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertTitlePreset(preset, pos);
               }}
               onInsertParagraphPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertParagraphPreset(preset, pos);
               }}
               onInsertListPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertListPreset(preset, pos);
               }}
               onInsertButtonPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertButtonPreset(preset, pos);
               }}
               onInsertButtonGroupPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertButtonGroupPreset(preset, pos);
               }}
               onInsertBoxPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertBoxPreset(preset, pos);
               }}
               onInsertFormPreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
+            setElementLibraryError('');
                 insertFormPreset(preset, pos);
               }}
               blocks={spec.blocks}
@@ -6709,7 +6921,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 </div>
               ) : null}
 
-              {ctx.kind === 'video' ? (
+              {(ctx.kind === 'video' || (selected.type === 'Video' && ['restaurant-menu-v2','local-service-v2'].includes(spec.meta?.rendererVersion || ''))) ? (
                 <div className="space-y-1.5 rounded-lg border border-white/10 p-2" data-lp-inspector-video>
                   <div className="text-[10px] font-semibold uppercase opacity-60">Video</div>
                   <Label className="text-xs">Nguồn video (URL)</Label>
@@ -6720,6 +6932,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                     }
                     placeholder="https://www.youtube.com/embed/…"
                   />
+                  {selected.type === 'Video' && ['restaurant-menu-v2','local-service-v2'].includes(spec.meta?.rendererVersion || '') ? (
+                    <LandingPageImageField pageId={pageId} label="Ảnh bìa khi chưa có video"
+                      imageUrl={selected.posterUrl}
+                      imageStyle={selected.style?.posterImageStyle as import('@marketingspa/shared').LandingPageImageStyle | undefined}
+                      onChange={({imageUrl,imageStyle})=>updateBlock(selected.id,{posterUrl:imageUrl,style:{...selected.style,posterImageStyle:imageStyle}} as Partial<LandingPageBlock>)}
+                    />
+                  ) : null}
                 </div>
               ) : null}
 

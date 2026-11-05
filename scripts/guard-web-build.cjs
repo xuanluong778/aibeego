@@ -80,3 +80,28 @@ function warnIfPm2WebOnline() {
 }
 
 warnIfPm2WebOnline();
+
+/** Stale @marketingspa/shared dist drops named exports and crashes the builder. */
+function assertSharedAgencyPortfolioExport() {
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..');
+  const indexJs = path.join(root, 'packages/shared/dist/index.js');
+  const implJs = path.join(root, 'packages/shared/dist/landing-page-agency-portfolio-standard.js');
+  const indexSrc = fs.existsSync(indexJs) ? fs.readFileSync(indexJs, 'utf8') : '';
+  const implSrc = fs.existsSync(implJs) ? fs.readFileSync(implJs, 'utf8') : '';
+  const ok =
+    indexSrc.includes('landing-page-agency-portfolio-standard') &&
+    /function isAgencyPortfolioStandard\s*\(/.test(implSrc);
+  if (ok) return;
+  console.error(
+    '\n❌ packages/shared/dist thiếu isAgencyPortfolioStandard.\n' +
+      '   Chạy: pnpm --filter @marketingspa/shared build\n' +
+      '   rồi mới build web — nếu không, builder sẽ trắng màn hình.\n',
+  );
+  process.exit(1);
+}
+
+assertSharedAgencyPortfolioExport();
+
+require('./assert-landing-page-builder-release.cjs').assertLandingPageBuilderSource();

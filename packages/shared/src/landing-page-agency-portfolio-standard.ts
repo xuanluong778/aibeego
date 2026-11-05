@@ -3,11 +3,19 @@ import type {
   LandingPageSpec,
   LandingPageTemplateDefinition,
 } from './landing-page-types';
+import { isRestaurantMenuRepresentative } from './landing-page-restaurant-representative';
+import {isWebsiteRepresentative} from './landing-page-website-representative';
+import { isLocalServiceRepresentative } from './landing-page-local-service-representative';
 
 /** Persisted render contract, independent of catalog refreshes. Never inferred from slug/category. */
 export const AGENCY_PORTFOLIO_RENDERER_VERSION = 'agency-portfolio-v2' as const;
 export function isAgencyPortfolioStandard(spec: LandingPageSpec): boolean {
   return spec.meta?.rendererVersion === AGENCY_PORTFOLIO_RENDERER_VERSION;
+}
+
+/** Explicit persisted contracts that share version-safe canvas metadata and clone references. */
+export function isVersionedLandingPageCanvasSpec(spec: LandingPageSpec): boolean {
+  return isAgencyPortfolioStandard(spec) || isRestaurantMenuRepresentative(spec) || isLocalServiceRepresentative(spec) || isWebsiteRepresentative(spec);
 }
 
 /** Creation seed only. Never run against an existing user's draft or published spec. */
@@ -371,7 +379,22 @@ export function agencyPortfolioCreationSeed(
   stored: LandingPageSpec,
   canonical: LandingPageSpec,
 ): LandingPageSpec {
-  return identity.slug === 'agency-portfolio' &&
+  const architectureBySlug: Record<string, string> = {
+    'agency-portfolio-form': 'agency_brief_form',
+    'agency-portfolio-faq': 'agency_faq_pitch',
+    'agency-portfolio-gallery': 'agency_work_gallery',
+    'agency-portfolio-minimal': 'agency_minimal_pitch',
+    'agency-portfolio-trust': 'agency_trust_case',
+    'agency-portfolio-process': 'agency_process_sprint',
+    'agency-portfolio-cream-editorial': 'agency_cream_editorial',
+    'agency-portfolio-modern-saas': 'agency_modern_saas',
+    'agency-portfolio-split': 'agency_nav_services',
+  };
+  const recognized = identity.slug === 'agency-portfolio'
+    ? canonical.meta?.architectureRecipe?.architectureId === 'agency_dark_direct'
+    : architectureBySlug[identity.slug] !== undefined &&
+      architectureBySlug[identity.slug] === canonical.meta?.architectureRecipe?.architectureId;
+  return recognized && isAgencyPortfolioStandard(canonical) &&
     identity.isSystem &&
     identity.organizationId === null &&
     !identity.managed &&
@@ -388,7 +411,7 @@ export function remapAgencyPortfolioCloneIds(
   spec: LandingPageSpec,
   ids: Map<string, string>,
 ): LandingPageSpec {
-  if (!isAgencyPortfolioStandard(spec)) return spec;
+  if (!isVersionedLandingPageCanvasSpec(spec)) return spec;
   const key = (s: string) =>
     s
       .split(/(::|:|\.)/)
@@ -416,7 +439,7 @@ export function agencyPortfolioInlineStyle(
   viewport: 'desktop' | 'tablet' | 'mobile',
 ) {
   const base = spec.meta?.inlineTextStyles?.[key];
-  const override = isAgencyPortfolioStandard(spec)
+  const override = isVersionedLandingPageCanvasSpec(spec)
     ? spec.meta?.responsiveInlineTextStyles?.[key]?.[viewport]
     : undefined;
   return override ? { ...base, ...override } : base;
@@ -425,7 +448,7 @@ export function agencyPortfolioRenderMeta(
   spec: LandingPageSpec,
   viewport: 'desktop' | 'tablet' | 'mobile',
 ) {
-  if (!isAgencyPortfolioStandard(spec) || !spec.meta?.responsiveInlineTextStyles) return spec.meta;
+  if (!isVersionedLandingPageCanvasSpec(spec) || !spec.meta?.responsiveInlineTextStyles) return spec.meta;
   const styles = { ...spec.meta.inlineTextStyles };
   for (const key of Object.keys(spec.meta.responsiveInlineTextStyles))
     styles[key] = agencyPortfolioInlineStyle(spec, key, viewport)!;

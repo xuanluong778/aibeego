@@ -2,7 +2,7 @@
 
 /**
  * Editor-only vertical element toolbar (move / save / duplicate / delete).
- * Portaled to document.body — never rendered on public/preview pages.
+ * Fixed to the viewport, clamped to the visible landing-page content (never the inspector).
  */
 
 import {
@@ -27,6 +27,11 @@ import {
 import type { LandingPageCanvasElementKey } from './landing-page-canvas-ux';
 import { LP_BLOCK_MIME } from './landing-page-canvas-ux';
 import { beginFreeDragByFreeId, beginFreeDragFromShell, cancelAllFreeDrags } from './landing-page-free-drag';
+import {
+  placeVerticalToolbar,
+  readToolbarPageBounds,
+  type DropRect,
+} from './landing-page-section-insert-target';
 
 const TOOLBAR_W = 44;
 const BTN_H = 44;
@@ -63,6 +68,70 @@ function readBuilderChromeTop(): number {
 
 function isGestureActive(): boolean {
   return Boolean(document.querySelector(DRAGGING_SEL));
+}
+
+const DOCK_INNER_SEL =
+  '[data-lp-container-inner],[data-lp-header-inner],[data-lp-footer-inner]';
+
+function toDropRect(r: DOMRect): DropRect {
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function readContentSafeViewport(canvas: HTMLElement): DropRect | null {
+  const host = canvas.closest('[data-lp-guides-host]') || canvas.parentElement;
+  const wrap = (host?.querySelector('[data-lp-content-safe-guides]') ||
+    document.querySelector('[data-lp-content-safe-guides]')) as HTMLElement | null;
+  if (!wrap) return null;
+  const left = Number(wrap.getAttribute('data-lp-content-safe-left'));
+  const width = Number(wrap.getAttribute('data-lp-content-safe-width'));
+  if (!Number.isFinite(left) || !Number.isFinite(width) || width < 80) return null;
+  const cr = canvas.getBoundingClientRect();
+  const cssW = canvas.offsetWidth || cr.width;
+  const scale = cssW > 0 ? cr.width / cssW : 1;
+  return {
+    left: cr.left + left * scale,
+    top: cr.top,
+    width: width * scale,
+    height: cr.height,
+  };
+}
+
+function tightContentRect(el: HTMLElement): DOMRect {
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const r = range.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    if (r.width > 24 && r.height > 8 && r.width < box.width - 12) {
+      return new DOMRect(r.left, Math.min(r.top, box.top), r.width, Math.max(r.height, 28));
+    }
+  } catch {
+    /* fall through */
+  }
+  return el.getBoundingClientRect();
+}
+
+function resolveToolbarDockRect(anchor: HTMLElement, target: LpSelectionTarget): DOMRect {
+  const sectionLike =
+    isSectionLevelElement(target.element) ||
+    target.element === 'form' ||
+    target.element === 'section-background';
+  const inner =
+    (anchor.matches(DOCK_INNER_SEL) ? anchor : null) ||
+    anchor.querySelector<HTMLElement>(DOCK_INNER_SEL) ||
+    anchor.closest('[data-lp-section-chrome]')?.querySelector<HTMLElement>(DOCK_INNER_SEL) ||
+    null;
+  if (sectionLike) {
+    const text = (inner || anchor).querySelector<HTMLElement>(
+      '[data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"],h1,h2,h3,h4,p,[data-lp-inline-field]',
+    );
+    if (text) return tightContentRect(text);
+    if (inner) {
+      const ir = inner.getBoundingClientRect();
+      if (ir.width > 40 && ir.height > 8) return ir;
+    }
+  }
+  return tightContentRect(anchor);
 }
 
 /** 4-way move / cross-arrows icon (not up/down only). */
@@ -322,37 +391,53 @@ export function LandingPageElementVerticalToolbar({
       const anchor = findAnchorForTarget(target) || anchorRef.current;
       if (!anchor) return null;
       anchorRef.current = anchor;
-      const r = anchor.getBoundingClientRect();
+      const r = resolveToolbarDockRect(anchor, target);
       if (r.width <= 0 && r.height <= 0) return null;
 
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const toolbarW = vh < 500 ? BAR_H : TOOLBAR_W;
       const toolbarH = vh < 500 ? TOOLBAR_W : BAR_H;
+      const canvas =
+        (anchor.closest('[data-lp-canvas-root]') as HTMLElement | null) ||
+        (typeof document !== 'undefined'
+          ? (document.querySelector('[data-lp-canvas-root]') as HTMLElement | null)
+          : null);
+      if (!canvas) return null;
+      const cr = canvas.getBoundingClientRect();
+      const section = (anchor.closest('[data-lp-section-chrome]') as HTMLElement | null) || canvas;
+      const sr = section.getBoundingClientRect();
+      const scroll = document.querySelector('[data-lp-canvas-scroll]') as HTMLElement | null;
+      const inspector = document.querySelector(
+        '[data-lp-inspector-shell], [data-lp-inspector]',
+      ) as HTMLElement | null;
+      const bounds = readToolbarPageBounds({
+        canvas: toDropRect(sr.width > 40 ? sr : cr),
+        scroll: scroll ? toDropRect(scroll.getBoundingClientRect()) : null,
+        inspector: inspector ? toDropRect(inspector.getBoundingClientRect()) : null,
+        contentSafe: readContentSafeViewport(canvas),
+      });
+      if (bounds.width < toolbarW + 32) return null;
       const chromeTop = readBuilderChromeTop();
-      // Visible band: below builder chrome, above viewport bottom.
-      const viewTop = chromeTop;
-      const viewBottom = vh - 8;
-      const overlapTop = Math.max(r.top, viewTop);
-      const overlapBottom = Math.min(r.bottom, viewBottom);
-      const visibleH = overlapBottom - overlapTop;
-      // Hide when the selected element has scrolled out of the canvas viewport —
-      // previously we clamped top into view, so the bar stayed stuck mid-screen.
-      if (visibleH <= 0 || visibleH < Math.min(12, r.height / 2) || r.right < 8 || r.left > vw - 8) {
+      const placed = placeVerticalToolbar({
+        anchor: { left: r.left, top: r.top, width: r.width, height: r.height },
+        canvas: bounds,
+        toolbarW,
+        toolbarH,
+        gap: GAP,
+        pad: 16,
+        viewTop: Math.max(bounds.top + 16, chromeTop),
+        viewBottom: Math.min(bounds.top + bounds.height - 16, vh - 8),
+      });
+      if (!placed) return null;
+      if (r.right < bounds.left + 4 || r.left > bounds.left + bounds.width - 4 || r.right < 8 || r.left > vw - 8) {
         return null;
       }
-
-      // Always anchor to the element's right edge. Near the viewport boundary,
-      // keep the controls reachable without flipping them to the left side.
-      const left = Math.max(8, Math.min(r.right + GAP, vw - toolbarW - 8));
-
-      // Prefer centering on the *visible* slice of the anchor (not the off-screen part).
-      const visibleMid = (overlapTop + overlapBottom) / 2 - toolbarH / 2;
-      const topBase =
-        r.height > 220 && r.top >= viewTop - 8 ? r.top + 16 : visibleMid;
-      // Soft clamp only while still overlapping — never invent a position when gone.
-      const top = Math.min(Math.max(viewTop, topBase), viewBottom - toolbarH);
-      return { left, top, side: 'right' };
+      return {
+        left: placed.left,
+        top: placed.top,
+        side: placed.side,
+      };
     },
     [],
   );
@@ -636,7 +721,7 @@ export function LandingPageElementVerticalToolbar({
       data-lp-floating-toolbar="1"
       data-lp-vertical-toolbar-side={pos.side}
       data-lp-toolbar-for={displayTarget.blockId}
-      className="pointer-events-auto fixed z-[9994] flex flex-col [@media(max-height:500px)]:flex-row rounded-md border border-orange-400/80 bg-[#F97316] shadow-lg"
+      className="pointer-events-auto fixed z-[50] flex flex-col [@media(max-height:500px)]:flex-row rounded-md border border-orange-400/80 bg-[#F97316] shadow-lg"
       style={{ left: pos.left, top: pos.top, width: typeof window !== 'undefined' && window.innerHeight < 500 ? BAR_H : TOOLBAR_W }}
       onPointerEnter={() => setToolbarHover(true)}
       onPointerLeave={() => setToolbarHover(false)}

@@ -52,47 +52,105 @@ export const LP_TITLE_PRESETS: LandingPageTitlePreset[] = [
   {
     id: 'heading-3',
     label: 'Heading 3',
-    style: { fontSize: 20, fontWeight: 700, color: '#0f172a', textAlign: 'left', fontFamily: 'system-ui, sans-serif', headingLevel: 3 },
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      color: '#0f172a',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+      headingLevel: 3,
+    },
   },
   {
     id: 'heading-2',
     label: 'Heading 2',
-    style: { fontSize: 28, fontWeight: 800, color: '#0f172a', textAlign: 'left', fontFamily: 'system-ui, sans-serif', headingLevel: 2 },
+    style: {
+      fontSize: 28,
+      fontWeight: 800,
+      color: '#0f172a',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+      headingLevel: 2,
+    },
   },
   {
     id: 'heading-1',
     label: 'Heading 1',
-    style: { fontSize: 36, fontWeight: 800, color: '#0f172a', textAlign: 'left', fontFamily: 'system-ui, sans-serif', headingLevel: 1 },
+    style: {
+      fontSize: 36,
+      fontWeight: 800,
+      color: '#0f172a',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+      headingLevel: 1,
+    },
   },
   {
     id: 'them-1',
     label: 'Thêm tiêu đề 1',
-    style: { fontSize: 22, fontWeight: 700, color: '#0f172a', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: '#0f172a',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'them-2',
     label: 'Thêm tiêu đề 2',
-    style: { fontSize: 22, fontWeight: 700, color: '#2563eb', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: '#2563eb',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'them-3',
     label: 'Thêm tiêu đề 3',
-    style: { fontSize: 22, fontWeight: 700, color: '#ea580c', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 22,
+      fontWeight: 700,
+      color: '#ea580c',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'them-4',
     label: 'Thêm tiêu đề 4',
-    style: { fontSize: 18, fontWeight: 500, color: '#f87171', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 18,
+      fontWeight: 500,
+      color: '#f87171',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'them-5',
     label: 'Thêm tiêu đề 5',
-    style: { fontSize: 14, fontWeight: 400, color: '#a8a29e', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 14,
+      fontWeight: 400,
+      color: '#a8a29e',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'big-title',
     label: 'Big Title',
-    style: { fontSize: 42, fontWeight: 900, color: '#0a0a0a', textAlign: 'left', fontFamily: 'system-ui, sans-serif', letterSpacing: '-0.02em' },
+    style: {
+      fontSize: 42,
+      fontWeight: 900,
+      color: '#0a0a0a',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+      letterSpacing: '-0.02em',
+    },
   },
   {
     id: 'caps-title',
@@ -133,7 +191,14 @@ export const LP_TITLE_PRESETS: LandingPageTitlePreset[] = [
   {
     id: 'huge-title',
     label: 'Huge Title',
-    style: { fontSize: 48, fontWeight: 800, color: '#5b21b6', textAlign: 'left', fontFamily: 'system-ui, sans-serif', letterSpacing: '-0.03em' },
+    style: {
+      fontSize: 48,
+      fontWeight: 800,
+      color: '#5b21b6',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+      letterSpacing: '-0.03em',
+    },
   },
   {
     id: 'luxury-title',
@@ -150,7 +215,13 @@ export const LP_TITLE_PRESETS: LandingPageTitlePreset[] = [
   {
     id: 'bold-title',
     label: 'Bold Title',
-    style: { fontSize: 26, fontWeight: 800, color: '#dc2626', textAlign: 'left', fontFamily: 'Georgia, "Rockwell", serif' },
+    style: {
+      fontSize: 26,
+      fontWeight: 800,
+      color: '#dc2626',
+      textAlign: 'left',
+      fontFamily: 'Georgia, "Rockwell", serif',
+    },
   },
   {
     id: 'classic-title',
@@ -192,7 +263,13 @@ export const LP_TITLE_PRESETS: LandingPageTitlePreset[] = [
   {
     id: 'thin-title',
     label: 'Thin Title',
-    style: { fontSize: 28, fontWeight: 200, color: '#5eead4', textAlign: 'left', fontFamily: 'system-ui, sans-serif' },
+    style: {
+      fontSize: 28,
+      fontWeight: 200,
+      color: '#5eead4',
+      textAlign: 'left',
+      fontFamily: 'system-ui, sans-serif',
+    },
   },
   {
     id: 'tall-title',
@@ -210,12 +287,24 @@ export const LP_TITLE_PRESETS: LandingPageTitlePreset[] = [
   {
     id: 'lobster-title',
     label: 'Lobster title',
-    style: { fontSize: 30, fontWeight: 400, color: '#ef4444', textAlign: 'left', fontFamily: '"Lobster", cursive' },
+    style: {
+      fontSize: 30,
+      fontWeight: 400,
+      color: '#ef4444',
+      textAlign: 'left',
+      fontFamily: '"Lobster", cursive',
+    },
   },
   {
     id: 'writing-title',
     label: 'Writing title',
-    style: { fontSize: 28, fontWeight: 400, color: '#60a5fa', textAlign: 'left', fontFamily: '"Great Vibes", cursive' },
+    style: {
+      fontSize: 28,
+      fontWeight: 400,
+      color: '#60a5fa',
+      textAlign: 'left',
+      fontFamily: '"Great Vibes", cursive',
+    },
   },
   {
     id: 'discover',
@@ -399,6 +488,8 @@ type PanelProps = {
   onInsertList?: (preset: LandingPageListPreset) => void;
   /** Optional initial tab when opening the panel. */
   initialTab?: TextPresetTab;
+  /** Render in normal flow inside an existing library dialog. */
+  embedded?: boolean;
   onTabChange?: (tab: TextPresetTab) => void;
   /** Optional class merge (e.g. right-rail embedded). */
   className?: string;
@@ -455,6 +546,7 @@ export function LandingPageTextPresetsPanel({
   onInsertParagraph,
   onInsertList,
   initialTab = 'title',
+  embedded = false,
   onTabChange,
   className,
 }: PanelProps) {
@@ -475,16 +567,17 @@ export function LandingPageTextPresetsPanel({
 
   return (
     <div
-      data-lp-sidebar-overlay="text"
+      data-lp-sidebar-overlay={embedded ? undefined : 'text'}
+      data-lp-library-embedded={embedded ? '1' : undefined}
       data-lp-text-presets-panel="1"
       className={cn(
-        'absolute left-full top-0 z-40 ml-2 flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl',
-        'w-[min(320px,calc(100vw-4.5rem))]',
-        'h-[min(calc(100vh-var(--builder-top-offset,6.75rem)-1rem),780px)]',
-        'max-md:fixed max-md:left-3 max-md:right-3 max-md:top-16 max-md:ml-0 max-md:h-[min(80vh,720px)] max-md:w-auto',
+        'flex flex-col overflow-hidden bg-white',
+        embedded
+          ? 'relative min-h-0 min-w-0 w-full flex-1'
+          : 'absolute left-full top-0 z-40 ml-2 w-[min(320px,calc(100vw-4.5rem))] h-[min(calc(100vh-var(--builder-top-offset,6.75rem)-1rem),780px)] rounded-xl border border-zinc-200 shadow-xl max-md:fixed max-md:left-3 max-md:right-3 max-md:top-16 max-md:ml-0 max-md:h-[min(80vh,720px)] max-md:w-auto',
         className,
       )}
-      role="dialog"
+      role={embedded ? 'region' : 'dialog'}
       aria-label="Mẫu văn bản"
     >
       <div className="flex shrink-0 items-center border-b border-zinc-100 px-3 pt-2">
@@ -508,7 +601,10 @@ export function LandingPageTextPresetsPanel({
           >
             {t.label}
             {tab === t.id ? (
-              <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-violet-600" aria-hidden />
+              <span
+                className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-violet-600"
+                aria-hidden
+              />
             ) : null}
           </button>
         ))}
@@ -529,7 +625,11 @@ export function LandingPageTextPresetsPanel({
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               Tiêu đề
             </div>
-            <ul className="space-y-1" data-lp-title-preset-list data-lp-title-preset-count={LP_TITLE_PRESETS.length}>
+            <ul
+              className="space-y-1"
+              data-lp-title-preset-list
+              data-lp-title-preset-count={LP_TITLE_PRESETS.length}
+            >
               {LP_TITLE_PRESETS.map((preset) => (
                 <li key={preset.id}>
                   <button
@@ -547,7 +647,10 @@ export function LandingPageTextPresetsPanel({
                     }
                     title={`Chèn «${preset.label}» — kéo thả vào canvas`}
                   >
-                    <span className="block max-w-full truncate leading-tight" style={previewStyle(preset.style, 36)}>
+                    <span
+                      className="block max-w-full truncate leading-tight"
+                      style={previewStyle(preset.style, 36)}
+                    >
                       {preset.label}
                     </span>
                   </button>
@@ -606,7 +709,11 @@ export function LandingPageTextPresetsPanel({
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               Danh sách
             </div>
-            <ul className="space-y-3" data-lp-list-preset-list data-lp-list-preset-count={LP_LIST_PRESETS.length}>
+            <ul
+              className="space-y-3"
+              data-lp-list-preset-list
+              data-lp-list-preset-count={LP_LIST_PRESETS.length}
+            >
               {LP_LIST_PRESETS.map((preset) => (
                 <li key={preset.id}>
                   <button

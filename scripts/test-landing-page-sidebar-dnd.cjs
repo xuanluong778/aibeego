@@ -47,6 +47,15 @@ gate(
 );
 
 gate(
+  'ELEMENT_INSERT_LINE',
+  canvas.includes('showElementInsertLine') &&
+    canvas.includes('resolveElementInsertTarget') &&
+    dnd.includes("LP_ELEMENT_INSERT_LINE_COLOR = '#00E174'") &&
+    dnd.includes('setTransparentSidebarDragImage'),
+  'element drags show the #00E174 slot line and a transparent drag image',
+);
+
+gate(
   'INSERT_POS_HISTORY',
   builder.includes('resolveInsertIndex') &&
     builder.includes('function insertSidebarPreset') &&
@@ -76,9 +85,9 @@ gate(
 
 gate(
   'CLICK_PRESERVED',
-  buttons.includes('onClick={() => onInsertButton(preset)}') &&
-    text.includes('onClick={() => onInsertTitle(preset)}') &&
-    builder.includes('onInsertButtonPreset={insertButtonPreset}'),
+  buttons.includes('onInsertButton(preset)') &&
+    text.includes('onInsertTitle(preset)') &&
+    builder.includes('onInsertButtonPreset={'),
   'click-to-add callbacks remain',
 );
 

@@ -39,6 +39,8 @@ import type { LandingPageFormPreset } from './landing-page-form-presets';
 import { LandingPageGraphicsLibraryPanel } from './landing-page-graphics-library';
 import {
   beginSidebarPresetDrag,
+  ignoreSidebarElementClick,
+  type LpSidebarPresetPayload,
   LP_SIDEBAR_CLOSE_OVERLAY_EVENT,
   requestCloseSidebarOverlay,
 } from './landing-page-sidebar-dnd';
@@ -893,9 +895,8 @@ export function LandingPageBuilderSidebar({
               label={item.label}
               dataAttr={`quick-${item.id}`}
               compact
-              draggableType={
-                item.id === 'video' ? item.type : undefined
-              }
+              draggablePayload={item.id==='video'?{kind:'block-type',type:item.type}:item.id==='button'?{kind:'button-library-open'}:{kind:'add-picker-open',picker:item.id==='heading'||item.id==='paragraph'?'text':item.id==='image'?'media':item.id==='graphics'?'graphics':'icon',...(item.id==='heading'||item.id==='paragraph'?{initialTab:item.id==='heading'?'title':'paragraph'}:{})}}
+
               active={
                 item.id === 'heading' || item.id === 'paragraph'
                   ? panel === 'text' &&
@@ -1089,25 +1090,11 @@ export function LandingPageBuilderSidebar({
                   key={item.type}
                   type="button"
                   data-lp-add-element={item.type}
-                  draggable={item.type === 'LeadForm'}
-                  onDragStart={
-                    item.type === 'LeadForm'
-                      ? (e) => {
-                          beginSidebarPresetDrag(e, { kind: 'form-library-open' }, item.label, {
-                            subtitle: 'Kéo thả vào canvas để chọn mẫu biểu mẫu',
-                          });
-                        }
-                      : undefined
-                  }
+                  draggable
+                  onDragStart={e=>beginSidebarPresetDrag(e,item.type==='LeadForm'?{kind:'form-library-open'}:{kind:'block-type',type:item.type},item.label)}
                   className="flex h-11 items-center gap-2 rounded-md px-2.5 text-left text-[13px] text-zinc-800 transition hover:bg-zinc-100"
-                  onClick={() => {
-                    if (item.type === 'LeadForm') {
-                      // Không cho bấm vào biểu mẫu hiện các danh sách
-                      return;
-                    }
-                    onAddBlock(item.type);
-                    close();
-                  }}
+                  onClick={ignoreSidebarElementClick}
+                  onDoubleClick={ignoreSidebarElementClick}
                 >
                   <span
                     className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-50 text-sm text-zinc-600 ring-1 ring-zinc-200"
@@ -1153,15 +1140,8 @@ export function LandingPageBuilderSidebar({
                       { subtitle: preset.types.join(' · ') },
                     );
                   }}
-                  onClick={(e) => {
-                    // Suppress click that fires after a successful HTML5 drag.
-                    if ((e.currentTarget as HTMLButtonElement).dataset.lpDidDrag === '1') {
-                      delete (e.currentTarget as HTMLButtonElement).dataset.lpDidDrag;
-                      return;
-                    }
-                    onAddBlocks(preset.types);
-                    close();
-                  }}
+                  onClick={ignoreSidebarElementClick}
+                  onDoubleClick={ignoreSidebarElementClick}
                 >
                   <div className="text-[13px] font-semibold text-zinc-900">{preset.label}</div>
                   <div className="mt-0.5 text-[11px] text-zinc-500">{preset.description}</div>
@@ -1173,7 +1153,7 @@ export function LandingPageBuilderSidebar({
             </div>
           )}
           <p className="mt-2 text-[10px] leading-snug text-zinc-400">
-            Chỉ dùng block type đã hỗ trợ. Thêm sau section đang chọn (hoặc cuối trang).
+            Kéo ô thành phần vào canvas rồi chọn mẫu tại vị trí thả.
           </p>
         </OverlayPanel>
       ) : null}
@@ -1350,6 +1330,7 @@ function RailIcon({
   compact,
   dataAttr,
   draggableType,
+  draggablePayload,
 }: {
   label: string;
   active?: boolean;
@@ -1360,6 +1341,7 @@ function RailIcon({
   dataAttr: string;
   /** When set, rail icon can be dragged onto canvas as that block type. */
   draggableType?: LandingPageBlockType;
+  draggablePayload?: LpSidebarPresetPayload;
 }) {
   return (
     <RailIconHoverLabel label={label}>
@@ -1369,23 +1351,24 @@ function RailIcon({
         aria-pressed={active ? true : false}
         data-lp-rail-icon={dataAttr}
         data-lp-rail-active={active ? '1' : '0'}
-        data-lp-sidebar-draggable={draggableType ? 'block-type' : undefined}
-        draggable={Boolean(draggableType)}
+        data-lp-sidebar-draggable={draggablePayload ? 'picker' : draggableType ? 'block-type' : undefined}
+        draggable={Boolean(draggableType || draggablePayload)}
         onDragStart={
-          draggableType
+          draggableType || draggablePayload
             ? (e) =>
                 beginSidebarPresetDrag(
                   e,
-                  { kind: 'block-type', type: draggableType },
+                  draggablePayload || { kind: 'block-type', type: draggableType! },
                   label,
                 )
             : undefined
         }
-        onClick={onClick}
+        onClick={draggablePayload || draggableType ? ignoreSidebarElementClick : onClick}
+        onDoubleClick={draggablePayload || draggableType ? ignoreSidebarElementClick : undefined}
         className={cn(
           'relative inline-flex shrink-0 items-center justify-center rounded-lg transition',
           compact ? 'h-9 w-9' : 'h-10 w-10',
-          draggableType ? 'cursor-grab active:cursor-grabbing' : null,
+          draggableType || draggablePayload ? 'cursor-grab active:cursor-grabbing' : null,
           primary
             ? active
               ? 'bg-[#F97316] text-white shadow-sm'

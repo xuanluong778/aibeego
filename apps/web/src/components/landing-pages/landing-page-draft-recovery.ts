@@ -1,3 +1,4 @@
+import { sanitizeLandingPagePersistSpec } from '@marketingspa/shared';
 import type { LandingPageSpec } from '@marketingspa/shared';
 
 export type LocalLandingDraft = {
@@ -40,13 +41,45 @@ function isLocalLandingDraft(value: unknown): value is LocalLandingDraft {
   );
 }
 
+/** Compare persisted content, ignoring only concurrency receipts and object key order. */
+export function landingDraftContentKey(spec: LandingPageSpec): string {
+  const normalized = sanitizeLandingPagePersistSpec(spec);
+  const meta = { ...normalized.meta } as Record<string, unknown>;
+  delete meta.clientRevision;
+  delete meta.lastAutosaveRequestId;
+  delete meta.lastAutosaveRequestHash;
+  return JSON.stringify(
+    { ...normalized, meta: Object.keys(meta).length ? meta : undefined },
+    (_key, value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.keys(value)
+              .sort()
+              .map((key) => [key, value[key]]),
+          )
+        : value,
+  );
+}
+
+export function landingDraftsHaveSameContent(a: LandingPageSpec, b: LandingPageSpec): boolean {
+  try {
+    return landingDraftContentKey(a) === landingDraftContentKey(b);
+  } catch {
+    return false;
+  }
+}
+
 /** Local draft is restored only when the server has not moved since this tab's last ack. */
 export function decideDraftRecovery(input: {
   serverRevision: number;
+  serverSpec?: LandingPageSpec;
   local: LocalLandingDraft | null;
 }): DraftRecoveryDecision {
   const local = input.local;
   if (!isLocalLandingDraft(local)) return 'use-server';
+  // A lost ACK after a successful commit is not a conflict. Never overwrite; use the matching server copy.
+  if (input.serverSpec && landingDraftsHaveSameContent(local.spec, input.serverSpec))
+    return 'use-server';
   // Only this tab's own acknowledgement can cover its edits. Another writer can
   // reach the same (or a higher) server revision with entirely different content.
   if (local.clientRevision <= local.baseRevision) {

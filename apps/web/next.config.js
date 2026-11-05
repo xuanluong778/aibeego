@@ -5,6 +5,7 @@ const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   experimental: {
+    ...(process.env.LP_RELEASE_BUILD === '1' ? { cpus: 1, workerThreads: false } : {}),
     optimizePackageImports: [
       'lucide-react',
       'date-fns',
@@ -80,5 +81,21 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
-
+module.exports = (phase) => {
+  if (phase === 'phase-production-build') {
+    require('../../scripts/assert-landing-page-builder-release.cjs').assertLandingPageBuilderSource();
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const buildId = process.env.LP_BUILDER_RELEASE_ID || `lpb-${require('node:crypto').randomUUID()}`;
+    process.env.LP_BUILDER_RELEASE_ID = buildId;
+    const publicDir = path.join(__dirname, 'public');
+    fs.mkdirSync(publicDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(publicDir, 'landing-page-builder-version.json'),
+      JSON.stringify({ buildId }),
+    );
+    nextConfig.env = { ...nextConfig.env, NEXT_PUBLIC_LP_BUILDER_VERSION: buildId };
+    nextConfig.generateBuildId = async () => buildId;
+  }
+  return nextConfig;
+};

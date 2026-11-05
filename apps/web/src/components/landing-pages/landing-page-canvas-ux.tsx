@@ -1,4 +1,5 @@
 'use client';
+import { resolveSidebarDropTarget } from './landing-page-section-insert-target';
 
 /**
  * Additive canvas UX helpers for Landing Page Builder.
@@ -23,7 +24,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { LandingPageFreeLayout, LandingPageTextBoxChrome } from '@marketingspa/shared';
-import { AGENCY_PORTFOLIO_RENDERER_VERSION, applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChromeCss, textBoxHideAttrs } from '@marketingspa/shared';
+import { isFloatingTextLayerBlock, AGENCY_PORTFOLIO_RENDERER_VERSION, applyResizeHandle, resizeHandleCursor, textBoxChromeActive, textBoxChromeCss, textBoxHideAttrs } from '@marketingspa/shared';
 import {
   FreeDragHandle,
   FreeTransformChrome,
@@ -37,6 +38,9 @@ import {
 } from './landing-page-free-drag';
 import {
   LP_SIDEBAR_PRESET_MIME,
+  readSidebarDragPayload,
+  showSidebarDropTarget,
+  getSidebarDropTarget,
   isSidebarFreeLayerPayload,
   isSidebarPresetDrag,
   parseSidebarPresetPayload,
@@ -635,7 +639,7 @@ export function SelectableShell({
   /** Optional custom class from Design tab (block.style.className). */
   designClassName?: string;
   /** Section fill painted behind the copy when Section settings are active. */
-  surfaceBlock?: Pick<import('@marketingspa/shared').LandingPageBlock, 'background' | 'style'> | null;
+  surfaceBlock?: Partial<import('@marketingspa/shared').LandingPageBlock> | null;
   surfaceFallback?: string;
   /**
    * Public/Preview free-position (no handlers). Absolute section layout from
@@ -662,6 +666,7 @@ export function SelectableShell({
         data-lp-block-id={blockId}
         data-lp-design-shell="1"
         data-lp-section-chrome="1"
+        data-lp-floating-text-section={surfaceBlock?.positionMode === 'free' && !surfaceBlock.sectionPlacement && isFloatingTextLayerBlock(surfaceBlock) ? '1' : undefined}
         data-lp-free-box={freeStyle ? '1' : undefined}
         data-lp-position-mode={freeStyle ? 'free' : 'flow'}
         data-lp-public-free={freeStyle ? '1' : undefined}
@@ -719,7 +724,7 @@ function SelectableShellInteractive({
     tablet?: boolean;
     mobile?: boolean;
   } | null;
-  surfaceBlock?: Pick<import('@marketingspa/shared').LandingPageBlock, 'background' | 'style'> | null;
+  surfaceBlock?: Partial<import('@marketingspa/shared').LandingPageBlock> | null;
   surfaceFallback?: string;
 }) {
   // Form counts as section primary for free-drag / chrome (LeadForm is the section).
@@ -955,6 +960,9 @@ function SelectableShellInteractive({
       data-lp-position-mode={layout ? 'free' : 'flow'}
       data-lp-selected={sectionPrimary || sectionInSelection ? '1' : '0'}
       data-lp-section-chrome="1"
+      data-lp-floating-text-section={surfaceBlock?.positionMode === 'free' && !surfaceBlock.sectionPlacement && isFloatingTextLayerBlock(surfaceBlock) ? '1' : undefined}
+      data-lp-block-type={(surfaceBlock as { type?: string } | null)?.type}
+      data-lp-insert-locked={sectionLocked ? '1' : undefined}
       data-lp-bounding-box={sectionPrimary ? '1' : '0'}
       data-lp-section-multi={isSectionMultiChrome ? '1' : undefined}
       data-lp-button-shell={buttonLike ? '1' : undefined}
@@ -1017,125 +1025,55 @@ function SelectableShellInteractive({
           handlers.onDeselect();
         }
       }}
-      onDragOver={
-        allowReorder || handlers.onInsertSidebarPreset
-          ? (e) => {
-              const types = [...e.dataTransfer.types];
-              const preset = isSidebarPresetDrag(types);
-              const blockMove =
-                types.includes(LP_BLOCK_MIME) && !types.includes(LP_ITEM_MIME);
-              if (!preset && !blockMove) return;
-              if (types.includes(LP_ITEM_MIME)) return;
-              // Don't steal drops intended for nested item reorder / interactive children
-              // that explicitly handle their own MIME — section-preset always lands on section.
-              e.preventDefault();
-              e.stopPropagation();
-              e.dataTransfer.dropEffect = preset ? 'copy' : 'move';
-              e.currentTarget.setAttribute('data-lp-drop-over', '1');
-              if (preset) {
-                e.currentTarget.setAttribute('data-lp-preset-drop', '1');
-                const rect = e.currentTarget.getBoundingClientRect();
-                // Prefer inside for free-layer MIME (text/button/box) — mid-body drop.
-                // Full section types still use before/after bands.
-                const rawPeek = (() => {
-                  try {
-                    return e.dataTransfer.getData(LP_SIDEBAR_PRESET_MIME);
-                  } catch {
-                    return '';
-                  }
-                })();
-                const peeked = rawPeek ? parseSidebarPresetPayload(rawPeek) : null;
-                const preferInside = peeked ? isSidebarFreeLayerPayload(peeked) : true;
-                const edge = resolveSectionDropMode(e.clientY, rect, preferInside);
-                e.currentTarget.setAttribute('data-lp-drop-edge', edge);
-              }
-            }
-          : undefined
-      }
-      onDragLeave={
-        allowReorder || handlers.onInsertSidebarPreset
-          ? (e) => {
-              // Ignore leave→child (keeps between-section indicator stable while dragging).
-              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-              e.currentTarget.removeAttribute('data-lp-drop-over');
-              e.currentTarget.removeAttribute('data-lp-preset-drop');
-              e.currentTarget.removeAttribute('data-lp-drop-edge');
-            }
-          : undefined
-      }
-      onDrop={
-        allowReorder || handlers.onInsertSidebarPreset
-          ? (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const edgeAttr = e.currentTarget.getAttribute('data-lp-drop-edge') as
-                | 'before'
-                | 'after'
-                | 'inside'
-                | null;
-              e.currentTarget.removeAttribute('data-lp-drop-over');
-              e.currentTarget.removeAttribute('data-lp-preset-drop');
-              e.currentTarget.removeAttribute('data-lp-drop-edge');
-              if ([...e.dataTransfer.types].includes(LP_ITEM_MIME)) return;
-              const presetRaw = e.dataTransfer.getData(LP_SIDEBAR_PRESET_MIME);
-              if (presetRaw && handlers.onInsertSidebarPreset) {
-                const payload = parseSidebarPresetPayload(presetRaw);
-                if (payload) {
-                  if (
-                    payload.kind === 'media' &&
-                    handlers.onApplyBlockImage &&
-                    e.currentTarget.querySelector('[data-lp-frame="1"],[data-lp-grid-block="1"]')
-                  ) {
-                    const cell = (e.target as HTMLElement | null)?.closest?.('[data-lp-grid-cell]');
-                    const gridIndex = cell
-                      ? Number(cell.getAttribute('data-lp-grid-cell'))
-                      : undefined;
-                    handlers.onApplyBlockImage(
-                      blockId,
-                      payload.url,
-                      Number.isFinite(gridIndex) ? { gridIndex } : undefined,
-                    );
-                    return;
-                  }
-                  // Recompute from payload — dragover cannot read MIME in most browsers.
-                  void edgeAttr;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const edge = resolveSectionDropMode(
-                    e.clientY,
-                    rect,
-                    isSidebarFreeLayerPayload(payload),
-                  );
-                  const pos =
-                    edge === 'inside'
-                      ? {
-                          mode: 'inside' as const,
-                          blockId,
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                        }
-                      : edge === 'after'
-                        ? {
-                            mode: 'after' as const,
-                            blockId,
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                          }
-                        : {
-                            mode: 'before' as const,
-                            blockId,
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                          };
-                  handlers.onInsertSidebarPreset(payload, pos);
-                }
-                return;
-              }
-              if (!allowReorder) return;
-              const from = e.dataTransfer.getData(LP_BLOCK_MIME);
-              if (from && from !== blockId) handlers.onReorderBlock(from, blockId);
-            }
-          : undefined
-      }
+      onDragOver={allowReorder || handlers.onInsertSidebarPreset ? (e) => {
+        const types=Array.from(e.dataTransfer.types);
+        if(types.includes(LP_ITEM_MIME))return;
+        if(isSidebarPresetDrag(types)){
+          e.stopPropagation();
+          const payload=readSidebarDragPayload(e.dataTransfer);
+          const root=e.currentTarget.closest<HTMLElement>('[data-lp-canvas-root]');
+          const target=payload && root ? resolveSidebarDropTarget(root,e.currentTarget,payload,e) : null;
+          showSidebarDropTarget(target);
+          e.dataTransfer.dropEffect=target?'copy':'none';
+          if(target)e.preventDefault();
+          return;
+        }
+        if(allowReorder && types.includes(LP_BLOCK_MIME)){
+          e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';
+          e.currentTarget.setAttribute('data-lp-drop-over','1');
+        }
+      } : undefined}
+      onDragLeave={(e)=>{
+        if(e.currentTarget.contains(e.relatedTarget as Node|null))return;
+        const hit=document.elementFromPoint(e.clientX,e.clientY);
+        if(hit && e.currentTarget.contains(hit))return;
+        e.currentTarget.removeAttribute('data-lp-drop-over');
+        if(getSidebarDropTarget()?.sectionId===blockId)showSidebarDropTarget(null);
+      }}
+      onDrop={allowReorder || handlers.onInsertSidebarPreset ? (e)=>{
+        const types=Array.from(e.dataTransfer.types);
+        if(types.includes(LP_ITEM_MIME))return;
+        e.currentTarget.removeAttribute('data-lp-drop-over');
+        if(isSidebarPresetDrag(types)){
+          e.preventDefault();e.stopPropagation();
+          const payload=readSidebarDragPayload(e.dataTransfer);
+          const root=e.currentTarget.closest<HTMLElement>('[data-lp-canvas-root]');
+          const target=payload && root ? resolveSidebarDropTarget(root,e.currentTarget,payload,e) : null;
+          showSidebarDropTarget(null);
+          if(!payload || !target)return;
+          if(payload.kind==='media' && target.frame && handlers.onApplyBlockImage){
+            handlers.onApplyBlockImage(target.frame.blockId,payload.url,target.frame.gridIndex===undefined?undefined:{gridIndex:target.frame.gridIndex});
+            return;
+          }
+          handlers.onInsertSidebarPreset?.(payload,target.position);
+          return;
+        }
+        if(allowReorder && types.includes(LP_BLOCK_MIME)){
+          e.preventDefault();e.stopPropagation();
+          const from=e.dataTransfer.getData(LP_BLOCK_MIME);
+          if(from && from!==blockId)handlers.onReorderBlock(from,blockId);
+        }
+      } : undefined}
       className={
         (isSectionSelected
           ? `relative z-[1] outline outline-2 ${buttonLike ? 'outline-offset-0' : 'outline-offset-2'} ${isBgSelected ? 'outline-violet-500/90' : 'outline-[#F97316]/90'} data-[lp-free-dragging=1]:outline-dashed data-[lp-free-dragging=1]:outline-blue-700 data-[lp-preset-drop=1]:outline-dashed data-[lp-preset-drop=1]:outline-violet-500`
@@ -2345,7 +2283,7 @@ export function InlineEditable({
     field,
     handlers,
     selected: Boolean(isPrimary),
-    // Do not pause free-drag while editing — Move handle must still work; body no longer arms drag.
+    // Keep the Move handle available; body handlers preserve the caret while editing.
     paused: locked,
     contentHug: isTextBoxResizable,
   });
@@ -2448,6 +2386,7 @@ export function InlineEditable({
         style={mergeFieldStyle()}
         data-lp-element-id={`${blockId}::${element}`}
         data-lp-element-kind="text"
+        data-lp-field-anchor={field}
         data-lp-inline-field={publicMeta?.rendererVersion === AGENCY_PORTFOLIO_RENDERER_VERSION ? field : undefined}
       >
         {value}
@@ -2772,6 +2711,7 @@ export function InlineEditable({
         ref={ref}
         data-lp-element-id={`${blockId}::${element}`}
         data-lp-element-kind="text"
+        data-lp-field-anchor={field}
         data-lp-inline-field={field}
         data-lp-inline-role={textRole}
         data-lp-heading-level={headingLevel || undefined}
@@ -2847,8 +2787,10 @@ export function InlineEditable({
             return;
           }
           if (e.button !== 0) return;
-          // Body never arms free-drag — Move toolbar icon only.
+          // An already selected text box can move after a short pointer threshold.
+          // Single click still selects, double click enters edit, and editing keeps the caret.
           pointerRef.current = { x: e.clientX, y: e.clientY, moved: false, t: Date.now() };
+          if (isPrimary) elementFreeDrag.armDrag(e);
         }}
         onPointerMove={(e) => {
           const p = pointerRef.current;

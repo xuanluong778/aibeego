@@ -99,7 +99,7 @@ const MODES: {
   {
     id: 'blank',
     title: 'Trang trống',
-    desc: 'Draft trống — tự thêm block trong Builder',
+    desc: 'Bắt đầu với 6 section có thể chỉnh sửa trong Builder',
     icon: FilePlus2,
   },
 ];
@@ -499,6 +499,7 @@ export default function LandingPagesCreatePage() {
       setPhase('idle');
     }
   }
+  const createBlankDraft = () => createSimpleDraft();
   async function createSimpleDraft(slug?: string) {
     if (submitLock.current) return;
     submitLock.current = true;
@@ -508,7 +509,7 @@ export default function LandingPagesCreatePage() {
     const name = slug
       ? templates.find((template) => template.slug === slug)?.name || 'Landing Page mới'
       : blankName.trim() || 'Landing Page mới';
-    const body = { name: name.slice(0, 120), ...(slug ? { templateSlug: slug } : {}) };
+    const body = { name: name.slice(0, 120), ...(slug ? { templateSlug: slug } : { mode: 'blank' as const }) };
     const fingerprint = JSON.stringify(body);
     const key =
       retryCreate?.fingerprint === fingerprint ? retryCreate.key : requestKey('lp-create');
@@ -843,7 +844,7 @@ export default function LandingPagesCreatePage() {
             disabled={busy}
             onChange={(event) => setBlankName(event.target.value)}
           />
-          <Button disabled={busy || !blankName.trim()} onClick={() => void createSimpleDraft()}>
+          <Button disabled={busy || !blankName.trim()} onClick={() => void createBlankDraft()}>
             Tạo bản nháp → Builder
           </Button>
         </section>

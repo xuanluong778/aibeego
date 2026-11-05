@@ -6,6 +6,10 @@
 import type { LandingPageBlock, LandingPageSpec } from './landing-page-types';
 
 export type LandingPageCanvasStyle = {
+  /** Opt-in empty video slot for the versioned industry renderer; legacy ignores it. */
+  industryVideoPlaceholder?: boolean;
+  /** Editable poster treatment for that industry's Video block. */
+  posterImageStyle?: import('./landing-page-types').LandingPageImageStyle;
   width?: string;
   maxWidth?: string;
   minHeight?: string;
@@ -31,6 +35,10 @@ export type LandingPageCanvasStyle = {
   lpGrid?: string;
   /** JSON string[] of cell image URLs. */
   lpGridImages?: string;
+  /** Equal-width content columns inside a section (2–12). */
+  lpContentColumns?: number;
+  /** Column that keeps the section's original flow content after a left split. */
+  lpNativeColumnIndex?: number;
   opacity?: number;
   fontFamily?: string;
   fontSize?: string;
@@ -144,15 +152,15 @@ export function normalizeLandingPageCanvas(spec: LandingPageSpec): LandingPageCa
     const extras = readBlockExtras(block);
     const sectionId = block.id;
     const containerId = elId(block.id, 'container');
-    sectionIds.push(sectionId);
+    if(!block.sectionPlacement)sectionIds.push(sectionId);
 
     const elementIds: string[] = [];
 
     nodes[sectionId] = {
       id: sectionId,
-      kind: 'section',
+      kind: block.sectionPlacement ? 'element' : 'section',
       type: block.type,
-      parentId: PAGE_ID,
+      parentId: block.sectionPlacement ? elId(block.sectionPlacement.sectionId,'container') : PAGE_ID,
       blockId: block.id,
       name: extras.name || block.type,
       props: { enabled: block.enabled, spacing: block.spacing, background: block.background },
@@ -264,6 +272,10 @@ export function normalizeLandingPageCanvas(spec: LandingPageSpec): LandingPageCa
     }
   }
 
+  for(const block of spec.blocks){
+    if(!block.sectionPlacement)continue;
+    nodes[elId(block.sectionPlacement.sectionId,'container')]?.children.push(block.id);
+  }
   return { version: 1, rootId: PAGE_ID, nodes };
 }
 

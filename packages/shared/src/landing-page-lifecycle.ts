@@ -1,4 +1,5 @@
-import { isAgencyPortfolioStandard, remapAgencyPortfolioCloneIds } from './landing-page-agency-portfolio-standard';
+import { sanitizeSectionPlacement } from './landing-page-section-elements';
+import { isVersionedLandingPageCanvasSpec, remapAgencyPortfolioCloneIds } from './landing-page-agency-portfolio-standard';
 /**
  * Landing Page Auto — sanitize + validate + mutate helpers (Phase 1).
  */
@@ -434,7 +435,8 @@ export function sanitizeLandingPageSpec(
 
   const blocks: LandingPageBlock[] = [];
   for (const b of blocksIn.slice(0, 80)) {
-    const cleaned = sanitizeBlock(b, mode);
+    const industryVideoContract = raw.meta?.rendererVersion === 'restaurant-menu-v2' || raw.meta?.rendererVersion === 'local-service-v2';
+    const cleaned = sanitizeBlock(b, mode, industryVideoContract);
     if (cleaned) blocks.push(cleaned);
   }
   if (!blocks.length) {
@@ -632,6 +634,7 @@ export function sanitizeLandingPageSpec(
             ...(goldStandard ? { goldStandard } : {}),
             ...(architectureRecipe ? { architectureRecipe } : {}),
             ...(gallery ? { gallery } : {}),
+            ...(metaIn.templateCopyVersion === 'vi-VN-v1' ? { templateCopyVersion: 'vi-VN-v1' as const } : {}),
             ...(typeof metaIn.rendererVersion === 'string' && metaIn.rendererVersion.trim()
               ? { rendererVersion: metaIn.rendererVersion.trim().slice(0, 80) }
               : {}),
@@ -872,7 +875,7 @@ export function sanitizeLandingPagePersistSpec(input: unknown): LandingPageSpec 
   return sanitizeLandingPageSpec(input, { mode: 'persist' });
 }
 
-function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'): LandingPageBlock | null {
+function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist', allowIndustryVideoPlaceholder = false): LandingPageBlock | null {
   if (!input || typeof input !== 'object') return null;
   const b = input as Record<string, unknown>;
   const type = b.type;
@@ -906,7 +909,9 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
     type,
     b.variant ?? (type === 'Countdown' ? b.styleVariant : undefined),
   );
+  const sectionPlacement = sanitizeSectionPlacement(b.sectionPlacement);
   const base = {
+    ...(sectionPlacement ? { sectionPlacement } : {}),
     id,
     enabled,
     spacing,
@@ -984,12 +989,15 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
 
   if (type === 'Video') {
     const videoUrl = draftUrl(b.videoUrl);
-    if (!videoUrl) return null;
+    // Only the explicit industry contract keeps a deliberate empty video slot.
+    // Legacy and unknown renderers retain their existing sanitization behavior.
+    const placeholder = allowIndustryVideoPlaceholder && style?.industryVideoPlaceholder === true;
+    if (!videoUrl && !placeholder) return null;
     return {
       ...base,
       type,
       headline: clampText(b.headline ?? '', 200, mode),
-      videoUrl,
+      videoUrl: videoUrl || '',
       posterUrl: draftUrl(b.posterUrl),
     };
   }
@@ -1217,7 +1225,7 @@ export function duplicateBlock(block: LandingPageBlock): LandingPageBlock {
       id: uid('fld'),
     }));
   }
-  return sanitizeBlock(copy, 'persist')!;
+  return sanitizeBlock(copy, 'persist', copy.style?.industryVideoPlaceholder === true)!;
 }
 
 /** Clone one nested card/item/plan row with a new stable id. */
@@ -1237,6 +1245,7 @@ export function duplicateLandingPageNestedItem<T extends { id: string }>(item: T
 export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingPageSpec {
   const raw = JSON.parse(JSON.stringify(input)) as LandingPageSpec;
   const idMap = new Map<string, string>();
+  const hasSectionElements = raw.blocks.some(b => Boolean(b.sectionPlacement));
   const blocks = (raw.blocks || []).map((block) => {
     const id = uid(block.type.toLowerCase());
     idMap.set(block.id, id);
@@ -1244,32 +1253,52 @@ export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingP
     if (Array.isArray(next.items)) {
       next.items = next.items.map((row: { id?: string } & Record<string, unknown>) => {
         const nestedId = uid('item');
-        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        if ((isVersionedLandingPageCanvasSpec(raw) || hasSectionElements) && row.id) idMap.set(row.id, nestedId);
         return { ...row, id: nestedId };
       });
     }
     if (Array.isArray(next.plans)) {
       next.plans = next.plans.map((row: { id?: string } & Record<string, unknown>) => {
         const nestedId = uid('plan');
-        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        if ((isVersionedLandingPageCanvasSpec(raw) || hasSectionElements) && row.id) idMap.set(row.id, nestedId);
         return { ...row, id: nestedId };
       });
     }
     if (Array.isArray(next.fields)) {
       next.fields = next.fields.map((row: { id?: string } & Record<string, unknown>) => {
         const nestedId = uid('fld');
-        if (isAgencyPortfolioStandard(raw) && row.id) idMap.set(row.id, nestedId);
+        if ((isVersionedLandingPageCanvasSpec(raw) || hasSectionElements) && row.id) idMap.set(row.id, nestedId);
         return { ...row, id: nestedId };
       });
     }
     return next as LandingPageBlock;
   });
+  for (const block of blocks) {
+    const p = block.sectionPlacement;
+    if (!p) continue;
+    block.sectionPlacement = {
+      ...p,
+      sectionId: idMap.get(p.sectionId) || p.sectionId,
+      anchor: p.anchor.kind === 'end' ? p.anchor : {
+        ...p.anchor,
+        blockId: idMap.get(p.anchor.blockId) || p.anchor.blockId,
+        ...(p.anchor.kind === 'field' ? { field: p.anchor.field.replace(/:([^:]+)$/, (full, id) => ':' + (idMap.get(id) || id)) } : {}),
+      },
+    };
+  }
   const meta = raw.meta ? { ...raw.meta } : undefined;
   if (meta && 'clientRevision' in meta) {
     delete (meta as { clientRevision?: number }).clientRevision;
   }
   if (meta && 'lastAutosaveRequestId' in meta) {
     delete (meta as { lastAutosaveRequestId?: string }).lastAutosaveRequestId;
+  }
+  if(hasSectionElements && meta){
+    const bag=meta as Record<string,unknown>;
+    for(const name of ['inlineTextStyles','elementFreeLayouts','elementHidden','elementLocked','responsiveInlineTextStyles','fieldSources']){
+      const map=bag[name];
+      if(map && typeof map==='object' && !Array.isArray(map))bag[name]=Object.fromEntries(Object.entries(map).map(([key,value])=>[key.split(/(::|:|\.)/).map(part=>idMap.get(part)||part).join(''),value]));
+    }
   }
   if (meta && Array.isArray(meta.htmlSections)) {
     meta.htmlSections = meta.htmlSections.map((row) => ({
