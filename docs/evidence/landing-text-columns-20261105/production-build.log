@@ -10,9 +10,9 @@
    Collecting page data ...
    Generating static pages (0/77) ...
  ⚠ metadataBase property in metadata export is not set for resolving social open graph or twitter images, using "http://localhost:3000". See https://nextjs.org/docs/app/api-reference/functions/generate-metadata#metadatabase
-   Generating static pages (19/77) 
-   Generating static pages (38/77) 
-   Generating static pages (57/77) 
+   Generating static pages (19/77)
+   Generating static pages (38/77)
+   Generating static pages (57/77)
  ✓ Generating static pages (77/77)
    Finalizing page optimization ...
    Collecting build traces ...
@@ -116,4 +116,3 @@ Route (app)                                   Size  First Load JS
 
 ○  (Static)   prerendered as static content
 ƒ  (Dynamic)  server-rendered on demand
-
