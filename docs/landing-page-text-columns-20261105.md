@@ -1,6 +1,6 @@
 # Landing Page Builder: văn bản, cột và vạch thả — 05/11/2026
 
-Nguồn: branch `feature/rebrand-aibeego`, commit gốc `576b6b1`, repo `xuanluong778/aibeego`; sửa trong worktree `/var/www/aibeego_com_usr/landing-text-worktree`, branch `fix/landing-page-text-columns-20261105`. Tham chiếu video `docs/landing page text.wmv` tại mirror aibeego.com. Các bản triển khai và nội dung production chưa được thay đổi bởi bản sửa này.
+Nguồn: branch `feature/rebrand-aibeego`, commit gốc `576b6b1`, repo `xuanluong778/aibeego`; sửa trong worktree `/var/www/aibeego_com_usr/landing-text-worktree`, branch `fix/landing-page-text-columns-20261105`. Tham chiếu video `docs/landing page text.wmv` tại mirror aibeego.com. Đã triển khai web và API lên https://aibeego.com ngày 05/11/2026 theo yêu cầu người dùng. Không sửa draft hoặc publish trang production để nghiệm thu.
 
 ## Nguyên nhân và cách sửa
 
@@ -69,6 +69,19 @@ Nghiệm thu đầy đủ: `LP_TEXT_QA_CONFIG=/path/to/private-config.json node 
 
 ## Kết quả kiểm tra mã nguồn
 
-Regression ownership/column/history/persist/native split và gate column-split đạt; autosave/identity đạt 14/14. Shared TypeScript build đạt. `git diff --check` đạt. Web typecheck toàn repo còn 97 lỗi nền (95 lỗi source và 2 diagnostic route public do Next sinh); so sánh checkout gốc cùng generated types không có file/error-code mới: [comparison](evidence/landing-text-columns-20261105/typecheck-comparison.json), [baseline](evidence/landing-text-columns-20261105/typecheck-baseline.log), [hiện tại](evidence/landing-text-columns-20261105/typecheck.log). Không coi web typecheck toàn repo là đạt. Browser nghiệm thu chạy Next dev; chưa chạy production build hoặc triển khai production cho bản sửa này.
+Regression ownership/column/history/persist/native split và gate column-split đạt; autosave/identity đạt 14/14. Shared TypeScript build đạt. `git diff --check` đạt. Web typecheck toàn repo còn 97 lỗi nền (95 lỗi source và 2 diagnostic route public do Next sinh); so sánh checkout gốc cùng generated types không có file/error-code mới: [comparison](evidence/landing-text-columns-20261105/typecheck-comparison.json), [baseline](evidence/landing-text-columns-20261105/typecheck-baseline.log), [hiện tại](evidence/landing-text-columns-20261105/typecheck.log). Không coi web typecheck toàn repo là đạt. Lượt kiểm tra đầu chạy Next dev. Sau yêu cầu deploy, production build đạt và cả 8/8 nhóm nghiệm thu được chạy lại trên chính hai image production trong QA riêng trước khi chuyển production.
 
 API QA dùng Nest image có sẵn với module shared sanitizer của branch hiện tại để giữ `sectionPlacement.columnIndex`. Khi triển khai, web và API/shared cần cùng model cột; API cũ xóa `columnIndex` khi sanitize sẽ làm mất bố cục sau reload. Bản sửa không thay dữ liệu production.
+
+## Triển khai production
+
+- Source sửa: `3836ab4`. Đã fast-forward branch `feature/rebrand-aibeego` của nguồn canonical và đồng bộ đúng 8 file source sang mirror aibeego.com.
+- Web: `marketingaz-web:text-columns-3836ab4-20261105`.
+- API: `marketingaz-api:text-columns-3836ab4-20261105`.
+- BUILD_ID: `lpb-text-columns-3836ab4-20261105`.
+- API mới kế thừa image đang chạy, chỉ cập nhật module shared `landing-page-section-elements.js`; không thay catalog template, schema hay cấu hình runtime. API cũ đã được xác nhận bỏ `columnIndex`; API mới giữ chỉ số và style cột qua sanitizer.
+- Production build giữ các biến public của runtime đang chạy, gồm đăng nhập Google. 8/8 nhóm kéo thả/lưu/reload/Undo/Redo/preset/Preview/public/mobile đã đạt trên image production trong Docker network QA internal: [kết quả](evidence/landing-text-columns-20261105/production-images/results.json), [log](evidence/landing-text-columns-20261105/production-images/browser.log).
+- Sau chuyển production: `/login`, `/landing-pages/create`, route Builder trả 200 và đúng BUILD_ID; 45 tài nguyên JS/CSS trả 200. Version manifest khớp BUILD_ID và `no-store`. API health 200. Hash module cột của API live khớp artifact; sanitizer live giữ `columnIndex` và `lpNativeColumnIndices`; env runtime của cả web/API khớp snapshot trước deploy. [Bằng chứng live](evidence/landing-text-columns-20261105/production-deployment.json).
+- Không tạo/sửa draft hay publish trang production để kiểm tra. Public và thao tác kéo thả được nghiệm thu bằng dữ liệu QA riêng; kiểm tra website live dùng HTTP GET và kiểm tra module trong container.
+
+Backup, image context, source snapshot, compose trước deploy và log nằm tại `/var/www/aibeego_com_usr/data/backups/text-columns-3836ab4-20261105/`. Rollback image: web `marketingaz-web:text-move-guides-20261105`, API `marketingaz-api:element-drag-20261104`; dùng compose đã backup, recreate riêng api/web rồi reload Nginx. Không restore DB. Sau deploy, đã dừng các dịch vụ QA còn lại.

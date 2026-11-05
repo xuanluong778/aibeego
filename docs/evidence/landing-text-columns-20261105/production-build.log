@@ -1,0 +1,119 @@
+   ▲ Next.js 15.5.21
+   - Experiments (use with caution):
+     · cpus: 1
+     · optimizePackageImports
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 85s
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/77) ...
+ ⚠ metadataBase property in metadata export is not set for resolving social open graph or twitter images, using "http://localhost:3000". See https://nextjs.org/docs/app/api-reference/functions/generate-metadata#metadatabase
+   Generating static pages (19/77) 
+   Generating static pages (38/77) 
+   Generating static pages (57/77) 
+ ✓ Generating static pages (77/77)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                   Size  First Load JS
+┌ ƒ /                                        667 B         121 kB
+├ ○ /_not-found                               1 kB         105 kB
+├ ○ /admin                                   868 B         181 kB
+├ ○ /admin/affiliate                       8.25 kB         183 kB
+├ ○ /admin/audit                           1.72 kB         182 kB
+├ ○ /admin/billing                         11.1 kB         183 kB
+├ ○ /admin/credits                           153 B         105 kB
+├ ○ /admin/integrations                    1.76 kB         182 kB
+├ ○ /admin/jobs                            2.03 kB         182 kB
+├ ○ /admin/organizations                   2.01 kB         182 kB
+├ ○ /admin/subscriptions                   8.35 kB         219 kB
+├ ○ /admin/usage                            1.5 kB         182 kB
+├ ○ /admin/users                           2.37 kB         186 kB
+├ ƒ /admin/users/[id]                        153 B         105 kB
+├ ○ /ads                                    4.8 kB         168 kB
+├ ○ /advertising                           2.86 kB         179 kB
+├ ○ /affiliate                             9.57 kB         185 kB
+├ ○ /ai                                    4.18 kB         168 kB
+├ ƒ /api/landing-pages/revalidate            153 B         105 kB
+├ ○ /appointments                          12.6 kB         228 kB
+├ ○ /attribution                           12.6 kB         214 kB
+├ ○ /auto-post                             4.17 kB         168 kB
+├ ○ /automation                            17.1 kB         231 kB
+├ ○ /business-goals                        15.7 kB         231 kB
+├ ○ /chatbot-cskh                          15.4 kB         237 kB
+├ ○ /content                               5.32 kB         169 kB
+├ ○ /content-marketing                     2.86 kB         179 kB
+├ ○ /credits                               13.5 kB         881 kB
+├ ○ /crm                                   6.68 kB         192 kB
+├ ○ /customers                             7.13 kB         223 kB
+├ ƒ /customers/[id]                        11.4 kB         225 kB
+├ ○ /email-marketing                         27 kB         241 kB
+├ ○ /email-unsubscribe                     3.01 kB         160 kB
+├ ○ /employees                               153 B         105 kB
+├ ƒ /f/[id]                                3.47 kB         862 kB
+├ ○ /facebook-integration                    667 B         121 kB
+├ ○ /facebook/data-deletion                  667 B         121 kB
+├ ƒ /facebook/data-deletion/status/[code]    667 B         121 kB
+├ ○ /finance                               11.2 kB         222 kB
+├ ○ /finance-billing                       2.86 kB         179 kB
+├ ○ /funnel                                14.6 kB         240 kB
+├ ƒ /funnel/preview/[id]                   7.08 kB         891 kB
+├ ○ /hrm                                   2.86 kB         179 kB
+├ ○ /hrm/attendance                        7.71 kB         221 kB
+├ ○ /hrm/employees                         11.9 kB         223 kB
+├ ƒ /hrm/employees/[id]                    12.5 kB         221 kB
+├ ○ /hrm/leave                             7.19 kB         217 kB
+├ ○ /hrm/shifts                            18.4 kB         220 kB
+├ ○ /knowledge-base                        3.65 kB         167 kB
+├ ○ /landing-pages                         5.63 kB         173 kB
+├ ○ /landing-pages/analytics               6.16 kB         170 kB
+├ ƒ /landing-pages/builder/[id]            2.96 kB        1.11 MB
+├ ○ /landing-pages/create                  24.1 kB         892 kB
+├ ○ /landing-pages/domain                  5.59 kB         169 kB
+├ ○ /landing-pages/pages                   12.4 kB         213 kB
+├ ƒ /landing-pages/templates               13.5 kB         982 kB
+├ ○ /leads                                   19 kB         931 kB
+├ ○ /login                                 1.12 kB         191 kB
+├ ƒ /lp-agency-pilot                         729 B        1.12 MB
+├ ƒ /lp-template-shot/[slug]                 617 B         908 kB
+├ ○ /marketing-autopilot                   17.4 kB         227 kB
+├ ○ /messages                              6.76 kB         218 kB
+├ ○ /messaging                             2.85 kB         179 kB
+├ ○ /overview                              11.6 kB         190 kB
+├ ƒ /p/[slug]                                166 B         110 kB
+├ ƒ /p/preview/[token]                       166 B         110 kB
+├ ○ /pricing                               13.1 kB         881 kB
+├ ○ /privacy                                 667 B         121 kB
+├ ○ /register                              1.56 kB         191 kB
+├ ○ /reports                               7.26 kB         179 kB
+├ ○ /robots.txt                              153 B         105 kB
+├ ○ /sales                                 8.36 kB         193 kB
+├ ○ /sales/inventory                       10.3 kB         182 kB
+├ ○ /sales/orders                          12.3 kB         225 kB
+├ ○ /sales/products                        14.2 kB         216 kB
+├ ○ /sales/purchases                       13.1 kB         195 kB
+├ ○ /sales/reports                         10.9 kB         213 kB
+├ ○ /sales/stock-movements                  5.2 kB         222 kB
+├ ○ /sales/stocktake                       4.72 kB         184 kB
+├ ○ /settings                              23.7 kB         931 kB
+├ ○ /sitemap.xml                             153 B         105 kB
+├ ○ /teleprompter                          42.8 kB         246 kB
+├ ○ /terms                                   667 B         121 kB
+├ ○ /work-management                       22.7 kB         245 kB
+├ ○ /work-management/calendar                282 B         216 kB
+├ ○ /work-management/dashboard               282 B         216 kB
+├ ○ /work-management/my                      282 B         216 kB
+└ ○ /zalo-marketing                        17.7 kB         230 kB
++ First Load JS shared by all               104 kB
+  ├ chunks/43aa649d-8089a757d2f662a0.js    54.2 kB
+  ├ chunks/5710-a834a4e0e11e3ba8.js        46.9 kB
+  └ other shared chunks (total)            3.25 kB
+
+
+ƒ Middleware                               34.2 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
