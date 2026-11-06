@@ -2558,12 +2558,12 @@ export function InlineEditable({
       data-lp-element-selected={selected ? '1' : '0'}
       data-lp-element-primary={isPrimary ? '1' : '0'}
       data-lp-bounding-box={isPrimary && !editing ? '1' : '0'}
-      data-lp-text-hidden={hidden ? '1' : undefined}
-      data-lp-text-locked={locked ? '1' : undefined}
-      {...textBoxHideAttrs(textStyle?.box)}
-      style={{
-        ...textShellStyle,
-        ...(hidden ? { opacity: selected ? 0.55 : 0.35 } : undefined),
+        data-lp-text-hidden={hidden ? '1' : undefined}
+        data-lp-text-locked={locked ? '1' : undefined}
+        {...textBoxHideAttrs(textStyle?.box)}
+        style={{
+          ...textShellStyle,
+          ...(hidden ? { display: 'none' } : undefined),
         ...(keepEmptyChrome && isTextEmpty
           ? { minWidth: '2ch', minHeight: '1.25em' }
           : undefined),

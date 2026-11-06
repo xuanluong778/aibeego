@@ -92,46 +92,9 @@ export function sectionAnchor(
   return owner.contains(node) ? { node } : null;
 }
 
-/** Pick the higher-contrast monochrome bar on the composited section surface. */
-export function sectionDropBarColor(host: HTMLElement): '#000000' | '#ffffff' {
-  const surface =
-    Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(
-      (node) => node.closest('[data-lp-section-chrome="1"]') === host,
-    ) || host;
-  const colors: Array<{ r: number; g: number; b: number; a: number }> = [];
-  const read = (node: HTMLElement) => {
-    const style = getComputedStyle(node);
-    if (style.backgroundImage && style.backgroundImage !== 'none') return false;
-    const values = style.backgroundColor.match(/[\d.]+/g)?.map(Number);
-    if (values && values.length >= 3)
-      colors.push({ r: values[0]!, g: values[1]!, b: values[2]!, a: values[3] ?? 1 });
-    return true;
-  };
-  for (let node: HTMLElement | null = surface; node; node = node.parentElement) {
-    if (node === host) {
-      const layer = host.querySelector<HTMLElement>('[data-lp-section-bg-layer="1"]');
-      if (layer) {
-        if (layer.querySelector('[data-lp-section-bg-media]')) return '#ffffff';
-        if (!read(layer)) return '#ffffff';
-      }
-    }
-    if (!read(node)) return '#ffffff';
-    if (colors.some((color) => color.a >= 1)) break;
-  }
-  let painted = { r: 255, g: 255, b: 255 };
-  for (const c of colors.reverse())
-    painted = {
-      r: c.r * c.a + painted.r * (1 - c.a),
-      g: c.g * c.a + painted.g * (1 - c.a),
-      b: c.b * c.a + painted.b * (1 - c.a),
-    };
-  const linear = (v: number) => {
-    const c = v / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance =
-    0.2126 * linear(painted.r) + 0.7152 * linear(painted.g) + 0.0722 * linear(painted.b);
-  return luminance > 0.179 ? '#000000' : '#ffffff';
+/** Drop bar is always white so the insert line never flips to black on light sections. */
+export function sectionDropBarColor(_host?: HTMLElement): '#ffffff' {
+  return '#ffffff';
 }
 
 export const LP_DROP_BAR_HEIGHT = 20;
@@ -180,7 +143,7 @@ export function clampRectToBounds(rect: DropRect, bounds: DropRect, pad = 2): Dr
   return { left, top, width, height };
 }
 
-/** Place the orange element toolbar beside an anchor, always inside the landing page. */
+/** Place the orange element toolbar on the element's right, always inside the landing page. */
 export function placeVerticalToolbar(input: {
   anchor: DropRect;
   canvas: DropRect;
@@ -204,24 +167,12 @@ export function placeVerticalToolbar(input: {
   if (overlapBottom - overlapTop <= 0) return null;
 
   const preferRight = anchor.left + anchor.width + gap;
-  const preferLeft = anchor.left - gap - toolbarW;
   const minLeft = canvas.left + pad;
   const maxLeft = canvasRight - pad - toolbarW;
   const insideRight = Math.min(anchor.left + anchor.width, canvasRight) - pad - toolbarW;
-  let left = preferRight;
-  let side: 'left' | 'right' = 'right';
-  if (preferRight <= maxLeft) {
-    left = preferRight;
-    side = 'right';
-  } else if (preferLeft >= minLeft) {
-    left = preferLeft;
-    side = 'left';
-  } else {
-    // No room beside the block — sit on the block, still on the page.
-    left = insideRight;
-    side = 'right';
-  }
-  left = Math.min(Math.max(left, minLeft), maxLeft);
+  // Always dock on the right of the element — never flip to the left.
+  const left = Math.min(Math.max(preferRight <= maxLeft ? preferRight : insideRight, minLeft), maxLeft);
+  const side: 'left' | 'right' = 'right';
 
   const visibleMid = (overlapTop + overlapBottom) / 2 - toolbarH / 2;
   const topBase = anchor.height > 220 && anchor.top >= viewTop - 8 ? anchor.top + 16 : visibleMid;

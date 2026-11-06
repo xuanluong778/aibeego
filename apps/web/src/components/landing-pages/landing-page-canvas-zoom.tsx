@@ -33,8 +33,10 @@ export const LP_CANVAS_ZOOM_MAX = 2;
 export const LP_CANVAS_ZOOM_STEP = 0.05;
 export const LP_CANVAS_ZOOM_DEFAULT = 1;
 
-const SCROLL_PAD_PX = 24;
-const DESKTOP_FIT_SCALE = 0.9;
+const DEVICE_SCROLL_PAD_PX = 24;
+/** Desktop fills the green canvas chrome — no extra 10% gutter. */
+const DESKTOP_FIT_SCALE = 1;
+const DESKTOP_SCROLL_PAD_PX = 0;
 
 type ZoomSnap = {
   scale: number;
@@ -112,7 +114,8 @@ function isDeviceViewport(scroll: HTMLElement | null): boolean {
  */
 function resolveDesignWidth(scroll: HTMLElement): number {
   // Device screens keep their own logical width; their fit host may be narrower than 320px.
-  const raw = Math.max(isDeviceViewport(scroll) ? 1 : 320, scroll.clientWidth - SCROLL_PAD_PX);
+  const pad = isDeviceViewport(scroll) ? DEVICE_SCROLL_PAD_PX : DESKTOP_SCROLL_PAD_PX;
+  const raw = Math.max(isDeviceViewport(scroll) ? 1 : 320, scroll.clientWidth - pad);
   let next = raw;
   if (isDeviceViewport(scroll)) {
     next = raw;
@@ -130,8 +133,7 @@ function resolveDesignWidth(scroll: HTMLElement): number {
 
 /**
  * Uniform fit into the visible scrollport (same scale on X and Y — no reflow).
- * Fit by width with a small Desktop gutter so the page frame stays visible;
- * tall pages scroll vertically.
+ * Desktop uses the full canvas width (no extra gutter). Tall pages scroll vertically.
  *
  * Device frames handle their own upscale/fit — keep canvas fit at 1.
  */
@@ -141,7 +143,7 @@ function resolveFitScale(
   _designH: number,
 ): number {
   if (isDeviceViewport(scroll)) return 1;
-  const availW = Math.max(1, scroll.clientWidth - SCROLL_PAD_PX);
+  const availW = Math.max(1, scroll.clientWidth - DESKTOP_SCROLL_PAD_PX);
   const sx = availW / Math.max(1, designW);
   let fit = Math.min(1, sx) * DESKTOP_FIT_SCALE;
   if (!Number.isFinite(fit) || fit <= 0.05) fit = DESKTOP_FIT_SCALE;
@@ -244,10 +246,9 @@ function applyZoomDom(scale: number, anchor: { clientX: number; clientY: number 
   layer.setAttribute('data-lp-canvas-fit', String(fit));
 
   const desktopFrame = scroll != null && !isDeviceViewport(scroll);
-  layer.style.borderRadius = desktopFrame ? '8px' : '';
-  layer.style.boxShadow = desktopFrame
-    ? '0 0 0 2px rgba(255,255,255,0.35), 0 14px 36px rgba(0,0,0,0.35)'
-    : '';
+  // Flush to the canvas chrome so Desktop uses the full working width.
+  layer.style.borderRadius = '';
+  layer.style.boxShadow = '';
   if (desktopFrame) layer.setAttribute('data-lp-desktop-frame', '1');
   else layer.removeAttribute('data-lp-desktop-frame');
 

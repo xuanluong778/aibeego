@@ -48,6 +48,9 @@ export function LandingPageSectionLibraryModal({
   const [query, setQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
+  const lightboxIdRef = useRef<string | null>(null);
+  lightboxIdRef.current = lightboxId;
   const listRef = useRef<HTMLDivElement | null>(null);
   const [listEl, setListEl] = useState<HTMLElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -58,14 +61,22 @@ export function LandingPageSectionLibraryModal({
     if (!open) return;
     setVisibleCount(PAGE_SIZE);
     setPreviewId(LP_SECTION_LIBRARY_TEMPLATES[0]?.id ?? null);
+    setLightboxId(null);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (lightboxIdRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        setLightboxId(null);
+        return;
+      }
+      onClose();
     };
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       document.body.style.overflow = prev;
     };
   }, [open, onClose]);
@@ -105,6 +116,9 @@ export function LandingPageSectionLibraryModal({
   const preview = previewId
     ? LP_SECTION_LIBRARY_TEMPLATES.find((t) => t.id === previewId) || null
     : null;
+  const lightbox = lightboxId
+    ? LP_SECTION_LIBRARY_TEMPLATES.find((t) => t.id === lightboxId) || null
+    : null;
 
   const insert = useCallback(
     (id: string) => {
@@ -114,11 +128,16 @@ export function LandingPageSectionLibraryModal({
     [onInsertTemplate, onClose],
   );
 
+  const openLightbox = useCallback((id: string) => {
+    setPreviewId(id);
+    setLightboxId(id);
+  }, []);
+
   if (!mounted || !open) return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-stretch justify-center bg-black/55 p-3 sm:p-5"
+      className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/55 p-3 sm:p-5"
       data-lp-section-library-modal="1"
       data-lp-section-library-production="1"
       role="dialog"
@@ -129,7 +148,7 @@ export function LandingPageSectionLibraryModal({
       }}
     >
       <div
-        className="flex h-full max-h-[calc(100dvh-1.5rem)] w-full max-w-[1240px] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]"
+        className="relative flex h-full max-h-[calc(100dvh-1.5rem)] w-full max-w-[1240px] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]"
         data-lp-section-library-shell
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -245,7 +264,8 @@ export function LandingPageSectionLibraryModal({
                       template={tpl}
                       rootEl={listEl}
                       selected={previewId === tpl.id}
-                      onPreview={() => setPreviewId(tpl.id)}
+                      onSelect={() => setPreviewId(tpl.id)}
+                      onOpenPreview={() => openLightbox(tpl.id)}
                       onInsert={() => insert(tpl.id)}
                     />
                   ))}
@@ -281,6 +301,14 @@ export function LandingPageSectionLibraryModal({
                   {preview.designFamily ? <Tag>{preview.designFamily}</Tag> : null}
                   {preview.previewTheme ? <Tag>{preview.previewTheme}</Tag> : null}
                 </div>
+                <button
+                  type="button"
+                  data-lp-section-library-pane-preview
+                  className="mt-2 text-[11px] font-semibold text-orange-600 hover:text-orange-700"
+                  onClick={() => openLightbox(preview.id)}
+                >
+                  Xem trước lớn
+                </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 <LandingPageSectionLibraryPreview
@@ -305,6 +333,50 @@ export function LandingPageSectionLibraryModal({
             </aside>
           ) : null}
         </div>
+
+        {lightbox ? (
+          <div
+            className="absolute inset-0 z-50 flex flex-col bg-white"
+            data-lp-section-library-lightbox="1"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Xem trước ${lightbox.label}`}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="flex shrink-0 items-center gap-3 border-b border-zinc-100 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-zinc-900">{lightbox.label}</div>
+                <div className="mt-0.5 truncate text-[11px] text-zinc-500">{lightbox.description}</div>
+              </div>
+              <button
+                type="button"
+                data-lp-section-library-lightbox-insert
+                className="shrink-0 rounded-lg bg-[#F97316] px-3 py-2 text-xs font-semibold text-white hover:bg-orange-600 sm:text-sm"
+                onClick={() => insert(lightbox.id)}
+              >
+                Thêm section
+              </button>
+              <button
+                type="button"
+                data-lp-section-library-lightbox-close
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                title="Đóng preview"
+                aria-label="Đóng preview"
+                onClick={() => setLightboxId(null)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-zinc-100 p-3 sm:p-5"
+              data-lp-section-library-lightbox-canvas
+            >
+              <div className="mx-auto max-w-[1100px] overflow-hidden rounded-xl bg-white shadow-lg">
+                <LandingPageSectionLibraryPreview template={lightbox} size="full" eager />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body,
@@ -375,26 +447,28 @@ function TemplateCard({
   template,
   rootEl,
   selected,
-  onPreview,
+  onSelect,
+  onOpenPreview,
   onInsert,
 }: {
   template: LpSectionLibraryTemplate;
   rootEl: HTMLElement | null;
   selected: boolean;
-  onPreview: () => void;
+  onSelect: () => void;
+  onOpenPreview: () => void;
   onInsert: () => void;
 }) {
   return (
     <article
       data-lp-section-library-card={template.id}
       className={cn(
-        'group relative overflow-hidden rounded-xl border bg-white shadow-sm transition',
+        'group relative isolate overflow-hidden rounded-xl border bg-white shadow-sm transition',
         selected
           ? 'border-orange-400 ring-2 ring-orange-200'
           : 'border-zinc-200 hover:border-orange-300 hover:shadow-md',
       )}
-      onMouseEnter={onPreview}
-      onFocus={onPreview}
+      onMouseEnter={onSelect}
+      onFocus={onSelect}
     >
       <LandingPageSectionLibraryPreview
         template={template}
@@ -410,23 +484,30 @@ function TemplateCard({
         </div>
       </div>
       <div
-        className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-zinc-900/50 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+        className="absolute inset-0 z-20 flex items-center justify-center gap-2 bg-zinc-900/50 opacity-0 transition pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
         data-lp-section-library-card-actions
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onOpenPreview();
+        }}
       >
         <button
           type="button"
-          className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 shadow"
+          data-lp-section-library-preview-btn="1"
+          className="pointer-events-auto rounded-lg bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 shadow"
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
-            onPreview();
+            onOpenPreview();
           }}
         >
           Xem trước
         </button>
         <button
           type="button"
-          className="rounded-lg bg-[#F97316] px-3 py-1.5 text-[11px] font-semibold text-white shadow"
+          data-lp-section-library-insert-btn="1"
+          className="pointer-events-auto rounded-lg bg-[#F97316] px-3 py-1.5 text-[11px] font-semibold text-white shadow"
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onInsert();
           }}

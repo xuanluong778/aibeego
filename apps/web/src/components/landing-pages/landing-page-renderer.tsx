@@ -52,22 +52,29 @@ import {
 
 function buildElementHiddenCss(spec: LandingPageSpec): string | null {
   const map = (spec.meta as { elementHidden?: Record<string, boolean> } | undefined)?.elementHidden;
-  if (!map) return null;
-  const rules: string[] = [];
-  for (const [key, hidden] of Object.entries(map)) {
-    if (!hidden) continue;
-    const sep = key.indexOf('::');
-    if (sep <= 0) continue;
-    const blockId = key.slice(0, sep).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const field = key.slice(sep + 2).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    // Scope hidden text to its owner; nested portal elements can use the same field name.
-    rules.push(
-      `[data-lp-block-id="${blockId}"] [data-lp-inline-field="${field}"][data-lp-element-id^="${blockId}::"]{display:none!important}`,
-    );
-    // Element chrome (Hero trust icons, boxes keyed by data-lp-element-id)
-    rules.push(
-      `[data-lp-block-id="${blockId}"] [data-lp-element-id="${blockId}::${field}"]{display:none!important}`,
-    );
+  const rules: string[] = [
+    '[data-lp-canvas-root] [data-lp-text-hidden="1"]{display:none!important}',
+  ];
+  if (map) {
+    for (const [key, hidden] of Object.entries(map)) {
+      if (!hidden) continue;
+      const sep = key.indexOf('::');
+      if (sep <= 0) continue;
+      const blockId = key.slice(0, sep).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const field = key.slice(sep + 2).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      // Scope hidden text to its owner; nested portal elements can use the same field name.
+      rules.push(
+        `[data-lp-block-id="${blockId}"] [data-lp-inline-field="${field}"][data-lp-element-id^="${blockId}::"]{display:none!important}`,
+      );
+      // Element chrome (Hero trust icons, boxes keyed by data-lp-element-id)
+      rules.push(
+        `[data-lp-block-id="${blockId}"] [data-lp-element-id="${blockId}::${field}"]{display:none!important}`,
+      );
+      // Orange text-box wrap (data-lp-free-id) — hiding only the inner <p> left a ghost.
+      rules.push(
+        `[data-lp-block-id="${blockId}"] [data-lp-free-id="${blockId}::${field}"]{display:none!important}`,
+      );
+    }
   }
   return rules.length ? rules.join('\n') : null;
 }

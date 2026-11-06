@@ -77,25 +77,6 @@ function toDropRect(r: DOMRect): DropRect {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
-function readContentSafeViewport(canvas: HTMLElement): DropRect | null {
-  const host = canvas.closest('[data-lp-guides-host]') || canvas.parentElement;
-  const wrap = (host?.querySelector('[data-lp-content-safe-guides]') ||
-    document.querySelector('[data-lp-content-safe-guides]')) as HTMLElement | null;
-  if (!wrap) return null;
-  const left = Number(wrap.getAttribute('data-lp-content-safe-left'));
-  const width = Number(wrap.getAttribute('data-lp-content-safe-width'));
-  if (!Number.isFinite(left) || !Number.isFinite(width) || width < 80) return null;
-  const cr = canvas.getBoundingClientRect();
-  const cssW = canvas.offsetWidth || cr.width;
-  const scale = cssW > 0 ? cr.width / cssW : 1;
-  return {
-    left: cr.left + left * scale,
-    top: cr.top,
-    width: width * scale,
-    height: cr.height,
-  };
-}
-
 function tightContentRect(el: HTMLElement): DOMRect {
   try {
     const range = document.createRange();
@@ -415,7 +396,9 @@ export function LandingPageElementVerticalToolbar({
         canvas: toDropRect(sr.width > 40 ? sr : cr),
         scroll: scroll ? toDropRect(scroll.getBoundingClientRect()) : null,
         inspector: inspector ? toDropRect(inspector.getBoundingClientRect()) : null,
-        contentSafe: readContentSafeViewport(canvas),
+        // Keep the bar on the page (section ∩ inspector), not the narrower text column.
+        // Clipping to content-safe forced a left-side flip beside full-width copy.
+        contentSafe: null,
       });
       if (bounds.width < toolbarW + 32) return null;
       const chromeTop = readBuilderChromeTop();

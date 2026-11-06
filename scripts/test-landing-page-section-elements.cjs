@@ -297,3 +297,28 @@ assert.equal(afterNativeBody.blocks[1].sectionPlacement.columnIndex, 1);
 console.log(
   'PASS body drop initializes an existing two-column layout without adding or shifting columns',
 );
+
+const elementsSrc = require('node:fs').readFileSync(
+  path.join(root, 'apps/web/src/components/landing-pages/landing-page-section-elements.tsx'),
+  'utf8',
+);
+const indicatorSrc = require('node:fs').readFileSync(
+  path.join(root, 'apps/web/src/components/landing-pages/landing-page-sidebar-drop-indicator.tsx'),
+  'utf8',
+);
+assert(
+  elementsSrc.includes('function moveNode') &&
+    elementsSrc.includes('node.contains(parent)') &&
+    elementsSrc.includes('HierarchyRequestError') &&
+    elementsSrc.includes('observer?.disconnect()') &&
+    elementsSrc.includes('hostOwnedInner'),
+  'section element sync must skip cyclic insertBefore and pause the observer while moving nodes',
+);
+assert(
+  indicatorSrc.includes('createPortal(') &&
+    indicatorSrc.includes('document.body') &&
+    !indicatorSrc.includes(',\n    canvas,') &&
+    !indicatorSrc.includes(', canvas)'),
+  'drop indicator must portal to document.body so it is not inserted into the React canvas tree',
+);
+console.log('PASS HierarchyRequestError guards for nested section slots and drop-indicator portal');

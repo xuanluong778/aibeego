@@ -130,9 +130,18 @@ gate(
   'NO_OVERFLOW',
   builder.includes('data-lp-inspector-scroll') &&
     builder.includes('overflow-y-auto') &&
-    builder.includes('w-[240px]') &&
+    builder.includes('w-[320px]') &&
     builder.includes('data-lp-inspector-sticky'),
-  'sticky header + independent scroll ~240px',
+  'sticky header + independent scroll ~320px',
+);
+
+gate(
+  'FIXED_INSPECTOR_WIDTH_X_CLOSE',
+  builder.includes('const inspectorPanelWidthPx = INSPECTOR_PANEL_WIDTH') &&
+    builder.includes('data-lp-inspector-close') &&
+    !builder.includes('if (!primarySelectedId) {\n      setInspectorPanelOpen(false)') &&
+    !builder.includes('INSPECTOR_ADD_COMPONENTS_PANEL_WIDTH'),
+  'inspector width is constant; X closes; deselect does not',
 );
 
 gate(

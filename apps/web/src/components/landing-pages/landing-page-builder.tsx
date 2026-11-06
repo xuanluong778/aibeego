@@ -91,7 +91,6 @@ import {
   LandingPageInspectorRail,
   inspectorDockReservePx,
   INSPECTOR_PANEL_WIDTH,
-  INSPECTOR_ADD_COMPONENTS_PANEL_WIDTH,
   type InspectorRailId,
 } from './landing-page-inspector-rail';
 import { LandingPageInspectorGlobalDesign } from './landing-page-inspector-global-design';
@@ -643,14 +642,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const [fullscreenPreview, setFullscreenPreview] = useState(false);
   const router = useRouter();
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('content');
-  /** GetResponse-style rail: panel open/close is independent of canvas selection. */
+  /** Right inspector stays open until the user clicks X. Width is fixed per element. */
   const [inspectorPanelOpen, setInspectorPanelOpen] = useState(false);
   const [htmlNode, setHtmlNode] = useState<HtmlNodeSnapshot | null>(null);
   const htmlPatchRef = useRef<HtmlPatchFn | null>(null);
   const [inspectorRailSurface, setInspectorRailSurface] = useState<
     'element' | 'page-theme' | 'add-components'
   >('element');
-  const inspectorSuppressOpenRef = useRef(true);
   /** Desktop inspector layout: docked (right column) | floating (detach + drag). */
   const [inspectorMode, setInspectorMode] = useState<'docked' | 'floating'>('docked');
   const [floatingPosition, setFloatingPosition] = useState<{ x: number; y: number }>({
@@ -661,20 +659,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const useInspectorRail = inspectorDesktop && inspectorMode === 'docked';
   useEffect(() => {
     if (!useInspectorRail) return;
-    if (inspectorSuppressOpenRef.current) {
-      inspectorSuppressOpenRef.current = false;
-      return;
-    }
-    if (!primarySelectedId) {
-      setInspectorPanelOpen(false);
-      return;
-    }
+    if (!primarySelectedId) return;
     // Layers list: highlight + scroll only — keep THÊM THÀNH PHẦN / Section panel.
     if (keepAddPanelOnSelectRef.current) {
       keepAddPanelOnSelectRef.current = false;
       return;
     }
-    setInspectorPanelOpen(true);
     setInspectorRailSurface('element');
   }, [primarySelectedId, useInspectorRail]);
   useEffect(() => {
@@ -790,6 +780,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     }
     if (consumeDropChoice(pos, () => action(pos))) closeElementLibrary();
   }
+  function openLibraryAfterDrop(open: () => void) {
+    // HTML5 drop is followed by a synthetic click/pointerup that would instantly
+    // dismiss a freshly opened Radix dialog. Open after that ghost click.
+    window.setTimeout(open, 80);
+  }
   function openAddPickerFromDrop(
     picker: 'text' | 'button' | 'forms' | 'graphics' | 'icon' | 'social' | 'media',
     pos?: LpSidebarInsertPos | null,
@@ -798,21 +793,23 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     pickerInsertPosRef.current = pos ?? null;
     setElementLibraryError('');
     if (picker === 'media') {
-      setMediaOpen(true);
+      openLibraryAfterDrop(() => setMediaOpen(true));
       return;
     }
     if (picker === 'forms') {
-      openFormLibrary(pos);
+      openLibraryAfterDrop(() => openFormLibrary(pos));
       return;
     }
     if (picker === 'button') {
-      openButtonLibrary(pos);
+      openLibraryAfterDrop(() => openButtonLibrary(pos));
       return;
     }
-    setElementLibraryPicker({
-      kind: picker,
-      ...(picker === 'text' && initialTab ? { initialTab } : {}),
-    });
+    openLibraryAfterDrop(() =>
+      setElementLibraryPicker({
+        kind: picker,
+        ...(picker === 'text' && initialTab ? { initialTab } : {}),
+      }),
+    );
   }
 
   useEffect(() => {
@@ -883,27 +880,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         : inspectorTab;
 
   const htmlInspectorActive = Boolean(spec.meta?.htmlSource && htmlNode);
-  const sectionChromeTarget = selectedElement === 'section' || selectedElement === 'section-background';
-  const quickTextField = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
-  const cardChromeTarget =
-    selected &&
-    !htmlInspectorActive &&
-    !primaryTarget?.field &&
-    resolveInspectorContext(selected, selectedElement, primaryTarget?.field).kind === 'card';
-  const inspectorPanelWidthPx =
-    useInspectorRail &&
-    inspectorPanelOpen &&
-    inspectorRailSurface === 'add-components'
-      ? INSPECTOR_ADD_COMPONENTS_PANEL_WIDTH
-      : (quickTextField &&
-          selected &&
-          !htmlInspectorActive &&
-          resolveInspectorContext(selected, selectedElement, quickTextField).kind === 'text') ||
-          cardChromeTarget
-        ? 320
-        : sectionChromeTarget && selected && !htmlInspectorActive
-          ? 320
-        : INSPECTOR_PANEL_WIDTH;
+  const inspectorPanelWidthPx = INSPECTOR_PANEL_WIDTH;
 
   const inspectorPanelTitle = useMemo(() => {
     if (inspectorRailSurface === 'page-theme') return 'Thiết kế tổng thể';
@@ -921,16 +898,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   const handleInspectorRailSelect = useCallback(
     (id: InspectorRailId) => {
+      setInspectorPanelOpen(true);
       if (id === 'add-components') {
-        if (inspectorRailSurface === 'add-components' && inspectorPanelOpen) {
-          setInspectorPanelOpen(false);
-          return;
-        }
         setInspectorRailSurface('add-components');
-        setInspectorPanelOpen(true);
         return;
       }
-      setInspectorPanelOpen(true);
       if (id === 'page-theme') {
         setInspectorRailSurface('page-theme');
         return;
@@ -938,12 +910,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       setInspectorRailSurface('element');
       setInspectorTab(id);
     },
-    [inspectorPanelOpen, inspectorRailSurface],
+    [],
   );
 
   openInspectorOnSelectRef.current = () => {
     if (!useInspectorRail) return;
-    if (inspectorSuppressOpenRef.current) return;
     setInspectorPanelOpen(true);
     setInspectorRailSurface('element');
   };
@@ -1039,8 +1010,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     specRef.current = loaded;
     setSpec(loaded);
     setHtmlNode(null);
-    inspectorSuppressOpenRef.current = true;
-    setInspectorPanelOpen(false);
     const firstBlockId = loaded.blocks?.[0]?.id;
     if (firstBlockId) selectCanvas({ blockId: firstBlockId, element: 'section' });
     else setCanvasSelection({ ids: [], primaryId: null });
@@ -1212,9 +1181,13 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   floatingPosRef.current = floatingPosition;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const mq = window.matchMedia('(min-width: 1280px)');
-    const sync = () => setInspectorDesktop(mq.matches);
+    const sync = () => {
+      const desktop = mq.matches;
+      setInspectorDesktop(desktop);
+      setInspectorPanelOpen(desktop);
+    };
     sync();
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
@@ -1856,8 +1829,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         }
         e.preventDefault();
         if (nested.length) {
-          canvasActionRef.current.hideCanvasElements(nested);
-          canvasActionRef.current.deselectCanvas();
+          for (const t of nested) canvasActionRef.current.deleteToolbarTarget(t);
           return;
         }
         if (sectionIds.length) canvasActionRef.current.removeBlocks(sectionIds);
@@ -2598,12 +2570,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         return;
       case 'block-type':
         if (payload.type === 'LeadForm') {
-          openFormLibrary(pos);
+          openLibraryAfterDrop(() => openFormLibrary(pos));
           return;
         }
         pickerInsertPosRef.current = pos;
         setElementLibraryError('');
-        setElementLibraryPicker({ kind: 'block', type: payload.type });
+        openLibraryAfterDrop(() => setElementLibraryPicker({ kind: 'block', type: payload.type }));
         return;
       case 'media':
         pickerInsertPosRef.current = null;
@@ -2622,24 +2594,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         setSaveMsg(`Đã chèn section mẫu (${payload.types.length} block)`);
         return;
       case 'section-library-open':
-        openSectionLibrary(pos);
+        openLibraryAfterDrop(() => openSectionLibrary(pos));
         return;
       case 'button-library-open':
-        openButtonLibrary(pos);
+        openLibraryAfterDrop(() => openButtonLibrary(pos));
         return;
       case 'form-library-open':
-        openFormLibrary(pos);
+        openLibraryAfterDrop(() => openFormLibrary(pos));
         return;
       case 'add-picker-open':
-        if (payload.picker === 'text') {
-          pickerInsertPosRef.current = null;
-          consumeDropChoice(pos, () => insertParagraphPreset(LP_PARAGRAPH_PRESETS[0]!, pos));
-          return;
-        }
-        if (payload.picker === 'forms') {
-          openFormLibrary(pos);
-          return;
-        }
         openAddPickerFromDrop(payload.picker, pos, payload.initialTab);
         return;
       default:
@@ -3682,13 +3645,85 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     dupBlock(norm.blockId, norm.element);
   }
 
+  function removeItem(blockId: string, itemId: string) {
+    if (!guardSectionUnlocked(blockId, 'Section đang khóa — mở khóa trước khi xóa')) return;
+    const block = specRef.current.blocks.find((b) => b.id === blockId) as
+      | (LandingPageBlock & {
+          items?: Array<Record<string, unknown> & { id: string }>;
+          plans?: Array<Record<string, unknown> & { id: string }>;
+        })
+      | undefined;
+    if (!block) return;
+    if (Array.isArray(block.items) && block.items.some((it) => it.id === itemId)) {
+      const items = block.items.filter((it) => it.id !== itemId);
+      pushHistory(
+        sanitizeLandingPageDraftSpec(
+          markLandingPageUserEdits(
+            {
+              ...specRef.current,
+              blocks: specRef.current.blocks.map((b) =>
+                b.id === blockId ? ({ ...b, items } as LandingPageBlock) : b,
+              ),
+            },
+            [`${blockId}.items`],
+          ),
+        ),
+      );
+      deselectCanvas();
+      setSaveMsg('Đã xóa phần tử');
+      return;
+    }
+    if (Array.isArray(block.plans) && block.plans.some((it) => it.id === itemId)) {
+      const plans = block.plans.filter((it) => it.id !== itemId);
+      pushHistory(
+        sanitizeLandingPageDraftSpec(
+          markLandingPageUserEdits(
+            {
+              ...specRef.current,
+              blocks: specRef.current.blocks.map((b) =>
+                b.id === blockId ? ({ ...b, plans } as LandingPageBlock) : b,
+              ),
+            },
+            [`${blockId}.plans`],
+          ),
+        ),
+      );
+      deselectCanvas();
+      setSaveMsg('Đã xóa phần tử');
+    }
+  }
+
   function deleteToolbarTarget(target: LpSelectionTarget) {
     const norm = normalizeLpSelectionTarget(target);
-    if (isSectionLevelElement(norm.element)) {
+    const block = specRef.current.blocks.find((b) => b.id === norm.blockId);
+    if (!block) return;
+    if (typeof norm.element === 'string' && norm.element.startsWith('item:')) {
+      removeItem(norm.blockId, norm.element.slice(5));
+      return;
+    }
+    const rec = block as LandingPageBlock & {
+      headline?: string;
+      subheadline?: string;
+      body?: string;
+    };
+    const buttonOnlyCta =
+      block.type === 'CTA' &&
+      !(rec.headline || '').trim() &&
+      !(rec.subheadline || '').trim() &&
+      !(rec.body || '').trim();
+    // Paragraph / title text layers and section-inserted elements are their own
+    // blocks — hiding a field leaves a ghost box and the original copy.
+    if (
+      isSectionLevelElement(norm.element) ||
+      norm.element === 'form' ||
+      isFloatingTextLayerBlock(block) ||
+      buttonOnlyCta
+    ) {
       removeBlock(norm.blockId);
       return;
     }
     hideCanvasElements([norm]);
+    deselectCanvas();
   }
 
   function saveTextAsset(blockId: string, field: string) {
@@ -4845,6 +4880,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     removeBlock,
     removeBlocks,
     hideCanvasElements,
+    deleteToolbarTarget,
     moveBlock,
     reorderBlockById,
     reorderListItem,
@@ -4873,6 +4909,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     removeBlock,
     removeBlocks,
     hideCanvasElements,
+    deleteToolbarTarget,
     moveBlock,
     reorderBlockById,
     reorderListItem,
@@ -5834,7 +5871,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         <div
           ref={canvasScrollRef}
           className={
-            'relative z-0 h-full min-h-0 min-w-0 max-h-full overflow-y-auto overscroll-contain rounded-lg border border-white/10 bg-neutral-950/40 p-3 [transform:translateZ(0)] ' +
+            'relative z-0 h-full min-h-0 min-w-0 max-h-full overflow-y-auto overscroll-contain border border-white/10 bg-neutral-950/40 [transform:translateZ(0)] ' +
+            (viewport === 'desktop' ? 'rounded-none p-0 ' : 'rounded-lg p-3 ') +
             'overflow-x-auto ' +
             LP_THIN_SCROLL
           }
@@ -6034,7 +6072,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           ref={inspectorPanelRef}
           className={
             inspectorDesktop
-              ? 'flex min-w-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0A3D30] shadow-2xl'
+              ? 'flex w-[320px] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0A3D30] shadow-2xl'
               : 'flex h-full max-h-full min-h-0 w-full min-w-0 flex-col rounded-lg border border-white/10 bg-[#0A3D30]'
           }
           data-lp-inspector
@@ -6060,7 +6098,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       position: 'fixed',
                       left: floatingPosition.x,
                       top: floatingPosition.y,
-                      width: 240,
+                      width: INSPECTOR_PANEL_WIDTH,
                       zIndex: 60,
                       maxHeight: `min(calc(100dvh - ${Math.max(0, floatingPosition.y)}px - 0.5rem), calc(100dvh - 0.75rem))`,
                     }
@@ -6068,7 +6106,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                       position: 'fixed',
                       top: 'var(--builder-top-offset, 6.75rem)',
                       right: '0.75rem',
-                      width: 240,
+                      width: INSPECTOR_PANEL_WIDTH,
                       height: 'calc(100dvh - var(--builder-top-offset, 6.75rem) - 0.5rem)',
                       maxHeight: 'calc(100dvh - var(--builder-top-offset, 6.75rem) - 0.5rem)',
                       zIndex: 56,

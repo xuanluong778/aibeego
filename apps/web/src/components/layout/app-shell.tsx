@@ -9,7 +9,6 @@ import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { cn } from '@/lib/utils';
 
-const MAIN_SIDEBAR_COLLAPSED_KEY = 'mkspa.mainSidebarCollapsed';
 const SIDEBAR_EXPANDED = '16rem';
 const SIDEBAR_COLLAPSED = '3.5rem'; // 56px — within 48–60px rail
 /** Floating LP toolbar (and others) listen for this to track the website sidebar edge. */
@@ -28,19 +27,23 @@ function isLandingPageBuilderPath(pathname: string | null): boolean {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [mainSidebarCollapsed, setMainSidebarCollapsed] = useState(false);
+  const [mainSidebarCollapsedPref, setMainSidebarCollapsed] = useState(false);
+  const [builderLeftExpanded, setBuilderLeftExpanded] = useState(false);
   const [lpPreviewMode, setLpPreviewMode] = useState(false);
   // Pathname is authoritative on first paint (body attribute arrives after useEffect).
   const lpBuilderActive = isLandingPageBuilderPath(pathname);
   const lockViewport = lpBuilderActive || lpPreviewMode;
+  // Overview / Trang của tôi / every other tab: left nav stays expanded.
+  // Only the landing-page design canvas (`/landing-pages/builder/…`) starts collapsed.
+  const mainSidebarCollapsed = lpBuilderActive ? !builderLeftExpanded : mainSidebarCollapsedPref;
 
-  useEffect(() => {
-    try {
-      setMainSidebarCollapsed(localStorage.getItem(MAIN_SIDEBAR_COLLAPSED_KEY) === '1');
-    } catch {
-      /* ignore */
+  useLayoutEffect(() => {
+    if (lpBuilderActive) {
+      setBuilderLeftExpanded(false);
+      return;
     }
-  }, []);
+    setMainSidebarCollapsed(false);
+  }, [pathname, lpBuilderActive]);
 
   useEffect(() => {
     const sync = () =>
@@ -78,14 +81,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [lockViewport, lpBuilderActive]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(MAIN_SIDEBAR_COLLAPSED_KEY, mainSidebarCollapsed ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  }, [mainSidebarCollapsed]);
-
   const sidebarWidth = mainSidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
 
   useEffect(() => {
@@ -115,6 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
       style={{ ['--app-sidebar-width' as string]: sidebarWidth }}
       data-main-sidebar-collapsed={mainSidebarCollapsed ? '1' : '0'}
+      data-lp-builder-sidebar-policy="collapse-on-builder-only"
       data-lp-app-preview={lpPreviewMode ? '1' : undefined}
       data-lp-viewport-locked={lockViewport ? '1' : undefined}
     >
@@ -132,7 +128,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <Sidebar
           collapsed={mainSidebarCollapsed}
-          onToggleCollapsed={() => setMainSidebarCollapsed((v) => !v)}
+          onToggleCollapsed={() => {
+            if (lpBuilderActive) setBuilderLeftExpanded((v) => !v);
+            else setMainSidebarCollapsed((v) => !v);
+          }}
         />
       </aside>
 

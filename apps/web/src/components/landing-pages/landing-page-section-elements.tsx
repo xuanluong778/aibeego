@@ -126,6 +126,46 @@ function InsertedElement({
 type ColumnState = { inner: HTMLElement; grid: HTMLElement; groups: ChildNode[][] };
 const columnStates = new WeakMap<HTMLElement, ColumnState>();
 
+const FOREIGN_SLOT =
+  '[data-lp-section-element-slot],[data-lp-sidebar-drop-indicator],[data-lp-drop-line],[data-lp-drop-image-target]';
+
+function isForeignSlot(n: Node) {
+  return n instanceof HTMLElement && n.matches(FOREIGN_SLOT);
+}
+
+/** Move a node without throwing HierarchyRequestError when it currently wraps `parent`. */
+function moveNode(parent: Node | null | undefined, node: Node, before: Node | null = null) {
+  if (!parent || node === parent || before === node) return;
+  try {
+    if (node.contains(parent)) {
+      const liftInto = node.parentNode;
+      if (!liftInto) return;
+      while (node.firstChild) liftInto.insertBefore(node.firstChild, node);
+    }
+    if (before && !parent.contains(before)) {
+      if (node.parentNode !== parent) parent.appendChild(node);
+      return;
+    }
+    if (node.contains(parent)) return;
+    parent.insertBefore(node, before);
+  } catch {
+    /* HierarchyRequestError: the new child still contains the parent — skip this frame. */
+  }
+}
+
+function hostOwnedInner(host: HTMLElement): HTMLElement | null {
+  const owned = (n: HTMLElement) =>
+    n.closest('[data-lp-section-chrome="1"]') === host &&
+    !n.closest('[data-lp-section-element],[data-lp-section-element-slot]');
+  const inner = Array.from(
+    host.querySelectorAll<HTMLElement>(
+      '[data-lp-container-inner],[data-lp-cta-split],[data-lp-form-split],.blank-container',
+    ),
+  ).find(owned);
+  if (inner) return inner;
+  return Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(owned) || null;
+}
+
 function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: number[]) {
   let state = columnStates.get(host);
   if (state && !host.contains(state.inner)) {
@@ -133,8 +173,14 @@ function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: n
     state = undefined;
   }
   if (!state && count < 2) {
-    const split = host.querySelector<HTMLElement>(
-      '[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]',
+    const split = Array.from(
+      host.querySelectorAll<HTMLElement>(
+        '[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]',
+      ),
+    ).find(
+      (n) =>
+        n.closest('[data-lp-section-chrome="1"]') === host &&
+        !n.closest('[data-lp-section-element],[data-lp-section-element-slot]'),
     );
     if (split)
       Array.from(split.children).forEach((node, i) => {
@@ -147,17 +193,10 @@ function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: n
   }
   if (!state) {
     // Use the actual content container, above the section background and inside its copy.
-    const inner =
-      host.querySelector<HTMLElement>(
-        '[data-lp-container-inner],[data-lp-cta-split],[data-lp-form-split],.blank-container',
-      ) ||
-      Array.from(host.querySelectorAll<HTMLElement>('section,footer,header')).find(
-        (n) => n.closest('[data-lp-section-chrome="1"]') === host,
-      );
+    // Never pick a nested section-element's inner — that wraps the slot into its own parent.
+    const inner = hostOwnedInner(host);
     if (!inner) return;
-    const kids = Array.from(inner.childNodes).filter(
-      (n) => !(n instanceof HTMLElement && n.matches('[data-lp-section-element-slot]')),
-    );
+    const kids = Array.from(inner.childNodes).filter((n) => !isForeignSlot(n));
     const splitHost = inner.matches('[data-lp-hero-grid],[data-lp-cta-split],[data-lp-form-split]');
     const groups =
       splitHost && kids.filter((n) => n instanceof HTMLElement).length >= 2
@@ -179,7 +218,7 @@ function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: n
   const { inner, grid, groups } = state;
   if (count < 2) {
     // Undo must restore the original React-owned nodes and remove all generated cells.
-    for (const group of groups) for (const node of group) inner.insertBefore(node, grid);
+    for (const group of groups) for (const node of group) moveNode(inner, node, grid);
     grid.remove();
     columnStates.delete(host);
     ensureSectionColumns(host, count, nativeIndices);
@@ -197,7 +236,7 @@ function ensureSectionColumns(host: HTMLElement, count: number, nativeIndices: n
     const index = Math.max(0, Math.min(count - 1, nativeIndices[i] ?? i));
     const cell = grid.querySelector<HTMLElement>(`:scope > [data-lp-content-column="${index}"]`)!;
     cell.dataset.lpNativeGroup = String(i);
-    for (const node of nodes) if (node.parentNode !== cell) cell.appendChild(node);
+    for (const node of nodes) if (node.parentNode !== cell) moveNode(cell, node, null);
   });
   for (const cell of Array.from(grid.children)) {
     if (Number((cell as HTMLElement).dataset.lpContentColumn) >= count) cell.remove();
@@ -236,70 +275,82 @@ export function LandingPageSectionElements({
     const root = marker.current?.closest<HTMLElement>('[data-lp-canvas-root]');
     if (!root) return;
     let raf = 0;
+    let observer: MutationObserver | undefined;
     const sync = () => {
-      for (const hostBlock of spec.blocks) {
-        if (hostBlock.sectionPlacement) continue;
-        const count = readContentColumns(hostBlock.style);
-        const host = sectionHost(root, hostBlock.id);
-        if (host) ensureSectionColumns(host, count, readNativeColumnIndices(hostBlock.style));
-      }
-      const groups = new Map<string, LandingPageBlock[]>();
-      for (const b of entries) {
-        const key = JSON.stringify(b.sectionPlacement);
-        groups.set(key, [...(groups.get(key) || []), b]);
-      }
-      const next: Array<{ key: string; node: HTMLDivElement; blocks: LandingPageBlock[] }> = [];
-      for (const [key, blocks] of groups) {
-        const p = blocks[0]!.sectionPlacement!,
-          host = sectionHost(root, p.sectionId),
-          anchor = host ? sectionAnchor(host, p) : null;
-        if (!anchor) continue;
-        let node = containers.current.get(key);
-        if (!node) {
-          node = document.createElement('div');
-          node.dataset.lpSectionElementSlot = '1';
-          node.style.minWidth = '0';
-          node.style.maxWidth = '100%';
-          containers.current.set(key, node);
+      observer?.disconnect();
+      try {
+        for (const hostBlock of spec.blocks) {
+          if (hostBlock.sectionPlacement) continue;
+          const count = readContentColumns(hostBlock.style);
+          const host = sectionHost(root, hostBlock.id);
+          if (host) ensureSectionColumns(host, count, readNativeColumnIndices(hostBlock.style));
         }
-        if (anchor.end) {
-          if (node.parentNode !== anchor.node || anchor.node.lastChild !== node)
-            anchor.node.appendChild(node);
-        } else if (p.edge === 'before') {
-          if (node.nextSibling !== anchor.node)
-            anchor.node.parentNode?.insertBefore(node, anchor.node);
-        } else if (node.previousSibling !== anchor.node)
-          anchor.node.parentNode?.insertBefore(node, anchor.node.nextSibling);
-        next.push({ key, node, blocks });
-      }
-      for (const [key, node] of containers.current)
-        if (!groups.has(key)) {
-          node.remove();
-          containers.current.delete(key);
+        const groups = new Map<string, LandingPageBlock[]>();
+        for (const b of entries) {
+          const key = JSON.stringify(b.sectionPlacement);
+          groups.set(key, [...(groups.get(key) || []), b]);
         }
-      setSlots((old) =>
-        old.length === next.length &&
-        old.every(
-          (s, i) =>
-            s.key === next[i]?.key &&
-            s.node === next[i]?.node &&
-            s.blocks.map((b) => b.id).join(',') === next[i]?.blocks.map((b) => b.id).join(','),
-        )
-          ? old
-          : next,
-      );
+        const next: Array<{ key: string; node: HTMLDivElement; blocks: LandingPageBlock[] }> = [];
+        for (const [key, blocks] of groups) {
+          const p = blocks[0]!.sectionPlacement!,
+            host = sectionHost(root, p.sectionId),
+            anchor = host ? sectionAnchor(host, p) : null;
+          if (!anchor) continue;
+          let node = containers.current.get(key);
+          if (!node) {
+            node = document.createElement('div');
+            node.dataset.lpSectionElementSlot = '1';
+            node.style.minWidth = '0';
+            node.style.maxWidth = '100%';
+            containers.current.set(key, node);
+          }
+          // Nested element inside this slot — moving the slot into its own descendant
+          // throws HierarchyRequestError and crashes the whole builder.
+          if (node === anchor.node || node.contains(anchor.node)) {
+            next.push({ key, node, blocks });
+            continue;
+          }
+          if (anchor.end) {
+            if (node.parentNode !== anchor.node || anchor.node.lastChild !== node)
+              moveNode(anchor.node, node, null);
+          } else if (p.edge === 'before') {
+            if (node.nextSibling !== anchor.node) moveNode(anchor.node.parentNode, node, anchor.node);
+          } else if (node.previousSibling !== anchor.node)
+            moveNode(anchor.node.parentNode, node, anchor.node.nextSibling);
+          next.push({ key, node, blocks });
+        }
+        for (const [key, node] of containers.current)
+          if (!groups.has(key)) {
+            node.remove();
+            containers.current.delete(key);
+          }
+        setSlots((old) =>
+          old.length === next.length &&
+          old.every(
+            (s, i) =>
+              s.key === next[i]?.key &&
+              s.node === next[i]?.node &&
+              s.blocks.map((b) => b.id).join(',') === next[i]?.blocks.map((b) => b.id).join(','),
+          )
+            ? old
+            : next,
+        );
+      } catch {
+        /* Keep the builder mounted if a one-frame DOM cycle is still settling. */
+      } finally {
+        if (root.isConnected) observer?.observe(root, { childList: true, subtree: true });
+      }
     };
-    sync();
-    const observer = new MutationObserver(() => {
+    observer = new MutationObserver(() => {
       if (!raf)
         raf = requestAnimationFrame(() => {
           raf = 0;
           sync();
         });
     });
-    observer.observe(root, { childList: true, subtree: true });
+    sync();
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       cancelAnimationFrame(raf);
     };
     // Text/style updates render through current spec below; only ownership changes relocate slots.

@@ -8,11 +8,28 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
       'LandingPageElementLibraryModal',
       'sectionInsertCommitRef',
       'LandingPageBuilderVersionNotice',
+      'openLibraryAfterDrop',
+      "case 'add-picker-open':",
+      'const inspectorPanelWidthPx = INSPECTOR_PANEL_WIDTH',
+      'w-[320px]',
+      'Paragraph / title text layers and section-inserted elements',
+    ],
+    'landing-page-section-library-modal.tsx': [
+      'data-lp-section-library-lightbox',
+      'data-lp-section-library-preview-btn',
     ],
     'landing-page-text-library.tsx': ['data-lp-text-library-card', 'data-lp-text-category'],
-    'landing-page-sidebar-drop-indicator.tsx': ['data-lp-drop-bar', 'data-lp-drop-orientation'],
+    'landing-page-sidebar-drop-indicator.tsx': [
+      'data-lp-drop-bar',
+      'data-lp-drop-orientation',
+      'data-lp-drop-plus',
+      '2px dashed #2563EB',
+    ],
     'landing-page-draft-recovery.ts': ['landingDraftsHaveSameContent', 'serverSpec'],
     'landing-page-builder-version-notice.tsx': ['/landing-page-builder-version.json', 'Để sau'],
+    'landing-page-section-insert-target.ts': ['never flip to the left'],
+    'landing-page-canvas-zoom.tsx': ['DESKTOP_FIT_SCALE = 1', 'DESKTOP_SCROLL_PAD_PX = 0'],
+    'landing-page-inspector-rail.tsx': ['INSPECTOR_PANEL_WIDTH = 320'],
   })) {
     const source = fs.readFileSync(path.join(base, file), 'utf8');
     for (const marker of markers)
@@ -21,11 +38,18 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
         `Builder release missing ${file}: ${marker}. Sync current Builder source before building.`,
       );
   }
+  const builder = fs.readFileSync(path.join(base, 'landing-page-builder.tsx'), 'utf8');
   assert(
-    !fs
-      .readFileSync(path.join(base, 'landing-page-builder.tsx'), 'utf8')
-      .includes('Chọn một mẫu bên phải để chèn vào vị trí thả'),
+    !builder.includes('Chọn một mẫu bên phải để chèn vào vị trí thả'),
     'Refusing old sidebar-only picker implementation',
+  );
+  assert(
+    !builder.includes("insertParagraphPreset(LP_PARAGRAPH_PRESETS[0]!, pos)"),
+    'Text drop must open the template popup instead of auto-inserting a paragraph',
+  );
+  assert(
+    builder.includes("openAddPickerFromDrop(payload.picker, pos, payload.initialTab)"),
+    'Element drop must open the library picker',
   );
 }
 function assertLandingPageBuilderBundle(dir) {

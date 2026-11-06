@@ -48,9 +48,27 @@ gate(
 );
 
 gate(
+  'BUILDER_DEFAULT_COLLAPSED',
+  appShell.includes('isLandingPageBuilderPath') &&
+    appShell.includes('builderLeftExpanded') &&
+    appShell.includes('lpBuilderActive ? !builderLeftExpanded') &&
+    appShell.includes('setBuilderLeftExpanded(false)') &&
+    appShell.includes("pathname.includes('/landing-pages/builder/')"),
+  'landing-page design mode starts with the main left sidebar collapsed',
+);
+
+gate(
+  'NON_BUILDER_ALWAYS_EXPANDED',
+  appShell.includes('collapse-on-builder-only') &&
+    appShell.includes('setMainSidebarCollapsed(false)') &&
+    !appShell.includes('mkspa.mainSidebarCollapsed') &&
+    appShell.includes('[pathname, lpBuilderActive]'),
+  'Overview / Trang của tôi / every other tab expand; collapse is not persisted',
+);
+
+gate(
   'MAIN_APP_SIDEBAR_EXPAND',
   appShell.includes('setMainSidebarCollapsed') &&
-    appShell.includes('mkspa.mainSidebarCollapsed') &&
     sidebar.includes('data-main-sidebar-overview-row="expanded"') &&
     sidebar.includes('openGroups'),
   '→ restores full sidebar; toggle aligned with Tổng quan row',
@@ -62,7 +80,8 @@ gate(
     builder.includes('var(--app-sidebar-width, 16rem)') &&
     builder.includes('calc(var(--app-sidebar-width, 16rem) + 1.5rem)') &&
     lpSidebar.includes('createPortal') &&
-    builder.includes('lg:grid-cols-[minmax(0,1fr)_320px]') &&
+    builder.includes('--lp-inspector-dock-w') &&
+    builder.includes('w-[320px]') &&
     globals.includes('--app-sidebar-width'),
   'canvas full width; LP toolbar floats (no grid slot)',
 );
@@ -72,7 +91,7 @@ gate(
   appShell.includes("lg:pl-[var(--app-sidebar-width,16rem)]") &&
     appShell.includes('transition-[width]') &&
     appShell.includes('transition-[padding]') &&
-    builder.includes('lg:left-[var(--app-sidebar-width,16rem)]') &&
+    builder.includes('calc(var(--app-sidebar-width, 16rem) + 1.5rem)') &&
     !appShell.includes('lg:pl-64'),
   'content padding + LP action bar use CSS var (no fixed 16rem gap)',
 );

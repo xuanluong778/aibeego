@@ -58,8 +58,8 @@ type PreviewProps = {
   template: LpSectionLibraryTemplate;
   /** Scroll root for IntersectionObserver (gallery pane). */
   rootEl?: HTMLElement | null;
-  /** Larger scale for the right-hand preview pane. */
-  size?: 'card' | 'panel';
+  /** Larger scale for the right-hand preview pane; full = lightbox (no scale). */
+  size?: 'card' | 'panel' | 'full';
   /** When true, mount immediately (selected panel). */
   eager?: boolean;
   className?: string;
@@ -82,11 +82,12 @@ export function LandingPageSectionLibraryPreview({
   theme,
 }: PreviewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [active, setActive] = useState(eager);
+  const isFull = size === 'full';
+  const [active, setActive] = useState(eager || isFull);
   const [measuredH, setMeasuredH] = useState(size === 'panel' ? 720 : 560);
 
   useEffect(() => {
-    if (eager) {
+    if (eager || isFull) {
       setActive(true);
       return;
     }
@@ -108,7 +109,7 @@ export function LandingPageSectionLibraryPreview({
     );
     io.observe(node);
     return () => io.disconnect();
-  }, [eager, rootEl, template.id]);
+  }, [eager, isFull, rootEl, template.id]);
 
   const spec = useMemo(
     () => buildSectionLibraryPreviewSpec(template, { themeTokens, theme }),
@@ -119,7 +120,7 @@ export function LandingPageSectionLibraryPreview({
   const frameH = size === 'panel' ? 420 : 168;
 
   useEffect(() => {
-    if (!active) return;
+    if (isFull || !active) return;
     const id = requestAnimationFrame(() => {
       const root = hostRef.current?.querySelector(
         '[data-lp-canvas-root]',
@@ -129,7 +130,28 @@ export function LandingPageSectionLibraryPreview({
       setMeasuredH(h);
     });
     return () => cancelAnimationFrame(id);
-  }, [active, template.id, spec]);
+  }, [active, isFull, template.id, spec]);
+
+  if (isFull) {
+    return (
+      <div
+        className={cn('relative w-full bg-white', className)}
+        data-lp-section-library-preview="full"
+        data-lp-section-library-preview-id={template.id}
+        data-lp-section-library-preview-live="1"
+      >
+        <div className="pointer-events-none">
+          <LandingPageRenderer
+            spec={spec}
+            viewport="desktop"
+            mode="preview"
+            interactive={false}
+            className="bg-white"
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -170,6 +192,12 @@ export function LandingPageSectionLibraryPreview({
       {/* Soft fade so tall sections read as a card crop, not a broken clip. */}
       <div
         className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white/90 to-transparent"
+        aria-hidden
+      />
+      {/* Live renderer CTAs / links must not steal Xem trước clicks. */}
+      <div
+        className="absolute inset-0 z-[1]"
+        data-lp-section-library-preview-inert="1"
         aria-hidden
       />
     </div>

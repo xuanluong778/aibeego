@@ -354,7 +354,7 @@ export function LandingPageAddComponentsPanel({
 
 
   function renderComponentCard(card: QuickCard) {
-    const dropHint = card.kind === 'text' ? 'Thả vào canvas để chèn đoạn văn' : 'Thả vào canvas → hiện mẫu để chọn';
+    const dropHint = 'Thả vào canvas → hiện mẫu để chọn';
     const blockDragType = card.kind === 'block' ? card.blockType : null;
     let dragKind: 'section-library' | 'button-library' | 'block-type' | 'picker' | undefined;
     let onDragStart: ((e: DragEvent<HTMLButtonElement>) => void) | undefined;

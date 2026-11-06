@@ -34,8 +34,8 @@ gate(
   builder.includes('data-lp-inspector-sticky') &&
     builder.includes('data-lp-inspector-scroll') &&
     builder.includes('overflow-hidden') &&
-    builder.includes('w-[240px]'),
-  'sticky header+tabs; independent scroll; ~240px',
+    builder.includes('w-[320px]'),
+  'sticky header+tabs; independent scroll; ~320px',
 );
 
 gate(

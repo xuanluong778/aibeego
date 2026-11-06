@@ -77,11 +77,11 @@ w.init();
       await page.goto('http://127.0.0.1:' + server.address().port);
       const marker = page.locator('[data-lp-sidebar-drop-indicator]');
       const scenarios = [
-        { background: '#ffffff', color: 'rgb(0, 0, 0)' },
+        { background: '#ffffff', color: 'rgb(255, 255, 255)' },
         { background: '#212830', color: 'rgb(255, 255, 255)' },
-        { background: '#79b18b', color: 'rgb(0, 0, 0)' },
-        { background: '#f7f7f7', color: 'rgb(0, 0, 0)' },
-        { background: '#ffffff', color: 'rgb(0, 0, 0)', layer: true },
+        { background: '#79b18b', color: 'rgb(255, 255, 255)' },
+        { background: '#f7f7f7', color: 'rgb(255, 255, 255)' },
+        { background: '#ffffff', color: 'rgb(255, 255, 255)', layer: true },
       ];
       for (const zoom of [1, 0.75])
         for (const scenario of scenarios) {
@@ -132,6 +132,11 @@ w.init();
             await bar.evaluate((e) => getComputedStyle(e).backgroundColor),
             scenario.color,
           );
+          assert.equal(
+            await bar.evaluate((e) => getComputedStyle(e).borderTopStyle),
+            'dashed',
+          );
+          assert.equal(await bar.locator('[data-lp-drop-plus]').innerText(), '+');
           assert.equal(target.position.anchor.kind, 'field');
           assert.equal(target.position.anchor.field, 'headline');
           assert.equal(target.position.edge, 'after');
@@ -193,6 +198,11 @@ w.init();
             await vb.evaluate((e) => getComputedStyle(e).backgroundColor),
             scenario.color,
           );
+          assert.equal(
+            await vb.evaluate((e) => getComputedStyle(e).borderLeftStyle),
+            'dashed',
+          );
+          assert.equal(await vb.locator('[data-lp-drop-plus]').innerText(), '+');
           assert.equal(Math.round(vr.width), 20);
           assert(vr.x >= sr.x && vr.x + vr.width <= sr.x + sr.width + 1);
           const vt = await page.evaluate(() => window.__target);

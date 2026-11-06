@@ -63,17 +63,31 @@ gate(
 );
 
 gate(
+  'WHITE_DROP_BAR',
+  target.includes("export function sectionDropBarColor") &&
+    target.includes("return '#ffffff'") &&
+    !target.includes("luminance > 0.179 ? '#000000'") &&
+    indicator.includes("background: '#ffffff'") &&
+    indicator.includes('2px dashed #2563EB') &&
+    indicator.includes('data-lp-drop-plus') &&
+    indicator.includes('background:#ffffff!important'),
+  'insert bar is pure white with a dashed blue border and centered plus',
+);
+
+gate(
   'CHROME_INSIDE_PAGE',
   toolbar.includes('placeVerticalToolbar') &&
     toolbar.includes('readToolbarPageBounds') &&
-    toolbar.includes('readContentSafeViewport') &&
     toolbar.includes('resolveToolbarDockRect') &&
     toolbar.includes('createPortal(toolbar, document.body)') &&
     toolbar.includes('tightContentRect') &&
     toolbar.includes('fixed z-[50]') &&
     !toolbar.includes('createPortal(toolbar, canvasHost)') &&
     indicator.includes('querySelector(\'[data-lp-canvas-root]\')') &&
+    indicator.includes('document.body') &&
+    indicator.includes("position: 'fixed'") &&
     target.includes('export function placeVerticalToolbar') &&
+    target.includes("never flip to the left") &&
     target.includes('export function readToolbarPageBounds') &&
     target.includes('clampRectToBounds'),
   'toolbar stays inside the landing-page content box, never the inspector',
@@ -188,7 +202,10 @@ const inside = ctx.placeVerticalToolbar({
 });
 gate(
   'TOOLBAR_FITS_RIGHT_INSIDE',
-  inside && inside.side === 'right' && inside.left + 44 <= page.left + page.width - 16,
+  inside &&
+    inside.side === 'right' &&
+    inside.left >= 260 + 320 &&
+    inside.left + 44 <= page.left + page.width - 16,
   JSON.stringify(inside),
 );
 const nearRight = ctx.placeVerticalToolbar({
@@ -200,9 +217,24 @@ const nearRight = ctx.placeVerticalToolbar({
 gate(
   'TOOLBAR_FLIPS_OR_PINS_INSIDE',
   nearRight &&
+    nearRight.side === 'right' &&
     nearRight.left >= page.left + 16 &&
     nearRight.left + 44 <= page.left + page.width - 16,
   JSON.stringify(nearRight),
+);
+const tightRight = ctx.placeVerticalToolbar({
+  anchor: { left: 400, top: 220, width: 680, height: 80 },
+  canvas: page,
+  toolbarW: 44,
+  toolbarH: 176,
+});
+gate(
+  'TOOLBAR_STAYS_RIGHT_WHEN_TIGHT',
+  tightRight &&
+    tightRight.side === 'right' &&
+    tightRight.left >= page.left + 16 &&
+    tightRight.left + 44 <= page.left + page.width - 16,
+  JSON.stringify(tightRight),
 );
 const fullBleed = ctx.placeVerticalToolbar({
   anchor: page,

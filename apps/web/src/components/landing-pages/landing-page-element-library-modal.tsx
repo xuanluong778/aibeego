@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { LandingPageBlockType } from '@marketingspa/shared';
 import {
@@ -48,6 +49,10 @@ export function LandingPageElementLibraryModal({
             ? 'Biểu tượng'
             : 'Đồ họa';
   const textLibrary = picker?.kind === 'text';
+  const openStamp = useRef(0);
+  useEffect(() => {
+    if (picker) openStamp.current = Date.now();
+  }, [picker]);
   return (
     <Dialog.Root
       open={Boolean(picker)}
@@ -60,6 +65,14 @@ export function LandingPageElementLibraryModal({
         <Dialog.Content
           data-lp-element-library-modal={picker?.kind}
           className={`fixed left-1/2 top-1/2 z-[231] flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden text-zinc-900 shadow-2xl ${textLibrary ? 'lp-text-library-modal' : 'h-[85vh] w-[min(1200px,94vw)] rounded-xl bg-white'}`}
+          onPointerDownOutside={(event) => {
+            const age = Date.now() - (openStamp.current || 0);
+            if (age < 400) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            const age = Date.now() - (openStamp.current || 0);
+            if (age < 400) event.preventDefault();
+          }}
         >
           <div
             className={

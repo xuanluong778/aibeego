@@ -5,9 +5,9 @@ import type { ReactNode } from 'react';
 
 export type InspectorRailId = 'design' | 'content' | 'page-theme' | 'advanced' | 'add-components';
 
-export const INSPECTOR_PANEL_WIDTH = 240;
-/** Wider dock for GetResponse-style component cards. */
-export const INSPECTOR_ADD_COMPONENTS_PANEL_WIDTH = 280;
+export const INSPECTOR_PANEL_WIDTH = 320;
+/** Same as the inspector dock — width must not change per element / rail surface. */
+export const INSPECTOR_ADD_COMPONENTS_PANEL_WIDTH = INSPECTOR_PANEL_WIDTH;
 export const INSPECTOR_RAIL_WIDTH = 44;
 /** Matches portal shell `right: 0.75rem`. */
 export const INSPECTOR_SHELL_RIGHT_PX = 12;
@@ -102,7 +102,7 @@ export function LandingPageInspectorRailChrome({
       <LandingPageInspectorRail active={activeRail} onSelect={onRailSelect} />
       {panelOpen ? (
         <aside
-          className="flex w-[240px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0A3D30] shadow-2xl"
+          className="flex w-[320px] min-w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0A3D30] shadow-2xl"
           data-lp-inspector
           data-lp-inspector-panel="1"
         >

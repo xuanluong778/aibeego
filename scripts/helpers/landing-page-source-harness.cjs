@@ -252,6 +252,10 @@ function harness(locked = false, hidden = false) {
     current: {
       toggleElementHidden: ctx.toggleElementHidden,
       reorderBlockById: ctx.reorderBlockById,
+      deleteToolbarTarget: ctx.deleteToolbarTarget || (() => {}),
+      hideCanvasElements: ctx.hideCanvasElements || (() => {}),
+      deselectCanvas: ctx.deselectCanvas || (() => {}),
+      removeBlocks: ctx.removeBlocks || (() => {}),
     },
   };
   return ctx;
