@@ -27,6 +27,7 @@ import {
 import type { LandingPageCanvasElementKey } from './landing-page-canvas-ux';
 import { LP_BLOCK_MIME } from './landing-page-canvas-ux';
 import { beginFreeDragByFreeId, beginFreeDragFromShell, cancelAllFreeDrags } from './landing-page-free-drag';
+import { beginSectionRowMove, sectionRowElementOf } from './landing-page-section-row-move';
 import {
   placeToolbarTopRight,
   readDropObstacles,
@@ -540,8 +541,16 @@ export function LandingPageElementVerticalToolbar({
   const locked = sectionLocked?.(displayTarget.blockId) ?? false;
   // Pure section chrome: HTML5 block reorder on Move.
   // Form uses free-drag (was wrongly lumped into isSection and never moved).
-  const isSectionReorder = isSectionLevelElement(displayTarget.element);
-  const isForm = displayTarget.element === 'form';
+  // LeadForm section selected as 'section' moves like the form (free-drag), not HTML5 reorder.
+  const isLeadFormSection =
+    displayTarget.element === 'section' &&
+    Boolean(
+      document.querySelector(
+        `[data-lp-block-id="${CSS.escape(displayTarget.blockId)}"][data-lp-block-type="LeadForm"]`,
+      ),
+    );
+  const isSectionReorder = isSectionLevelElement(displayTarget.element) && !isLeadFormSection;
+  const isForm = displayTarget.element === 'form' || isLeadFormSection;
 
   const run =
     (fn: () => void) =>
@@ -566,6 +575,13 @@ export function LandingPageElementVerticalToolbar({
 
     // Section-level only: HTML5 DnD reorder (form is free-drag below).
     if (isSectionReorder) return;
+
+    // Row/column layout elements move between rows/columns (legacy elements keep free drag).
+    const rowElement = sectionRowElementOf(anchor);
+    if (rowElement) {
+      beginSectionRowMove(e, rowElement);
+      return;
+    }
 
     // Exit inline edit so drag doesn't fight caret / contentEditable.
     const editing = document.querySelector(

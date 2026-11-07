@@ -6,8 +6,10 @@ import { createPortal } from 'react-dom';
 import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
 import {
   applySplitColumnsToBlocks,
+  placeInSectionRow,
   readContentColumns,
   readNativeColumnIndices,
+  sectionSlotKey,
 } from '@marketingspa/shared';
 import {
   ElementChrome,
@@ -32,6 +34,7 @@ export function attachNewSectionElement(
 ): LandingPageSpec {
   const placement = sectionPlacementFromInsertPos(pos);
   if (!placement) return next;
+  if (pos.mode === 'section-element' && pos.rowOp) return attachRowElement(previous, next, pos.rowOp);
   const host = previous.blocks.find((b) => b.id === placement.sectionId && !b.sectionPlacement);
   if (!host || host.locked)
     throw Error('Section đích không còn tồn tại hoặc đang khóa. Chưa chèn element.');
@@ -70,6 +73,68 @@ export function attachNewSectionElement(
     return { ...rest, sectionPlacement: placement, spacing: 'none' } as LandingPageBlock;
   });
   return { ...next, blocks: attached };
+}
+
+/** Row/column drop: the new element is positioned by the shared row model (one history entry). */
+function attachRowElement(
+  previous: LandingPageSpec,
+  next: LandingPageSpec,
+  op: NonNullable<Extract<LpSidebarInsertPos, { mode: 'section-element' }>['rowOp']>,
+): LandingPageSpec {
+  const ref = previous.blocks.find((b) => b.id === op.refId);
+  const host = ref?.sectionPlacement
+    ? previous.blocks.find((b) => b.id === ref.sectionPlacement!.sectionId && !b.sectionPlacement)
+    : undefined;
+  if (!ref || !host || host.locked)
+    throw Error('Section đích không còn tồn tại hoặc đang khóa. Chưa chèn element.');
+  const oldIds = new Set(previous.blocks.map((b) => b.id));
+  const added = next.blocks.filter((b) => !oldIds.has(b.id));
+  if (added.length !== 1) throw Error('Loại element này không hỗ trợ vị trí đã thả.');
+  const before = new Map(previous.blocks.map((b) => [b.id, b]));
+  // Existing blocks keep their previous placement; only the target row changes below.
+  const rest = next.blocks
+    .filter((b) => b.id !== added[0]!.id)
+    .map((b) => {
+      const old = before.get(b.id);
+      return old && old.sectionPlacement !== b.sectionPlacement
+        ? { ...b, sectionPlacement: old.sectionPlacement }
+        : b;
+    });
+  const blocks = placeInSectionRow(rest, { ...added[0]!, spacing: 'none' } as LandingPageBlock, op);
+  return { ...next, blocks };
+}
+
+function SectionRow({
+  rowId,
+  blocks,
+  canvas,
+  renderNative,
+}: {
+  rowId: string;
+  blocks: LandingPageBlock[];
+  canvas: LandingPageCanvasHandlers | null;
+  renderNative: (b: LandingPageBlock) => ReactNode;
+}) {
+  // Equal columns from the used column indices (1 → 100%, 2 → 50/50, …); gap is inside the grid.
+  const cols = [...new Set(blocks.map((b) => b.sectionPlacement!.row!.c))].sort((a, b) => a - b);
+  return (
+    <div
+      data-lp-section-row={rowId}
+      data-lp-row-columns={cols.length}
+      {...(canvas ? { 'data-lp-row-guide': '1' } : {})}
+      style={{ gridTemplateColumns: `repeat(${cols.length},minmax(0,1fr))` }}
+    >
+      {cols.map((c, i) => (
+        <div key={c} data-lp-row-column={i}>
+          {blocks
+            .filter((b) => b.sectionPlacement!.row!.c === c)
+            .map((b) => (
+              <InsertedElement key={b.id} block={b} canvas={canvas} renderNative={renderNative} />
+            ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function InsertedElement({
@@ -475,7 +540,7 @@ export function LandingPageSectionElements({
         }
         const groups = new Map<string, LandingPageBlock[]>();
         for (const b of entries) {
-          const key = JSON.stringify(b.sectionPlacement);
+          const key = sectionSlotKey(b.sectionPlacement!);
           groups.set(key, [...(groups.get(key) || []), b]);
         }
         const next: Array<{ key: string; node: HTMLDivElement; blocks: LandingPageBlock[] }> = [];
@@ -565,9 +630,27 @@ export function LandingPageSectionElements({
   const renderSlot = (blocks: LandingPageBlock[]) => {
     const rendered = new Set<string>(),
       groups = readCanvasGroups(spec);
+    const live = blocks
+      .map((old) => spec.blocks.find((b) => b.id === old.id))
+      .filter((b): b is LandingPageBlock => Boolean(b && b.enabled && !b.hidden));
     return blocks.map((old) => {
       const block = spec.blocks.find((b) => b.id === old.id);
       if (!block || !block.enabled || block.hidden || rendered.has(block.id)) return null;
+      const row = block.sectionPlacement?.row;
+      if (row) {
+        // The whole row renders once, at its first member; members never render twice.
+        const members = live.filter((b) => b.sectionPlacement?.row?.id === row.id);
+        members.forEach((b) => rendered.add(b.id));
+        return (
+          <SectionRow
+            key={'row:' + row.id}
+            rowId={row.id}
+            blocks={members}
+            canvas={canvas}
+            renderNative={renderNative}
+          />
+        );
+      }
       if (block.style?.lpCanvasAbsolute !== '1')
         return (
           <InsertedElement
@@ -606,7 +689,7 @@ export function LandingPageSectionElements({
   };
   return (
     <>
-      <style>{`[data-lp-canvas-root]{container-type:inline-size}[data-lp-content-columns]{display:grid;grid-template-columns:repeat(var(--lp-content-column-count),minmax(0,1fr));align-items:stretch;width:100%;gap:1.5rem;position:relative;z-index:1}[data-lp-content-column]{min-width:0;min-height:64px}[data-lp-canvas-root][data-lp-non-overlap="1"] [data-lp-content-column] [data-lp-text-hug="1"]:not([data-lp-size-accepted="1"]){max-width:100%!important;min-width:0!important;height:auto!important;min-height:min-content!important;overflow-wrap:anywhere}[data-lp-native-flow-grid] [data-lp-item-id]{min-height:min-content!important}[data-lp-native-flow-grid] [data-lp-item-id]>:not(button):not([data-lp-transform-chrome]){min-height:min-content!important;height:100%!important}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-item-id]{width:100%!important;max-width:100%!important;min-width:0!important;min-height:min-content!important}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-item-id]>:not(button):not([data-lp-transform-chrome]){max-width:100%!important;min-width:0!important;height:100%!important;box-sizing:border-box}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-inline-wrap]{max-width:100%!important;min-width:0;overflow-wrap:anywhere}@container(max-width:767px){[data-lp-content-columns]{grid-template-columns:minmax(0,1fr)}[data-lp-native-flow-grid][data-lp-content-columns]{grid-template-columns:minmax(0,1fr)!important}[data-lp-native-flow-grid][data-lp-content-columns]>[data-lp-content-column]{grid-column:1!important;grid-row:auto!important}}[data-lp-section-element] [data-lp-inline-wrap]:is([data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"]):not([data-lp-heading-width-locked="1"]):not([data-lp-heading-width-live]){max-width:100%!important;width:100%!important;box-sizing:border-box}`}</style>
+      <style>{`[data-lp-canvas-root]{container-type:inline-size}[data-lp-content-columns]{display:grid;grid-template-columns:repeat(var(--lp-content-column-count),minmax(0,1fr));align-items:stretch;width:100%;gap:1.5rem;position:relative;z-index:1}[data-lp-content-column]{min-width:0;min-height:64px}[data-lp-canvas-root][data-lp-non-overlap="1"] [data-lp-content-column] [data-lp-text-hug="1"]:not([data-lp-size-accepted="1"]){max-width:100%!important;min-width:0!important;height:auto!important;min-height:min-content!important;overflow-wrap:anywhere}[data-lp-native-flow-grid] [data-lp-item-id]{min-height:min-content!important}[data-lp-native-flow-grid] [data-lp-item-id]>:not(button):not([data-lp-transform-chrome]){min-height:min-content!important;height:100%!important}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-item-id]{width:100%!important;max-width:100%!important;min-width:0!important;min-height:min-content!important}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-item-id]>:not(button):not([data-lp-transform-chrome]){max-width:100%!important;min-width:0!important;height:100%!important;box-sizing:border-box}[data-lp-native-flow-grid][data-lp-content-columns] [data-lp-inline-wrap]{max-width:100%!important;min-width:0;overflow-wrap:anywhere}@container(max-width:767px){[data-lp-content-columns]{grid-template-columns:minmax(0,1fr)}[data-lp-native-flow-grid][data-lp-content-columns]{grid-template-columns:minmax(0,1fr)!important}[data-lp-native-flow-grid][data-lp-content-columns]>[data-lp-content-column]{grid-column:1!important;grid-row:auto!important}}[data-lp-section-element] [data-lp-inline-wrap]:is([data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"]):not([data-lp-heading-width-locked="1"]):not([data-lp-heading-width-live]){max-width:100%!important;width:100%!important;box-sizing:border-box}[data-lp-section-row]{display:grid;column-gap:24px;row-gap:0;width:100%;max-width:100%;box-sizing:border-box;align-items:start;margin:0}[data-lp-row-column]{min-width:0;display:flex;flex-direction:column;box-sizing:border-box}[data-lp-row-column]>[data-lp-section-element]{width:100%;max-width:100%!important;box-sizing:border-box}[data-lp-row-column] [data-lp-inline-wrap],[data-lp-row-column] img{max-width:100%!important}[data-lp-row-guide]>[data-lp-row-column]{outline:1px dashed transparent;outline-offset:2px}[data-lp-row-guide]:hover>[data-lp-row-column],body:has([data-lp-sidebar-drop-indicator]) [data-lp-row-guide]>[data-lp-row-column]{outline-color:rgba(37,99,235,.55)}[data-lp-row-moving="1"][data-lp-section-element]{opacity:.45}@container(max-width:767px){[data-lp-section-row]{grid-template-columns:minmax(0,1fr)!important;row-gap:12px}}`}</style>
       <span hidden ref={marker} data-lp-section-element-mount />
       {slots.map((slot) => createPortal(renderSlot(slot.blocks), slot.node, slot.key))}
     </>

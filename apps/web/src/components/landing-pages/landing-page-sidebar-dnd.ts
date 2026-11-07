@@ -5,7 +5,7 @@
 
 import type { DragEvent as ReactDragEvent } from 'react';
 import type { SidebarDropTarget } from './landing-page-section-insert-target';
-import type { LandingPageSectionPlacement } from '@marketingspa/shared';
+import type { LandingPageSectionPlacement, LandingPageSectionRowOp } from '@marketingspa/shared';
 import { LANDING_PAGE_BLOCK_TYPES } from '@marketingspa/shared';
 import type { LandingPageBlockType } from '@marketingspa/shared';
 import type {
@@ -91,6 +91,8 @@ export type LpSidebarInsertPos =
       columnCount?: number;
       nativeColumnIndices?: number[];
       nativeItemIds?: string[];
+      /** Opt-in row/column layout op (column / stack / new row) relative to an element. */
+      rowOp?: LandingPageSectionRowOp;
       clientX?: number;
       clientY?: number;
     }

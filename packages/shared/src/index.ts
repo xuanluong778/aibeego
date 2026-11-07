@@ -153,3 +153,4 @@ export * from './landing-page-template-vietnamese';
 export * from './landing-page-blank-starter';
 
 export * from './landing-page-section-elements';
+export * from './landing-page-section-rows';

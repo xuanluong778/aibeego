@@ -757,7 +757,9 @@ function SelectableShellInteractive({
     sectionPrimary &&
     !isTextFieldSelected &&
     selectedElement !== 'section-background' &&
-    isSectionToolbarElement(selectedElement);
+    isSectionToolbarElement(selectedElement) &&
+    // LeadForm uses only the vertical element toolbar (no top section bar).
+    (surfaceBlock as { type?: string } | null)?.type !== 'LeadForm';
   const showBgToolbar = Boolean(isBgSelected);
   const pointerRef = useRef<{
     x: number;

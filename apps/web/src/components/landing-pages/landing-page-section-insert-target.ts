@@ -1,5 +1,5 @@
-import type { LandingPageSectionPlacement } from '@marketingspa/shared';
-import { LP_CONTENT_COLUMNS_MAX } from '@marketingspa/shared';
+import type { LandingPageSectionPlacement, LandingPageSectionRowOp } from '@marketingspa/shared';
+import { LP_CONTENT_COLUMNS_MAX, LP_ROW_MAX_COLUMNS } from '@marketingspa/shared';
 import type { LpSidebarInsertPos, LpSidebarPresetPayload } from './landing-page-sidebar-dnd';
 
 export type DropRect = { left: number; top: number; width: number; height: number };
@@ -73,7 +73,8 @@ export function sectionAnchor(
       return cell ? { node: cell, end: true } : null;
     }
     if (a.field.startsWith('__row:')) return { node: nativeItemRow(box)! };
-    return { node: box };
+    // A legacy element anchored after an element that later joined a row follows the row.
+    return { node: box.closest<HTMLElement>('[data-lp-section-row]') || box };
   }
   let targetCell: HTMLElement | null = null;
   if (typeof placement.columnIndex === 'number') {
@@ -582,6 +583,7 @@ export function resolveSidebarDropTarget(
 ): SidebarDropTarget | null {
   const target = resolveSidebarDropTargetRaw(root, host, payload, point);
   if (!target?.line) return target;
+  if (target.position.mode === 'section-element' && target.position.rowOp) return target;
   const bounds = target.sectionBounds || rect(root.getBoundingClientRect());
   const line = fitDropLine(
     target.line,
@@ -854,6 +856,8 @@ function resolveSidebarDropTargetRaw(
     }
   }
   if (host.dataset.lpBlockType === 'Header' || host.closest('[data-lp-html-document]')) return null;
+  const rowTarget = resolveSectionRowDrop(host, point);
+  if (rowTarget) return rowTarget;
   const native = nativeBoxDrop(host, point);
   if (native) return native;
   const columns = readColumnRects(host);
@@ -1008,5 +1012,160 @@ function resolveSidebarDropTargetRaw(
       isColumn ? b.top : b.bottom,
       isColumn ? 'after' : 'before',
     ),
+  };
+}
+
+/**
+ * Opt-in row/column drop (one resolver for marker and drop; also used by the move session).
+ *  - left/right band of an in-flow section element  -> new column (vertical marker)
+ *  - top/bottom edge band of a row                  -> new row (horizontal marker, row width)
+ *  - inside a row element / empty column space      -> stack in that column (horizontal marker)
+ * Legacy elements (not in a row) only react to the side bands; everything else falls through
+ * to the existing resolver so old pages keep their behaviour.
+ */
+export function resolveSectionRowDrop(
+  host: HTMLElement,
+  point: { clientX: number; clientY: number; target?: EventTarget | null },
+  excludeId?: string,
+): SidebarDropTarget | null {
+  const sectionId = host.dataset.lpBlockId;
+  if (!sectionId || host.dataset.lpInsertLocked === '1') return null;
+  const hit =
+    point.target instanceof Element
+      ? point.target
+      : document.elementFromPoint(point.clientX, point.clientY);
+  if (!hit || !host.contains(hit)) return null;
+  const x = point.clientX,
+    y = point.clientY;
+  const section = rect(host.getBoundingClientRect());
+  const flowEl = (n: Element | null | undefined): HTMLElement | null => {
+    const el = n?.closest<HTMLElement>('[data-lp-section-element][data-lp-block-id]') || null;
+    if (!el || !host.contains(el) || el.dataset.lpBlockId === excludeId) return null;
+    // Free/absolute copies keep their own drag model.
+    if (el.style.position === 'absolute' || el.closest('[data-lp-flow-copy]')) return null;
+    if (el.parentElement?.closest('[data-lp-section-element]')) return null;
+    return el;
+  };
+  const pos = (refId: string, rowOp: LandingPageSectionRowOp) =>
+    ({
+      mode: 'section-element' as const,
+      blockId: sectionId,
+      anchor: { kind: 'field' as const, blockId: refId, field: '__whole' },
+      edge: 'after' as const,
+      rowOp,
+    }) satisfies LpSidebarInsertPos;
+  const base = { sectionId, sectionBounds: section, barColor: '#ffffff' as const };
+  const hBar = (box: DropRect, edge: 'before' | 'after') => {
+    const yy = edge === 'before' ? box.top - LP_DROP_BAR_HEIGHT / 2 : box.top + box.height - LP_DROP_BAR_HEIGHT / 2;
+    return { left: box.left, width: box.width, top: yy, height: LP_DROP_BAR_HEIGHT };
+  };
+  const memberOf = (row: HTMLElement) =>
+    Array.from(row.querySelectorAll<HTMLElement>('[data-lp-section-element][data-lp-block-id]')).filter(
+      (n) => n.closest('[data-lp-section-row]') === row && n.dataset.lpBlockId !== excludeId,
+    );
+  const newRow = (row: HTMLElement, edge: 'before' | 'after'): SidebarDropTarget | null => {
+    const ref = memberOf(row)[0];
+    if (!ref) return null;
+    const r = rect(row.getBoundingClientRect());
+    return {
+      ...base,
+      position: pos(ref.dataset.lpBlockId!, { kind: 'row', refId: ref.dataset.lpBlockId!, edge }),
+      region: r,
+      line: hBar(r, edge),
+    };
+  };
+
+  let el = flowEl(hit);
+  const rowOfHit = hit.closest<HTMLElement>('[data-lp-section-row]');
+  if (!el && rowOfHit && host.contains(rowOfHit)) {
+    // Empty space inside a row: the column under the pointer, below/above its elements.
+    const cell = Array.from(rowOfHit.querySelectorAll<HTMLElement>(':scope > [data-lp-row-column]')).find((c) => {
+      const b = c.getBoundingClientRect();
+      return x >= b.left && x <= b.right;
+    });
+    const members = cell ? memberOf(rowOfHit).filter((n) => cell.contains(n)) : [];
+    const below = members.filter((n) => n.getBoundingClientRect().top <= y);
+    const ref = below[below.length - 1] || members[0];
+    if (ref) {
+      const rb = rect(rowOfHit.getBoundingClientRect());
+      if (y > rb.top + rb.height - 14) return newRow(rowOfHit, 'after');
+      if (y < rb.top + 14) return newRow(rowOfHit, 'before');
+      const b = rect(ref.getBoundingClientRect());
+      const edge = below.length ? 'after' : 'before';
+      return {
+        ...base,
+        position: pos(ref.dataset.lpBlockId!, { kind: 'stack', refId: ref.dataset.lpBlockId!, edge }),
+        region: b,
+        line: hBar(b, edge),
+      };
+    }
+  }
+  if (!el) {
+    // Between rows of one slot (row margins / gap): nearest row edge -> new row.
+    const slot = hit.closest<HTMLElement>('[data-lp-section-element-slot]');
+    const rows = slot
+      ? Array.from(slot.querySelectorAll<HTMLElement>(':scope > [data-lp-section-row]'))
+      : [];
+    if (!rows.length) return null;
+    let best: { row: HTMLElement; edge: 'before' | 'after'; d: number } | null = null;
+    for (const row of rows) {
+      const b = row.getBoundingClientRect();
+      for (const [edge, yy] of [['before', b.top], ['after', b.bottom]] as const) {
+        const d = Math.abs(y - yy);
+        if (!best || d < best.d) best = { row, edge, d };
+      }
+    }
+    return best && best.d <= 40 ? newRow(best.row, best.edge) : null;
+  }
+
+  const id = el.dataset.lpBlockId!;
+  const b = rect(el.getBoundingClientRect());
+  const row = el.closest<HTMLElement>('[data-lp-section-row]');
+  const cols = row ? Number(row.dataset.lpRowColumns) || 1 : 1;
+  const band = Math.max(16, Math.min(64, b.width * 0.22));
+  const side = x < b.left + band ? 'left' : x > b.left + b.width - band ? 'right' : null;
+  if (side && cols < LP_ROW_MAX_COLUMNS) {
+    const cellEl = el.closest<HTMLElement>('[data-lp-row-column]');
+    const cell = rect((cellEl || el).getBoundingClientRect());
+    const span = row ? rect(row.getBoundingClientRect()) : b;
+    const w = LP_COLUMN_BAR_WIDTH;
+    // Centre on the real (zoomed) gap to the neighbour column; outer edge: just outside the cell.
+    const neighbour = (side === 'left' ? cellEl?.previousElementSibling : cellEl?.nextElementSibling) as
+      | HTMLElement
+      | null
+      | undefined;
+    const nb = neighbour?.getBoundingClientRect();
+    const cx = nb
+      ? side === 'left'
+        ? (nb.right + cell.left) / 2
+        : (cell.left + cell.width + nb.left) / 2
+      : side === 'left'
+        ? cell.left - w / 2 - 2
+        : cell.left + cell.width + w / 2 + 2;
+    const line = clampRectToBounds(
+      { left: cx - w / 2, top: span.top, width: w, height: Math.max(48, span.height) },
+      section,
+    );
+    return {
+      ...base,
+      orientation: 'vertical',
+      position: pos(id, { kind: 'column', refId: id, side }),
+      region: span,
+      line,
+    };
+  }
+  // Legacy element: only the side bands opt into rows; the rest keeps the old resolver.
+  if (!row) return null;
+  const rb = rect(row.getBoundingClientRect());
+  const atTop = b.top - rb.top < 4 && y < b.top + 12;
+  const atBottom = rb.top + rb.height - (b.top + b.height) < 4 && y > b.top + b.height - 12;
+  if (atTop) return newRow(row, 'before');
+  if (atBottom) return newRow(row, 'after');
+  const edge = y < b.top + b.height / 2 ? 'before' : 'after';
+  return {
+    ...base,
+    position: pos(id, { kind: 'stack', refId: id, edge }),
+    region: b,
+    line: hBar(b, edge),
   };
 }

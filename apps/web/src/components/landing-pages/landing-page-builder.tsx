@@ -1,6 +1,6 @@
 'use client';
 import { projectLandingFlow, visibleStoredLayout, prepareFlowEdit, protectFreeRect } from './landing-page-no-overlap';
-import { sectionElementDeletionIds, removeSectionElements } from '@marketingspa/shared';
+import { sectionElementDeletionIds, removeSectionElements, moveIntoSectionRow, type LandingPageSectionRowOp } from '@marketingspa/shared';
 import { LandingPageElementLibraryModal, type ElementLibraryPicker } from './landing-page-element-library-modal';
 import { LandingPageSidebarDropIndicator } from './landing-page-sidebar-drop-indicator';
 import { attachNewSectionElement } from './landing-page-section-elements';
@@ -1716,6 +1716,27 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       window.removeEventListener('beforeunload', flush);
     };
   }, [pageId, pendingLocalDraft]);
+
+  // Move session from the element toolbar (row/column layout): one drop = one history entry.
+  useEffect(() => {
+    const onRowMove = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; op: LandingPageSectionRowOp }>).detail;
+      const current = specRef.current;
+      const lockedHost = (b?: LandingPageBlock) =>
+        Boolean(b?.sectionPlacement && current.blocks.find((h) => h.id === b.sectionPlacement!.sectionId)?.locked);
+      const el = current.blocks.find((b) => b.id === d?.id);
+      const ref = current.blocks.find((b) => b.id === d?.op?.refId);
+      if (!el || !ref || el.locked || lockedHost(el) || lockedHost(ref)) return;
+      try {
+        const blocks = moveIntoSectionRow(current.blocks, d.id, d.op);
+        if (blocks !== current.blocks) pushHistory(sanitizeLandingPageDraftSpec({ ...current, blocks }));
+      } catch (error) {
+        setSaveMsg(error instanceof Error ? error.message : 'Chưa di chuyển được element.');
+      }
+    };
+    window.addEventListener('lp-section-row-move', onRowMove);
+    return () => window.removeEventListener('lp-section-row-move', onRowMove);
+  }, [pushHistory]);
 
   useLayoutEffect(() => {
     if (!pendingCanvasCloneRef.current) return;

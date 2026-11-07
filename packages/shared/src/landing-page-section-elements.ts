@@ -1,4 +1,5 @@
 import type { LandingPageBlock } from './landing-page-types';
+import { sanitizeSectionRowRef, type LandingPageSectionRowRef } from './landing-page-section-rows';
 
 export const LP_CONTENT_COLUMNS_MAX = 12;
 
@@ -12,6 +13,8 @@ export type LandingPageSectionPlacement = {
   edge: 'before' | 'after';
   /** 0-based column inside the host section when lpContentColumns >= 2. */
   columnIndex?: number;
+  /** Opt-in row/column layout (see landing-page-section-rows). Absent on legacy elements. */
+  row?: LandingPageSectionRowRef;
 };
 
 export function readContentColumns(style?: { lpContentColumns?: unknown } | null): number {
@@ -41,10 +44,12 @@ function withColumnIndex(
   placement: LandingPageSectionPlacement,
   input: Record<string, unknown>,
 ): LandingPageSectionPlacement {
+  const row = sanitizeSectionRowRef(input.row);
+  const withRow = row ? { ...placement, row } : placement;
   const n = Number(input.columnIndex);
-  if (!Number.isFinite(n)) return placement;
+  if (!Number.isFinite(n)) return withRow;
   const columnIndex = Math.max(0, Math.min(LP_CONTENT_COLUMNS_MAX - 1, Math.round(n)));
-  return { ...placement, columnIndex };
+  return { ...placement, columnIndex, ...(row ? { row } : {}) };
 }
 
 export function sanitizeSectionPlacement(input: unknown): LandingPageSectionPlacement | undefined {
