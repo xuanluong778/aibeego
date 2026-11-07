@@ -243,6 +243,71 @@ export function placeVerticalToolbar(input: {
   return free[0] || null;
 }
 
+/**
+ * Deterministic toolbar placement near the TOP-RIGHT corner of the visible target.
+ * Candidate order (first that fits the visible bounds AND avoids other boxes wins):
+ *   right of the dock box's top edge, above its top-right, left, below its bottom-right.
+ * The dock box is the target's own padded shell when there is one (its edge is where the frame is
+ * drawn), then boxes that CONTAIN the target (a text inside a card docks to the card), so the bar
+ * never covers another box or the target's own resize handles.
+ * Last resort: inside the target's top-right corner. Never a "free lane" elsewhere.
+ * Returns null when the target is entirely outside `bounds` (toolbar must hide).
+ */
+export function placeToolbarTopRight(input: {
+  anchor: DropRect;
+  bounds: DropRect;
+  toolbarW: number;
+  toolbarH: number;
+  gap?: number;
+  obstacles?: DropRect[];
+}): { left: number; top: number; side: 'right' | 'top' | 'left' | 'bottom' | 'inside' } | null {
+  const { anchor, bounds, toolbarW: w, toolbarH: h } = input;
+  const gap = input.gap ?? 8;
+  if (bounds.width < w || bounds.height < Math.min(h, 24)) return null;
+  const visible = intersectRects(anchor, bounds);
+  if (visible.width <= 0 || visible.height <= 0) return null;
+  const bRight = bounds.left + bounds.width;
+  const bBottom = bounds.top + bounds.height;
+  const clampTop = (y: number) => Math.min(Math.max(y, bounds.top), Math.max(bounds.top, bBottom - h));
+  const clampLeft = (x: number) => Math.min(Math.max(x, bounds.left), Math.max(bounds.left, bRight - w));
+  const near = (a: DropRect, b: DropRect) =>
+    Math.abs(a.left - b.left) < 1.5 && Math.abs(a.top - b.top) < 1.5 &&
+    Math.abs(a.width - b.width) < 1.5 && Math.abs(a.height - b.height) < 1.5;
+  const contains = (o: DropRect, a: DropRect) =>
+    o.left <= a.left + 1 && o.top <= a.top + 1 &&
+    o.left + o.width >= a.left + a.width - 1 && o.top + o.height >= a.top + a.height - 1;
+  const inset = (o: DropRect, a: DropRect) =>
+    Math.max(a.left - o.left, a.top - o.top, o.left + o.width - (a.left + a.width), o.top + o.height - (a.top + a.height));
+  const others0 = (input.obstacles || []).filter((o) => !near(o, anchor));
+  const containing = others0
+    .filter((o) => contains(o, anchor))
+    .sort((p, q) => p.width * p.height - q.width * q.height);
+  const own = containing.find((o) => inset(o, anchor) <= 32) || null;
+  const dock = own || anchor;
+  const others = own ? others0.filter((o) => o !== own) : others0;
+  const hosts = containing.filter((o) => o !== own);
+  const fits = (x: number, y: number) =>
+    x >= bounds.left - 0.5 && x + w <= bRight + 0.5 && y >= bounds.top - 0.5 && y + h <= bBottom + 0.5 &&
+    !others.some((o) => rectsOverlap({ left: x, top: y, width: w, height: h }, o, 1)) &&
+    !rectsOverlap({ left: x, top: y, width: w, height: h }, dock, 1);
+  const ladder = (r: DropRect) => {
+    const v = intersectRects(r, bounds);
+    if (v.width <= 0 || v.height <= 0) return [] as Array<{ left: number; top: number; side: 'right' | 'top' | 'left' | 'bottom' }>;
+    const eR = v.left + v.width;
+    return [
+      { left: eR + gap, top: clampTop(v.top), side: 'right' as const },
+      { left: clampLeft(eR - w), top: v.top - gap - h, side: 'top' as const },
+      { left: v.left - gap - w, top: clampTop(v.top), side: 'left' as const },
+      { left: clampLeft(eR - w), top: v.top + v.height + gap, side: 'bottom' as const },
+    ];
+  };
+  for (const r of [dock, ...hosts]) {
+    for (const c of ladder(r)) if (fits(c.left, c.top)) return c;
+  }
+  // Nothing free: keep it glued to the corner of the visible target (may overlay content).
+  return { left: clampLeft(visible.left + visible.width - w), top: clampTop(visible.top), side: 'inside' };
+}
+
 export function rectsOverlap(a: DropRect, b: DropRect, pad = 0): boolean {
   return (
     a.left < b.left + b.width + pad &&

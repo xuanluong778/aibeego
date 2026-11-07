@@ -244,6 +244,8 @@ function applyZoomDom(scale: number, anchor: { clientX: number; clientY: number 
   layer.setAttribute('data-lp-canvas-zoom', String(next));
   layer.setAttribute('data-lp-canvas-zoom-user', String(user));
   layer.setAttribute('data-lp-canvas-fit', String(fit));
+  // Editor chrome (element toolbar) listens for this; nothing else emitted it before.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('lp-canvas-zoom-change'));
 
   const desktopFrame = scroll != null && !isDeviceViewport(scroll);
   // Flush to the canvas chrome so Desktop uses the full working width.

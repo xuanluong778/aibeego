@@ -28,93 +28,41 @@ import type { LandingPageCanvasElementKey } from './landing-page-canvas-ux';
 import { LP_BLOCK_MIME } from './landing-page-canvas-ux';
 import { beginFreeDragByFreeId, beginFreeDragFromShell, cancelAllFreeDrags } from './landing-page-free-drag';
 import {
-  placeVerticalToolbar,
-  readToolbarPageBounds,
+  placeToolbarTopRight,
   readDropObstacles,
+  readToolbarPageBounds,
   type DropRect,
 } from './landing-page-section-insert-target';
 
 const TOOLBAR_W = 44;
 const BTN_H = 44;
-const GAP = 6;
+// Clears the 8-handle resize chrome (handles straddle the edge) so the bar never steals a resize.
+const GAP = 8;
 const BAR_H = BTN_H * 4 + 3;
 const DRAGGING_SEL =
   '[data-lp-free-dragging="1"],[data-lp-free-resizing="1"],[data-lp-free-rotating="1"]';
-
-let cachedChromeTop = 0;
-let cachedChromeTopAt = 0;
-
-function readBuilderChromeTop(): number {
-  if (typeof document === 'undefined') return 108;
-  const canvas = document.querySelector('[data-lp-canvas-scroll]');
-  if (canvas) return Math.ceil(canvas.getBoundingClientRect().top) + 8;
-  const now = performance.now();
-  if (cachedChromeTop > 0 && now - cachedChromeTopAt < 500) return cachedChromeTop;
-  const root = document.querySelector('[data-lp-builder-root]') as HTMLElement | null;
-  let px = Math.round(6.75 * 16);
-  if (root) {
-    const raw = getComputedStyle(root).getPropertyValue('--builder-top-offset').trim();
-    if (raw.endsWith('rem')) {
-      const rem = parseFloat(raw);
-      if (Number.isFinite(rem)) px = Math.round(rem * 16);
-    } else if (raw.endsWith('px')) {
-      const n = parseFloat(raw);
-      if (Number.isFinite(n)) px = Math.round(n);
-    }
-  }
-  cachedChromeTop = px + 8;
-  cachedChromeTopAt = now;
-  return cachedChromeTop;
-}
 
 function isGestureActive(): boolean {
   return Boolean(document.querySelector(DRAGGING_SEL));
 }
 
-const DOCK_INNER_SEL =
-  '[data-lp-container-inner],[data-lp-header-inner],[data-lp-footer-inner]';
-
 function toDropRect(r: DOMRect): DropRect {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
-function tightContentRect(el: HTMLElement): DOMRect {
+const TOOLBAR_SEL = '[data-lp-element-vertical-toolbar]';
+/** Zoom layer animates `transform`; geometry must be tracked per frame until it settles. */
+function isZoomAnimating(): boolean {
+  const layer = document.querySelector('[data-lp-canvas-zoom-layer]') as HTMLElement | null;
   try {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const r = range.getBoundingClientRect();
-    const box = el.getBoundingClientRect();
-    if (r.width > 24 && r.height > 8 && r.width < box.width - 12) {
-      return new DOMRect(r.left, Math.min(r.top, box.top), r.width, Math.max(r.height, 28));
-    }
+    return Boolean(layer?.getAnimations?.().some((a) => a.playState === 'running'));
   } catch {
-    /* fall through */
+    return false;
   }
-  return el.getBoundingClientRect();
 }
 
-function resolveToolbarDockRect(anchor: HTMLElement, target: LpSelectionTarget): DOMRect {
-  const sectionLike =
-    isSectionLevelElement(target.element) ||
-    target.element === 'form' ||
-    target.element === 'section-background';
-  const inner =
-    (anchor.matches(DOCK_INNER_SEL) ? anchor : null) ||
-    anchor.querySelector<HTMLElement>(DOCK_INNER_SEL) ||
-    anchor.closest('[data-lp-section-chrome]')?.querySelector<HTMLElement>(DOCK_INNER_SEL) ||
-    null;
-  if (sectionLike) {
-    const text = (inner || anchor).querySelector<HTMLElement>(
-      '[data-lp-inline-wrap="heading"],[data-lp-inline-wrap="paragraph"],h1,h2,h3,h4,p,[data-lp-inline-field]',
-    );
-    if (text) return tightContentRect(text);
-    if (inner) {
-      const ir = inner.getBoundingClientRect();
-      if (ir.width > 40 && ir.height > 8) return ir;
-    }
-  }
-  return tightContentRect(anchor);
-}
+type HoverHit = { target: LpSelectionTarget; anchor: HTMLElement };
+type ToolbarPos = { left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' | 'inside' };
 
 /** 4-way move / cross-arrows icon (not up/down only). */
 function CrossMoveIcon() {
@@ -125,8 +73,10 @@ function CrossMoveIcon() {
   );
 }
 
+// NOTE: `[data-lp-canvas-context-menu]` is the trigger WRAPPER around the whole canvas — matching it
+// made every hover "ignored", so hover never produced a toolbar. Only the popup content is ignored.
 const IGNORE_HIT =
-  '[data-lp-element-vertical-toolbar],[data-lp-inspector],[data-lp-inspector-rail],[data-lp-text-toolbar],[data-lp-text-color-panel],[data-lp-text-more-menu],[data-lp-canvas-context-menu],[data-lp-marquee-selection]';
+  '[data-lp-element-vertical-toolbar],[data-lp-inspector],[data-lp-inspector-rail],[data-lp-text-toolbar],[data-lp-text-color-panel],[data-lp-text-more-menu],[data-lp-canvas-context-menu-content],[data-lp-marquee-selection]';
 
 export type LandingPageElementVerticalToolbarProps = {
   enabled: boolean;
@@ -148,7 +98,12 @@ function resolveHit(from: HTMLElement | null): { anchor: HTMLElement; target: Lp
   const blockId = blockHost.getAttribute('data-lp-block-id');
   if (!blockId) return null;
 
-  const inline = from.closest('[data-lp-inline-field]') as HTMLElement | null;
+  // The wrap includes box padding around the editable field: hovering that padding must
+  // still resolve to the SAME text element (otherwise hover flips to the section while
+  // the pointer travels from the text to its toolbar).
+  const inline = (from.closest('[data-lp-inline-field]') ||
+    from.closest('[data-lp-inline-wrap]')?.querySelector('[data-lp-inline-field]') ||
+    null) as HTMLElement | null;
   if (inline) {
     const field = inline.getAttribute('data-lp-inline-field');
     if (!field) return null;
@@ -355,241 +310,228 @@ export function LandingPageElementVerticalToolbar({
   onDelete,
   sectionLocked,
 }: LandingPageElementVerticalToolbarProps) {
-  const [hoverTarget, setHoverTarget] = useState<LpSelectionTarget | null>(null);
+  // Three distinct states: hover (nothing selected), selection (pinned), gesture
+  // (drag/resize/rotate of the selection). Selection always wins over hover so the
+  // frame, the toolbar and every action refer to the same target.
+  const [hover, setHover] = useState<HoverHit | null>(null);
   const [toolbarHover, setToolbarHover] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' } | null>(
-    null,
-  );
-  const pinnedBySelection = Boolean(primaryTarget);
-  const displayTarget = primaryTarget ?? hoverTarget;
+  const [pos, setPos] = useState<ToolbarPos | null>(null);
+  const displayTarget = primaryTarget ?? hover?.target ?? null;
 
-  const anchorRef = useRef<HTMLElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const scrollRafRef = useRef<number | null>(null);
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+  const scheduleRef = useRef<() => void>(() => {});
+  const primaryRef = useRef(primaryTarget);
+  primaryRef.current = primaryTarget;
+  const hoverRef = useRef(hover);
+  hoverRef.current = hover;
+  const targetRef = useRef(displayTarget);
+  targetRef.current = displayTarget;
 
-  const computePosition = useCallback(
-    (target: LpSelectionTarget): { left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' } | null => {
-      const anchor = findAnchorForTarget(target) || anchorRef.current;
-      if (!anchor) return null;
-      anchorRef.current = anchor;
-      const r = resolveToolbarDockRect(anchor, target);
+  // A stale hover must never outlive a selection (it reappeared after deselect).
+  useEffect(() => {
+    if (primaryTarget) setHover(null);
+  }, [primaryTarget]);
+  // The toolbar unmounting under the pointer never fires pointerleave.
+  useEffect(() => {
+    if (!displayTarget) setToolbarHover(false);
+  }, [displayTarget]);
+
+  const displayKey = displayTarget ? lpSelectionKey(displayTarget) : '';
+
+  // ONE geometry pipeline: every trigger (scroll, zoom, resize, inspector, DOM/style
+  // mutation, drag frames, pointer end) only schedules; one rAF measures and writes.
+  useLayoutEffect(() => {
+    if (!enabled || !targetRef.current) {
+      setPos(null);
+      scheduleRef.current = () => {};
+      return;
+    }
+    const root = canvasRootRef.current;
+    let raf = 0;
+    let observed: HTMLElement | null = null;
+    const ro = new ResizeObserver(() => schedule());
+    const measure = (): ToolbarPos | null => {
+      const target = targetRef.current;
+      if (!target) return null;
+      // Stable identity: re-resolve from the target each time; the hover anchor is
+      // only trusted while it is still attached and nothing is selected.
+      const hoverAnchor = !primaryRef.current ? hoverRef.current?.anchor : null;
+      const anchor =
+        hoverAnchor && hoverAnchor.isConnected ? hoverAnchor : findAnchorForTarget(target);
+      if (!anchor || !anchor.isConnected) return null;
+      if (anchor !== observed) {
+        if (observed) ro.unobserve(observed);
+        ro.observe(anchor);
+        observed = anchor;
+      }
+      const r = anchor.getBoundingClientRect();
       if (r.width <= 0 && r.height <= 0) return null;
-
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const toolbarW = vh < 500 ? BAR_H : TOOLBAR_W;
-      const toolbarH = vh < 500 ? TOOLBAR_W : BAR_H;
-      const canvas =
-        (anchor.closest('[data-lp-canvas-root]') as HTMLElement | null) ||
-        (typeof document !== 'undefined'
-          ? (document.querySelector('[data-lp-canvas-root]') as HTMLElement | null)
-          : null);
+      const canvas = anchor.closest('[data-lp-canvas-root]') as HTMLElement | null;
       if (!canvas) return null;
-      const cr = canvas.getBoundingClientRect();
       const scroll = document.querySelector('[data-lp-canvas-scroll]') as HTMLElement | null;
       const inspector = document.querySelector(
         '[data-lp-inspector-shell], [data-lp-inspector]',
       ) as HTMLElement | null;
+      // Visible landing-page box only: canvas ∩ scrollport, cut before the inspector.
       const bounds = readToolbarPageBounds({
-        canvas: toDropRect(cr),
+        canvas: toDropRect(canvas.getBoundingClientRect()),
         scroll: scroll ? toDropRect(scroll.getBoundingClientRect()) : null,
         inspector: inspector ? toDropRect(inspector.getBoundingClientRect()) : null,
-        // Keep the bar on the page (section ∩ inspector), not the narrower text column.
-        // Clipping to content-safe forced a left-side flip beside full-width copy.
         contentSafe: null,
       });
-      if (bounds.width < toolbarW + 32) return null;
-      const chromeTop = readBuilderChromeTop();
-      const placed = placeVerticalToolbar({
-        anchor: { left: r.left, top: r.top, width: r.width, height: r.height },
-        canvas: bounds,
-        toolbarW,
-        toolbarH,
-        obstacles: readDropObstacles(canvas),
+      const compact = window.innerHeight < 500;
+      // Right beside the target (GAP clears the resize handles), top-aligned and clamped to
+      // the visible page box. No room on the right -> left side -> inside the right edge.
+      // Hidden when the target is fully out of the visible box.
+      const tw = compact ? BAR_H : TOOLBAR_W;
+      const th = compact ? TOOLBAR_W : BAR_H;
+      const bTop = bounds.top;
+      const bBottom = bounds.top + bounds.height;
+      const bLeft = bounds.left;
+      const bRight = bounds.left + bounds.width;
+      const vTop = Math.max(r.top, bTop);
+      const vBottom = Math.min(r.bottom, bBottom);
+      if (vBottom <= vTop || Math.min(r.right, bRight) <= Math.max(r.left, bLeft)) return null;
+      // Preferred: beside the target on a free lane (never over another box).
+      const lane = placeToolbarTopRight({
+        anchor: toDropRect(r),
+        bounds,
+        toolbarW: tw,
+        toolbarH: th,
         gap: GAP,
-        pad: 16,
-        viewTop: Math.max(bounds.top + 16, chromeTop),
-        viewBottom: Math.min(bounds.top + bounds.height - 16, vh - 8),
+        obstacles: readDropObstacles(canvas),
       });
-      if (!placed) return null;
-      if (r.right < bounds.left + 4 || r.left > bounds.left + bounds.width - 4 || r.right < 8 || r.left > vw - 8) {
-        return null;
+      if (lane && (lane.side === 'right' || lane.side === 'left')) return lane;
+      const minTop = bTop + GAP;
+      const maxTop = Math.max(minTop, bBottom - th - GAP);
+      const top = Math.round(Math.min(maxTop, Math.max(minTop, vTop)));
+      if (r.right + GAP + tw <= bRight) return { left: Math.round(r.right + GAP), top, side: 'right' };
+      if (r.left - GAP - tw >= bLeft) return { left: Math.round(r.left - GAP - tw), top, side: 'left' };
+      return { left: Math.round(bRight - tw - GAP), top, side: 'inside' };
+    };
+    const run = () => {
+      raf = 0;
+      const next = measure();
+      const el = toolbarElRef.current;
+      if (el && next) {
+        el.style.left = `${next.left}px`;
+        el.style.top = `${next.top}px`;
+        el.dataset.lpVerticalToolbarSide = next.side;
       }
-      return {
-        left: placed.left,
-        top: placed.top,
-        side: placed.side,
-      };
-    },
-    [],
-  );
+      setPos((prev) =>
+        prev && next && Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.top - next.top) < 0.5 && prev.side === next.side
+          ? prev
+          : next,
+      );
+      // Keep sampling every frame only while geometry is animating.
+      if (isGestureActive() || isZoomAnimating()) schedule();
+    };
+    function schedule() {
+      if (!raf) raf = requestAnimationFrame(run);
+    }
+    scheduleRef.current = schedule;
+    run();
 
-  const updatePosition = useCallback(() => {
-    const target = displayTarget;
-    if (!target) {
-      setPos(null);
-      return;
+    const mo = new MutationObserver(schedule);
+    if (root) {
+      mo.observe(root, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['style', 'class'],
+      });
+      ro.observe(root);
+      root.addEventListener('scroll', schedule, { passive: true });
     }
-    const next = computePosition(target);
-    if (!next) {
-      setPos(null);
-      return;
-    }
-    // During live free-drag, write DOM directly first (no React lag / batching).
-    const el = toolbarElRef.current;
-    if (el && isGestureActive()) {
-      el.style.left = `${next.left}px`;
-      el.style.top = `${next.top}px`;
-      el.dataset.lpVerticalToolbarSide = next.side;
-    }
-    setPos((prev) => {
-      if (
-        prev &&
-        Math.abs(prev.left - next.left) < 0.5 &&
-        Math.abs(prev.top - next.top) < 0.5 &&
-        prev.side === next.side
-      ) {
-        return prev;
-      }
-      return next;
-    });
-  }, [computePosition, displayTarget]);
+    const inspectorEl = document.querySelector('[data-lp-inspector-shell]') as HTMLElement | null;
+    if (inspectorEl) ro.observe(inspectorEl);
+    window.addEventListener('scroll', schedule, true);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('transitionend', schedule, true);
+    window.addEventListener('lp-heading-box-resize-end', schedule);
+    window.addEventListener('lp-canvas-zoom-change', schedule);
+    window.addEventListener('lp-free-drag-frame', schedule);
+    window.addEventListener('pointerdown', schedule, true);
+    window.addEventListener('pointerup', schedule, true);
+    window.addEventListener('pointercancel', schedule, true);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      scheduleRef.current = () => {};
+      ro.disconnect();
+      mo.disconnect();
+      root?.removeEventListener('scroll', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('transitionend', schedule, true);
+      window.removeEventListener('lp-heading-box-resize-end', schedule);
+      window.removeEventListener('lp-canvas-zoom-change', schedule);
+      window.removeEventListener('lp-free-drag-frame', schedule);
+      window.removeEventListener('pointerdown', schedule, true);
+      window.removeEventListener('pointerup', schedule, true);
+      window.removeEventListener('pointercancel', schedule, true);
+    };
+  }, [enabled, displayKey, canvasRootRef]);
 
+  // A different hover anchor for the same key (remount) must re-measure.
   useLayoutEffect(() => {
-    if (!enabled || !displayTarget) {
-      setPos(null);
-      return;
-    }
-    anchorRef.current = findAnchorForTarget(displayTarget);
-    updatePosition();
-    const onScroll = () => {
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = requestAnimationFrame(() => {
-        scrollRafRef.current = null;
-        // Re-resolve anchor each scroll — DOM nodes can remount / free-id shells move.
-        anchorRef.current = findAnchorForTarget(displayTarget);
-        updatePosition();
-      });
-    };
-    const canvasScroll = canvasRootRef.current;
-    // Dock fitting, loaded fonts and text resize can move the anchor without scrolling.
-    const resizeObserver = new ResizeObserver(onScroll);
-    if (anchorRef.current) resizeObserver.observe(anchorRef.current);
-    if (canvasScroll) resizeObserver.observe(canvasScroll);
-    const transformObserver = new MutationObserver(onScroll);
-    for (let node = anchorRef.current; node; node = node.parentElement) {
-      transformObserver.observe(node, { attributes: true, attributeFilter: ['style'] });
-      if (node === canvasScroll) break;
-    }
-    canvasScroll?.addEventListener('scroll', onScroll, { passive: true });
-    // Capture any nested scrollports (device frame, zoom layer).
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onScroll);
-    window.addEventListener('transitionend', onScroll, true);
-    window.addEventListener('lp-heading-box-resize-end', onScroll);
-    window.addEventListener('lp-canvas-zoom-change', onScroll);
-    window.addEventListener('pointerup', onScroll, true);
-    window.addEventListener('pointercancel', onScroll, true);
-    return () => {
-      resizeObserver.disconnect();
-      transformObserver.disconnect();
-      canvasScroll?.removeEventListener('scroll', onScroll);
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onScroll);
-      window.removeEventListener('transitionend', onScroll, true);
-      window.removeEventListener('lp-heading-box-resize-end', onScroll);
-      window.removeEventListener('lp-canvas-zoom-change', onScroll);
-      window.removeEventListener('pointerup', onScroll, true);
-      window.removeEventListener('pointercancel', onScroll, true);
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    };
-  }, [enabled, displayTarget, updatePosition, canvasRootRef]);
+    scheduleRef.current();
+  }, [hover]);
 
-  // Keep toolbar glued to the element while free-dragging / resizing (transform live).
-  // Single listener + rAF loop keeps the position in sync with live transforms.
-  useEffect(() => {
-    if (!enabled || !displayTarget) return;
-    let raf = 0;
-    let active = false;
-    const stop = () => {
-      active = false;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-      updatePosition();
-    };
-    const tick = () => {
-      raf = 0;
-      if (!active) return;
-      updatePosition();
-      if (isGestureActive()) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        stop();
-      }
-    };
-    const start = () => {
-      if (active) return;
-      if (!isGestureActive()) return;
-      active = true;
-      raf = requestAnimationFrame(tick);
-    };
-    const onFrame = () => {
-      updatePosition();
-      start();
-    };
-    window.addEventListener('lp-free-drag-frame', onFrame);
-    window.addEventListener('pointerdown', start, true);
-    return () => {
-      active = false;
-      if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener('lp-free-drag-frame', onFrame);
-      window.removeEventListener('pointerdown', start, true);
-    };
-  }, [enabled, displayTarget, updatePosition]);
-
+  // Hover tracking is document-level and resolved lazily: the canvas scrollport can
+  // mount after this component's first effect, which left the old element-bound
+  // listener permanently detached (hover never produced a toolbar).
   useEffect(() => {
     if (!enabled) return;
-    const root = canvasRootRef.current;
-    if (!root) return;
-
     const onMove = (e: PointerEvent) => {
-      if (toolbarHover) return;
-      if (pinnedBySelection && primaryTarget) return;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        const hit = resolveHit(e.target as HTMLElement | null);
+      if (toolbarHover || primaryRef.current || isGestureActive()) return;
+      const from = e.target as HTMLElement | null;
+      if (from?.closest?.(TOOLBAR_SEL)) return;
+      // Pointer travelling from the target to its toolbar crosses the GAP strip: treat the bar's
+      // rect grown by the gap as part of the bar, so hover does not flip to another target.
+      const bar = toolbarElRef.current;
+      if (bar && hoverRef.current) {
+        const br = bar.getBoundingClientRect();
+        // The bar is docked at the right edge, away from its target: the corridor is the
+        // box spanning the hovered anchor and the bar.
+        const ar = hoverRef.current.anchor.getBoundingClientRect();
+        const l = Math.min(ar.left, br.left) - GAP - 2;
+        const r = Math.max(ar.right, br.right) + GAP + 2;
+        const t = Math.min(ar.top, br.top) - GAP - 2;
+        const b = Math.max(ar.bottom, br.bottom) + GAP + 2;
+        if (e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b) return;
+      }
+      const root = canvasRootRef.current;
+      if (!root || !from || !root.contains(from)) {
+        if (hoverRef.current) setHover(null);
+        return;
+      }
+      if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current);
+      hoverRafRef.current = requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        if (primaryRef.current) return;
+        const hit = resolveHit(from);
         if (!hit) {
-          setHoverTarget(null);
+          setHover(null);
           return;
         }
-        setHoverTarget((prev) => (targetsEqual(prev, hit.target) ? prev : hit.target));
-        anchorRef.current = hit.anchor;
+        setHover((prev) =>
+          prev && prev.anchor === hit.anchor && targetsEqual(prev.target, hit.target) ? prev : hit,
+        );
       });
     };
-
-    const onLeave = (e: PointerEvent) => {
-      if (toolbarHover || pinnedBySelection) return;
-      const related = e.relatedTarget as Node | null;
-      if (related && root.contains(related)) return;
-      setHoverTarget(null);
+    const onWindowLeave = (e: PointerEvent) => {
+      if (!e.relatedTarget && !primaryRef.current) setHover(null);
     };
-
-    root.addEventListener('pointermove', onMove, { passive: true });
-    root.addEventListener('pointerleave', onLeave);
+    document.addEventListener('pointermove', onMove, { passive: true, capture: true });
+    document.documentElement.addEventListener('pointerleave', onWindowLeave);
     return () => {
-      root.removeEventListener('pointermove', onMove);
-      root.removeEventListener('pointerleave', onLeave);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      document.removeEventListener('pointermove', onMove, true);
+      document.documentElement.removeEventListener('pointerleave', onWindowLeave);
+      if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current);
     };
-  }, [enabled, canvasRootRef, toolbarHover, pinnedBySelection, primaryTarget]);
-
-  useEffect(() => {
-    if (primaryTarget) {
-      anchorRef.current = findAnchorForTarget(primaryTarget);
-    }
-  }, [primaryTarget]);
+  }, [enabled, canvasRootRef, toolbarHover]);
 
   if (!enabled || typeof document === 'undefined' || !displayTarget || !pos) {
     return null;
@@ -606,6 +548,7 @@ export function LandingPageElementVerticalToolbar({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      if (locked) return;
       cancelAllFreeDrags();
       fn();
     };
@@ -613,9 +556,12 @@ export function LandingPageElementVerticalToolbar({
   const beginElementDrag = (e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    if (locked) return;
     // Do not call onSelect here — it can remount canvas chrome mid-gesture and
     // cancel the free-drag session. Target is already the displayTarget.
-    const anchor = anchorRef.current || findAnchorForTarget(displayTarget);
+    const anchor =
+      (!primaryTarget && hover?.anchor?.isConnected ? hover.anchor : null) ||
+      findAnchorForTarget(displayTarget);
     if (!anchor) return;
 
     // Section-level only: HTML5 DnD reorder (form is free-drag below).
@@ -707,7 +653,12 @@ export function LandingPageElementVerticalToolbar({
       className="pointer-events-auto fixed z-[50] flex flex-col [@media(max-height:500px)]:flex-row rounded-md border border-orange-400/80 bg-[#F97316] shadow-lg"
       style={{ left: pos.left, top: pos.top, width: typeof window !== 'undefined' && window.innerHeight < 500 ? BAR_H : TOOLBAR_W }}
       onPointerEnter={() => setToolbarHover(true)}
-      onPointerLeave={() => setToolbarHover(false)}
+      onPointerLeave={(e) => {
+        setToolbarHover(false);
+        // Leaving the bar to somewhere other than the canvas ends a hover-only session.
+        const to = e.relatedTarget as Node | null;
+        if (!primaryRef.current && !(to && canvasRootRef.current?.contains(to))) setHover(null);
+      }}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
