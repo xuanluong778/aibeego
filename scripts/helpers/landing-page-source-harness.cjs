@@ -154,6 +154,7 @@ function harness(locked = false, hidden = false) {
     autosaveInflightRef: { current: false },
     autosaveQueuedRef: { current: false },
     pendingAutosaveRef: { current: null },
+    pendingCanvasCloneRef: { current: null },
     crypto: require('node:crypto').webcrypto,
     autosaveTimer: { current: null },
     persistWaitersRef: { current: [] },

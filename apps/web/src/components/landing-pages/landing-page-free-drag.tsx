@@ -1,4 +1,5 @@
 'use client';
+import { protectFreeRect, collisionNodes, elementRect, intersects } from './landing-page-no-overlap';
 
 /**
  * Free-drag pointer engine + smart guides overlay (Canva-style).
@@ -28,6 +29,8 @@ import {
   computeFreeSnap,
   CONTENT_SAFE_AREA_SNAP_PX,
   FREE_SNAP_THRESHOLD_PX,
+  ELEMENT_FREE_MAX_X_PX,
+  ELEMENT_FREE_MAX_Y_PX,
   mapContentSafeAreaToSurface,
   normalizeRotate,
   resolveContentSafeArea,
@@ -453,13 +456,26 @@ export function clientPointToSurfaceLocal(
  * sections, and inflated section minHeight until drop targets overlapped.
  */
 export function resolveFreeSurface(el: HTMLElement): HTMLElement {
-  const surface = el.closest('[data-lp-free-surface]') as HTMLElement | null;
-  if (surface) return surface;
   const floating = el.closest('[data-lp-floating-text-section="1"]');
   if (floating) {
     const canvas = floating.closest<HTMLElement>('[data-lp-canvas-root]');
     if (canvas) return canvas;
   }
+
+  // All in-section elements (cards, boxes, buttons, text, forms, items) offset
+  // relative to their natural flow position, but movement, bounds and guides
+  // belong to the whole section. A narrow column or cards-grid sub-surface otherwise
+  // clamps drag and blocks rightward/leftward movement across columns.
+  const ownerSection = (el.parentElement?.closest('[data-lp-section-chrome="1"]') ||
+    el.parentElement?.closest('[data-lp-block-id]')) as HTMLElement | null;
+  if (ownerSection) return ownerSection;
+
+  if (el.getAttribute('data-lp-text-hug') === '1') {
+    const owner = el.closest<HTMLElement>('[data-lp-section-chrome="1"]');
+    if (owner) return owner;
+  }
+  const surface = el.closest('[data-lp-free-surface]') as HTMLElement | null;
+  if (surface) return surface;
   const section = (el.closest('[data-lp-section-chrome="1"]') ||
     el.closest('[data-lp-block-id]')) as HTMLElement | null;
   if (section) return section;
@@ -566,6 +582,93 @@ export function FreeDragGuidesOverlay({
   );
 }
 
+/**
+ * Pointer delta in surface CSS space. Uses the surface's live client rect so a
+ * canvas scroll / scroll-anchoring jump mid-drag does not separate box and cursor.
+ */
+function surfacePointerDelta(
+  sess: { startClientX: number; startClientY: number; canvasEl?: HTMLElement | null; startSurfaceLeft?: number; startSurfaceTop?: number },
+  clientX: number,
+  clientY: number,
+  scale: number,
+): { dx: number; dy: number } {
+  let shiftX = 0;
+  let shiftY = 0;
+  if (sess.canvasEl && sess.startSurfaceLeft != null && sess.startSurfaceTop != null) {
+    const r = sess.canvasEl.getBoundingClientRect();
+    shiftX = r.left - sess.startSurfaceLeft;
+    shiftY = r.top - sess.startSurfaceTop;
+  }
+  return {
+    dx: (clientX - sess.startClientX - shiftX) / scale,
+    dy: (clientY - sess.startClientY - shiftY) / scale,
+  };
+}
+
+/**
+ * On drop only: if the box landed on another element, move it to the nearest
+ * free edge (horizontal or vertical). If nothing is free nearby, keep the drop
+ * position — never teleport the box back or to a distant spot.
+ */
+function resolveDropOverlap(s: {
+  el: HTMLElement;
+  canvasEl: HTMLElement;
+  canvasBox: { left: number; top: number; width: number; height: number };
+  mode?: 'absolute' | 'offset';
+  baseLeft?: number;
+  baseTop?: number;
+  lastX: number;
+  lastY: number;
+  lastW: number;
+  lastH: number;
+  rotate: number;
+  canvasScale?: number;
+}) {
+  try {
+    const scale = s.canvasScale && s.canvasScale > 0 ? s.canvasScale : 1;
+    const offset = s.mode === 'offset';
+    const bx = offset ? s.baseLeft ?? 0 : 0;
+    const by = offset ? s.baseTop ?? 0 : 0;
+    const cur = { left: bx + s.lastX, top: by + s.lastY, width: s.lastW, height: s.lastH };
+    const surface = s.canvasEl.getBoundingClientRect();
+    const bounds = { ...s.canvasBox, height: Math.max(s.canvasBox.height, cur.top + cur.height + 240) };
+    const a = protectFreeRect(s.el, cur, cur, bounds, surface, scale, [], { x: 1, y: 0 });
+    const b = protectFreeRect(s.el, cur, cur, bounds, surface, scale, [], { x: 0, y: 1 });
+    const d = (r: { left: number; top: number }) => Math.hypot(r.left - cur.left, r.top - cur.top);
+    // Gentle nudge only — a large correction reads as the box "jumping".
+    const moved = [a, b].filter((r) => d(r) > 0.5 && d(r) <= 48).sort((p, q) => d(p) - d(q));
+    const best = moved[0];
+    if (!best) return;
+    s.lastX = Math.round(best.left - bx);
+    s.lastY = Math.round(best.top - by);
+    if (offset) {
+      s.el.style.transform = `translate3d(${s.lastX}px, ${s.lastY}px, 0)${s.rotate ? ` rotate(${s.rotate}deg)` : ''}`;
+    } else {
+      s.el.style.left = `${s.lastX}px`;
+      s.el.style.top = `${s.lastY}px`;
+    }
+  } catch {
+    /* keep drop position */
+  }
+}
+
+const FREE_DRAG_ANCHOR_STYLE_ID = 'lp-free-drag-no-anchor';
+function setFreeDragScrollAnchorLock(on: boolean) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (on) {
+    if (!document.getElementById(FREE_DRAG_ANCHOR_STYLE_ID)) {
+      const st = document.createElement('style');
+      st.id = FREE_DRAG_ANCHOR_STYLE_ID;
+      st.textContent = 'html[data-lp-free-drag-active="1"], html[data-lp-free-drag-active="1"] *{overflow-anchor:none !important}';
+      document.head.appendChild(st);
+    }
+    root.setAttribute('data-lp-free-drag-active', '1');
+  } else {
+    root.removeAttribute('data-lp-free-drag-active');
+  }
+}
+
 type DragSession = {
   kind: 'move' | 'resize' | 'rotate';
   pointerId: number;
@@ -602,6 +705,12 @@ type DragSession = {
   /** Offset mode: natural flow position inside surface (before translate). */
   baseLeft?: number;
   baseTop?: number;
+  /** Base flow position at pointerdown (offset) — compensates live reflow. */
+  startBaseLeft?: number;
+  startBaseTop?: number;
+  /** Surface client rect at pointerdown — compensates canvas scroll mid-drag. */
+  startSurfaceLeft?: number;
+  startSurfaceTop?: number;
   mode?: 'absolute' | 'offset';
   /** Resize */
   handle?: FreeResizeHandle;
@@ -970,6 +1079,10 @@ export function useFreeDragBox({
         s.el.style.transform = '';
       }
       sessionRef.current = null;
+      setFreeDragScrollAnchorLock(false);
+      if (commit && s.kind === 'move' && s.canvasEl && s.el.closest('[data-lp-non-overlap="1"]')) {
+        resolveDropOverlap(s);
+      }
       setDragging(false);
       setLiveAngle(null);
       publishGuidesRef.current?.(EMPTY_GUIDES);
@@ -1111,6 +1224,9 @@ export function useFreeDragBox({
         const deltaDeg = ((ang - startAng) * 180) / Math.PI;
         let next = normalizeRotate(sess.rotate + deltaDeg);
         next = snapRotateDegrees(next, shiftKey);
+        const priorTransform = sess.el.style.transform;
+        sess.el.style.transform = `rotate(${next}deg)`;
+        if (sess.el.closest('[data-lp-non-overlap="1"]') && collisionNodes(sess.el).some(n=>intersects(elementRect(sess.el),elementRect(n),1))) { sess.el.style.transform=priorTransform; return; }
         sess.lastRotate = next;
         sess.lastX = sess.originX;
         sess.lastY = sess.originY;
@@ -1125,10 +1241,10 @@ export function useFreeDragBox({
       }
 
       if (sess.kind === 'resize' && sess.handle) {
+        const previous={x:sess.lastX,y:sess.lastY,w:sess.lastW,h:sess.lastH,css:sess.el.style.cssText};
         const scale = sess.canvasScale && sess.canvasScale > 0 ? sess.canvasScale : 1;
         // Snapshot geometry at pointerdown — never re-measure DOM size per frame.
-        const rawDx = (clientX - sess.startClientX) / scale;
-        const rawDy = (clientY - sess.startClientY) / scale;
+        const { dx: rawDx, dy: rawDy } = surfacePointerDelta(sess, clientX, clientY, scale);
         const theta = (sess.rotate * Math.PI) / 180;
         const cos = Math.cos(theta);
         const sin = Math.sin(theta);
@@ -1202,6 +1318,7 @@ export function useFreeDragBox({
           sess.el.style.transform = sess.rotate ? `rotate(${sess.rotate}deg)` : '';
           syncCanvasFreeReserve(sess.el);
         }
+        if(sess.el.closest('[data-lp-non-overlap="1"]')&&collisionNodes(sess.el).some(n=>intersects(elementRect(sess.el),elementRect(n),1))){sess.el.style.cssText=previous.css;sess.lastX=previous.x;sess.lastY=previous.y;sess.lastW=previous.w;sess.lastH=previous.h;}
         publishGuidesRef.current?.(EMPTY_GUIDES);
         emitFreeDragFrame();
         return;
@@ -1209,8 +1326,7 @@ export function useFreeDragBox({
 
       // --- move ---
       const scale = sess.canvasScale && sess.canvasScale > 0 ? sess.canvasScale : 1;
-      const dx = (clientX - sess.startClientX) / scale;
-      const dy = (clientY - sess.startClientY) / scale;
+      const { dx, dy } = surfacePointerDelta(sess, clientX, clientY, scale);
       let proposedX = sess.originX + dx;
       let proposedY = sess.originY + dy;
       const locked = applyAxisLock(sess.originX, sess.originY, proposedX, proposedY, sess.shiftLock);
@@ -1218,6 +1334,15 @@ export function useFreeDragBox({
       proposedY = locked.y;
 
       const isOffset = sess.mode === 'offset';
+      // Parent live-fit / grid reflow moves the card's natural flow position
+      // mid-drag; re-derive base each frame so the box stays under the pointer.
+      if (isOffset && !sess.rotate && sess.canvasEl) {
+        const rNow = readRect(sess.el, sess.canvasEl.getBoundingClientRect(), scale);
+        sess.baseLeft = rNow.left - sess.lastX;
+        sess.baseTop = rNow.top - sess.lastY;
+        proposedX += (sess.startBaseLeft ?? sess.baseLeft) - sess.baseLeft;
+        proposedY += (sess.startBaseTop ?? sess.baseTop) - sess.baseTop;
+      }
       const movingLeft = isOffset ? (sess.baseLeft ?? 0) + proposedX : proposedX;
       const movingTop = isOffset ? (sess.baseTop ?? 0) + proposedY : proposedY;
 
@@ -1244,6 +1369,8 @@ export function useFreeDragBox({
         safeAreaThreshold: CONTENT_SAFE_AREA_SNAP_PX,
       });
 
+      // No per-frame overlap push: it made the box jump/freeze whenever the
+      // pointer crossed another element. Overlap is resolved once on drop (finish).
       if (isOffset) {
         sess.lastX = Math.round(snap.x - (sess.baseLeft ?? 0));
         sess.lastY = Math.round(snap.y - (sess.baseTop ?? 0));
@@ -1340,12 +1467,18 @@ export function useFreeDragBox({
         if (pe.pointerId != null && pe.pointerId !== pointerId) return;
         endGesture(false);
       };
+      // Canvas scroll without pointer motion: re-run the frame with last pointer.
+      const onScroll = () => {
+        if (sessionRef.current) applyMove();
+      };
+      window.addEventListener('scroll', onScroll, true);
       window.addEventListener('pointermove', onMove, { passive: false });
       window.addEventListener('pointerup', onUp, true);
       window.addEventListener('pointercancel', onCancel, true);
       window.addEventListener('blur', onBlur);
       document.addEventListener('lostpointercapture', onLostCapture, true);
       detachWindow.current = () => {
+        window.removeEventListener('scroll', onScroll, true);
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp, true);
         window.removeEventListener('pointercancel', onCancel, true);
@@ -1397,7 +1530,8 @@ export function useFreeDragBox({
       const originalStyle = el.style.cssText;
       const originalWidth = el.style.width;
       const originalMaxWidth = el.style.maxWidth;
-      const currentLayout = layoutRef.current;
+      const savedLayout = layoutRef.current;
+      const currentLayout = el.dataset.lpOverlapOverride!==undefined && modeRef.current==='offset' && savedLayout ? {...savedLayout,x:0,y:0,rotate:0} : savedLayout;
       const canvasScale = readCanvasPointerScale(el);
       const surfaceRect = surfaceEl.getBoundingClientRect();
       const surfaceCss = surfaceLayoutSize(surfaceEl, canvasScale);
@@ -1407,7 +1541,7 @@ export function useFreeDragBox({
 
       const siblingEls = Array.from(
         surfaceEl.querySelectorAll<HTMLElement>(
-          useOffset ? '[data-lp-free-child="1"]' : '[data-lp-free-box="1"]',
+          useOffset ? '[data-lp-free-child="1"],[data-lp-free-box="1"]' : '[data-lp-free-box="1"]',
         ),
       ).filter((node) => node !== el && !node.contains(el) && !el.contains(node));
       const siblings = siblingEls.map((node) => readRect(node, surfaceRect, canvasScale));
@@ -1416,14 +1550,8 @@ export function useFreeDragBox({
       let originY: number;
       // Move/rotate/resize start: lock size from saved layout OR live CSS-space rect.
       // Never shrink via measureTightFreeSize on move — that caused card/section collapse + reflow.
-      let dragW =
-        currentLayout?.width && currentLayout.width > 0
-          ? Math.min(surfaceCss.width, currentLayout.width)
-          : Math.round(box.width);
-      let dragH =
-        currentLayout?.height && currentLayout.height > 0
-          ? currentLayout.height
-          : Math.round(box.height);
+      let dragW = Math.round(box.width);
+      let dragH = Math.round(box.height);
       const isButtonShell = Boolean(
         el.getAttribute('data-lp-button-shell') === '1' ||
           el.querySelector(
@@ -1473,14 +1601,13 @@ export function useFreeDragBox({
         originX = currentLayout?.x ?? 0;
         originY = currentLayout?.y ?? 0;
         // Clear any leftover absolute pin from older buggy builds.
-        el.style.position = '';
+        if(el.style.position==='absolute')el.style.position='relative';
         el.style.left = '';
         el.style.top = '';
         // Lock measured width so children do not reflow while dragging.
         el.style.width = `${dragW}px`;
         el.style.maxWidth = 'none';
         el.style.boxSizing = 'border-box';
-        el.style.margin = '';
         el.style.zIndex = '30';
         // Text hug: don't lock free-layout height during move — unless the text
         // box itself has a persisted height from the 8-handle resize chrome.
@@ -1612,7 +1739,12 @@ export function useFreeDragBox({
       // Stash base flow position for offset clamp (natural left/top without current translate).
       session.baseLeft = useOffset ? box.left - (currentLayout?.x ?? 0) : 0;
       session.baseTop = useOffset ? box.top - (currentLayout?.y ?? 0) : 0;
+      session.startBaseLeft = session.baseLeft;
+      session.startBaseTop = session.baseTop;
+      session.startSurfaceLeft = surfaceRect.left;
+      session.startSurfaceTop = surfaceRect.top;
       session.mode = useOffset ? 'offset' : 'absolute';
+      setFreeDragScrollAnchorLock(true);
       sessionRef.current = session;
       el.setAttribute('data-lp-free-dragging', '1');
       el.style.willChange = 'transform';
@@ -1857,7 +1989,8 @@ export const FREE_LAYOUT_ABSOLUTE_BOUNDS = {
 } as const;
 
 export const FREE_LAYOUT_OFFSET_BOUNDS = {
-  maxAbsPos: 640,
+  maxAbsPos: ELEMENT_FREE_MAX_Y_PX,
+  maxAbsX: ELEMENT_FREE_MAX_X_PX,
   maxSize: 1200,
 } as const;
 
@@ -1928,9 +2061,9 @@ export function isPlausibleFreeLayout(
   if (!layout) return false;
   if (!Number.isFinite(layout.x) || !Number.isFinite(layout.y)) return false;
   if (kind === 'offset') {
-    // Card translate deltas — keep modest so a bad save cannot shove the card away.
-    const { maxAbsPos, maxSize } = FREE_LAYOUT_OFFSET_BOUNDS;
-    if (Math.abs(layout.x) > maxAbsPos || Math.abs(layout.y) > maxAbsPos) return false;
+    // Horizontal text offsets may cross columns; keep the existing vertical limit.
+    const { maxAbsPos, maxAbsX, maxSize } = FREE_LAYOUT_OFFSET_BOUNDS;
+    if (Math.abs(layout.x) > maxAbsX || Math.abs(layout.y) > maxAbsPos) return false;
     if (layout.width != null && (layout.width <= 0 || layout.width > maxSize)) return false;
     return true;
   }

@@ -51,13 +51,13 @@ export function BlankStarterBlock({ block, canvas, renderForm }: {
         {text('headline', block.headline, block.type === 'Hero' ? 'h1' : 'h2')}
         {text('subheadline', block.subheadline)}
         {block.body ? text('body', block.body) : null}
-        {block.ctaLabel ? <a className="blank-button" href={href} onClick={e => {
+        {block.ctaLabel ? <ElementChrome blockId={block.id} element="cta" kind="button" handlers={canvas} blockStyle={block.style as Record<string, unknown>} className="mt-9"><a className="blank-button" style={{marginTop:0}} href={href} onClick={e => {
           if (canvas) { e.preventDefault(); return; }
           if (href.startsWith('#')) {
             const target = e.currentTarget.closest('[data-lp-canvas-root]')?.querySelector(`[id="${CSS.escape(href.slice(1))}"]`);
             if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
           }
-        }}>{text('ctaLabel', block.ctaLabel, 'span')}</a> : null}
+        }}>{text('ctaLabel', block.ctaLabel, 'span')}</a></ElementChrome> : null}
       </div>);
     }
     case 'LeadForm':

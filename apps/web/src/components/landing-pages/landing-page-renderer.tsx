@@ -1,4 +1,6 @@
 'use client';
+import {LandingPageRenderOverlapGuard} from './landing-page-render-overlap-guard';
+import { projectLandingFlow } from './landing-page-no-overlap';
 import { LandingPageSectionElements } from './landing-page-section-elements';
 import { resolveSidebarDropTarget } from './landing-page-section-insert-target';
 
@@ -4048,6 +4050,7 @@ export function LandingPageRenderer({
   onHtmlSelectNode?: (node: import('./landing-page-html-nodes').HtmlNodeSnapshot) => void;
   onHtmlBindPatch?: (patch: import('./landing-page-html-nodes').HtmlPatchFn | null) => void;
 }) {
+  const sourceSpec=spec;spec=useMemo(()=>projectLandingFlow(sourceSpec),[sourceSpec]);
   useEffect(() => {
     if (typeof document === 'undefined') return;
     if (document.getElementById('lp-section-bg-motion-css')) return;
@@ -4424,7 +4427,7 @@ export function LandingPageRenderer({
           meta={(agencyStandard || restaurantPilot || servicePilot || websitePilot ? agencyPortfolioRenderMeta(spec, viewport) || null : spec.meta || null) as Record<string, unknown> | null}
         >
         <article
-          data-lp-canvas-root="1"
+          data-lp-canvas-root="1" data-lp-non-overlap="1"
           data-lp-ai-generated={spec.meta?.aiGenerationId ? "1" : undefined}
           data-lp-imported={htmlDocument ? '1' : undefined}
           data-lp-density={tokens.density || 'comfortable'}
@@ -4683,6 +4686,7 @@ export function LandingPageRenderer({
               </div>
             );
           })}
+          <LandingPageRenderOverlapGuard spec={spec}/>
           <LandingPageSectionElements spec={spec} canvas={canvasHandlers} renderNative={block=><MemoBlockView block={block} primary={primary} layout={layout} category={category} mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} goldStandard={goldStandard}/>} />
         </article>
         </LandingPagePublicMetaProvider>

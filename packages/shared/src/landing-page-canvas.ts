@@ -37,10 +37,22 @@ export type LandingPageCanvasStyle = {
   lpGridImages?: string;
   /** Equal-width content columns inside a section (2–12). */
   lpContentColumns?: number;
+  /** Serialized canvas groups; stable member selection keys, stored with their box owner. */
+  lpElementGroups?: string;
+  /** Serialized per-element layer ranks, independent of page/section order. */
+  lpElementLayers?: string;
+  /** Out-of-flow element copy; placement/coordinates remain owned by the same box. */
+  lpCanvasAbsolute?: string;
+  lpCanvasX?: string;
+  lpCanvasY?: string;
+  /** Paint order for elements attached to a section. */
+  lpZIndex?: string;
   /** Column that keeps the section's original flow content after a left split. */
   lpNativeColumnIndex?: number;
   /** Positions of the original groups in an existing split layout. */
   lpNativeColumnIndices?: number[];
+  /** Stable native card IDs corresponding to the saved column indices. */
+  lpNativeItemIds?: string;
   opacity?: number;
   fontFamily?: string;
   fontSize?: string;

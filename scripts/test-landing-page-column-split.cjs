@@ -16,6 +16,7 @@ const target = read('apps/web/src/components/landing-pages/landing-page-section-
 const indicator = read('apps/web/src/components/landing-pages/landing-page-sidebar-drop-indicator.tsx');
 const toolbar = read('apps/web/src/components/landing-pages/landing-page-element-vertical-toolbar.tsx');
 const notice = read('apps/web/src/components/landing-pages/landing-page-builder-version-notice.tsx');
+const builder = read('apps/web/src/components/landing-pages/landing-page-builder.tsx');
 const archive = read('scripts/aibeego-web-bundle-archive.cjs');
 const shared = read('packages/shared/src/landing-page-section-elements.ts');
 const elements = read('apps/web/src/components/landing-pages/landing-page-section-elements.tsx');
@@ -53,13 +54,15 @@ gate(
 );
 
 gate(
-  'VERSION_NOTICE_USES_LIVE_BUILD',
-  notice.includes('/landing-page-builder-version.json') &&
-    notice.includes('Để sau') &&
+  'VERSION_NOTICE_DISABLED',
+  !builder.includes('LandingPageBuilderVersionNotice') &&
+    !notice.includes('fetch(') &&
+    !notice.includes('setInterval(') &&
+    notice.includes('return null;') &&
     archive.includes('landing-page-builder-version.json') &&
     !target.includes("#00E174") &&
     target.includes('container: hostBox'),
-  'version id comes from the running bundle; split uses the full section gutters',
+  'update popup and polling are disabled; split uses the full section gutters',
 );
 
 gate(
@@ -87,7 +90,7 @@ gate(
     indicator.includes('document.body') &&
     indicator.includes("position: 'fixed'") &&
     target.includes('export function placeVerticalToolbar') &&
-    target.includes("never flip to the left") &&
+    target.includes("never clamp a toolbar into content") &&
     target.includes('export function readToolbarPageBounds') &&
     target.includes('clampRectToBounds'),
   'toolbar stays inside the landing-page content box, never the inspector',
@@ -217,7 +220,7 @@ const nearRight = ctx.placeVerticalToolbar({
 gate(
   'TOOLBAR_FLIPS_OR_PINS_INSIDE',
   nearRight &&
-    nearRight.side === 'right' &&
+    nearRight.side === 'left' &&
     nearRight.left >= page.left + 16 &&
     nearRight.left + 44 <= page.left + page.width - 16,
   JSON.stringify(nearRight),
@@ -229,9 +232,9 @@ const tightRight = ctx.placeVerticalToolbar({
   toolbarH: 176,
 });
 gate(
-  'TOOLBAR_STAYS_RIGHT_WHEN_TIGHT',
+  'TOOLBAR_USES_FREE_LEFT_LANE',
   tightRight &&
-    tightRight.side === 'right' &&
+    tightRight.side === 'left' &&
     tightRight.left >= page.left + 16 &&
     tightRight.left + 44 <= page.left + page.width - 16,
   JSON.stringify(tightRight),
@@ -243,11 +246,8 @@ const fullBleed = ctx.placeVerticalToolbar({
   toolbarH: 176,
 });
 gate(
-  'TOOLBAR_FULL_BLEED_SITS_ON_PAGE',
-  fullBleed &&
-    fullBleed.left >= page.left + 16 &&
-    fullBleed.left + 44 <= page.left + page.width - 16 &&
-    fullBleed.left + 44 <= page.left + page.width - 8,
+  'TOOLBAR_HIDES_WHEN_NO_FREE_LANE',
+  fullBleed === null,
   JSON.stringify(fullBleed),
 );
 const pageBox = ctx.readToolbarPageBounds({

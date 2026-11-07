@@ -90,6 +90,7 @@ export type LpSidebarInsertPos =
       /** Existing native layout count; initializes persistence without adding a column. */
       columnCount?: number;
       nativeColumnIndices?: number[];
+      nativeItemIds?: string[];
       clientX?: number;
       clientY?: number;
     }

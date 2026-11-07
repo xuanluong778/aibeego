@@ -5,7 +5,30 @@
  * Reuses existing canvas/builder actions — no parallel business logic.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Scan,
+  Group,
+  Ungroup,
+  Copy,
+  ClipboardCopy,
+  ClipboardPaste,
+  Layers,
+  LockKeyhole,
+  UnlockKeyhole,
+  Trash2,
+  AlignHorizontalJustifyCenter,
+} from 'lucide-react';
+import { elementFromField } from './landing-page-canvas-selection';
 import type { LandingPageBlock, LandingPageBlockType } from '@marketingspa/shared';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -23,7 +46,10 @@ import {
   resolveInspectorContext,
   type InspectorContextKind,
 } from './landing-page-inspector-context';
-import type { LandingPageCanvasElementKey, LandingPageInlineTextStyle } from './landing-page-canvas-ux';
+import type {
+  LandingPageCanvasElementKey,
+  LandingPageInlineTextStyle,
+} from './landing-page-canvas-ux';
 
 export type LpCanvasClipboardStyle = {
   style?: Record<string, unknown>;
@@ -34,11 +60,28 @@ export type LpCanvasClipboardStyle = {
 
 export type LandingPageCanvasContextMenuActions = {
   pageId: string;
+  selectionCount?: number;
+  grouped?: boolean;
+  canGroupSelection?: boolean;
+  canCopySelection?: boolean;
+  canDuplicateSelection?: boolean;
+  canLayerSelection?: boolean;
+  canAlignSelection?: boolean;
+  canEditSelection?: boolean;
+  selectionLocked?: boolean;
+  boxSelectionCount?: number;
+  onSelectAllInBox?: () => void;
+  onGroupSelection?: () => void;
+  onUngroupSelection?: () => void;
   selectedBlock: LandingPageBlock | null;
   selectedElement: LandingPageCanvasElementKey;
   canPasteBlock: boolean;
   canPasteStyle: boolean;
-  onSelectFromTarget: (blockId: string, element: LandingPageCanvasElementKey) => void;
+  onSelectFromTarget: (
+    blockId: string,
+    element: LandingPageCanvasElementKey,
+    field?: string,
+  ) => void;
   /** Clear canvas selection (empty-canvas right-click). */
   onClearSelection: () => void;
   onUndo: () => void;
@@ -47,11 +90,11 @@ export type LandingPageCanvasContextMenuActions = {
   onDelete: (blockId: string) => void;
   onCopyBlock: (blockId: string) => void;
   onPasteBlock: () => void;
-  onCopyStyle: (blockId: string) => void;
-  onPasteStyle: (blockId: string) => void;
+  onCopyStyle: (blockId: string, field?: string) => void;
+  onPasteStyle: (blockId: string, field?: string) => void;
   onMoveLayer: (blockId: string, direction: 'up' | 'down') => void;
   onToggleLock: (blockId: string) => void;
-  onAlign: (blockId: string, align: 'left' | 'center' | 'right') => void;
+  onAlign: (blockId: string, align: 'left' | 'center' | 'right', field?: string) => void;
   onToggleGroup: (blockId: string) => void;
   onInsertSection: (blockId: string, where: 'above' | 'below') => void;
   onReplaceImage: (blockId: string) => void;
@@ -76,7 +119,25 @@ export function resolveFieldForContext(
   block: LandingPageBlock,
   element: LandingPageCanvasElementKey,
   kind: InspectorContextKind,
+  selectedField?: string,
 ): { field: string; fieldKind: string } {
+  if (selectedField) {
+    const prefix = selectedField.split(':')[0] || '';
+    const kinds: Record<string, string> = {
+      itemTitle: 'item.title',
+      itemDesc: 'item.description',
+      itemQuestion: 'item.question',
+      itemAnswer: 'item.answer',
+      itemQuote: 'item.quote',
+      itemAuthor: 'item.author',
+      fieldLabel: 'field.label',
+      planName: 'headline',
+      planPrice: 'body',
+      planCta: 'ctaLabel',
+      trustPoint: 'body',
+    };
+    return { field: selectedField, fieldKind: kinds[prefix] || selectedField };
+  }
   if (kind === 'button' || element === 'cta') return { field: 'ctaLabel', fieldKind: 'ctaLabel' };
   if (element === 'headline') return { field: 'headline', fieldKind: 'headline' };
   if (element === 'subheadline') return { field: 'subheadline', fieldKind: 'subheadline' };
@@ -100,24 +161,56 @@ function clampPopover(x: number, y: number, w = 300, h = 280) {
   };
 }
 
+export function readContextFieldValue(block: LandingPageBlock, field: string): string {
+  const rec = block as unknown as Record<string, unknown>;
+  const [kind = '', id] = field.split(':');
+  const fields: Record<string, [string, string]> = {
+    itemTitle: ['items', 'title'],
+    itemDesc: ['items', 'description'],
+    itemQuestion: ['items', 'question'],
+    itemAnswer: ['items', 'answer'],
+    itemQuote: ['items', 'quote'],
+    itemAuthor: ['items', 'author'],
+    planName: ['plans', 'name'],
+    planPrice: ['plans', 'price'],
+    planCta: ['plans', 'ctaLabel'],
+    fieldLabel: ['fields', 'label'],
+  };
+  if (kind === 'trustPoint' && Array.isArray(rec.trustPoints))
+    return String(rec.trustPoints[Number(id)] ?? '');
+  const nested = fields[kind];
+  if (nested && id && Array.isArray(rec[nested[0]])) {
+    const row = (rec[nested[0]] as Array<Record<string, unknown>>).find((row) => row.id === id);
+    return typeof row?.[nested[1]] === 'string' ? String(row[nested[1]]) : '';
+  }
+  return typeof rec[field] === 'string' ? String(rec[field]) : '';
+}
+
 function parseContextTarget(target: EventTarget | null): {
   blockId: string | null;
   element: LandingPageCanvasElementKey;
+  field?: string;
 } {
   const el = target as HTMLElement | null;
   if (!el?.closest) return { blockId: null, element: 'section' };
-  const blockHost = el.closest('[data-lp-block-id]') as HTMLElement | null;
+  const blockHost = el.closest<HTMLElement>('[data-lp-block-id]');
   const blockId = blockHost?.getAttribute('data-lp-block-id') || null;
-  const inline = el.closest('[data-lp-inline-field]') as HTMLElement | null;
-  const field = inline?.getAttribute('data-lp-inline-field');
-  if (field === 'ctaLabel') return { blockId, element: 'cta' };
-  if (field === 'headline' || field === 'subheadline' || field === 'body') {
-    return { blockId, element: field };
+  const inline = el.closest<HTMLElement>('[data-lp-inline-field]');
+  const textWrap = el.closest<HTMLElement>('[data-lp-text-hug="1"][data-lp-free-id]');
+  const freeId = textWrap?.getAttribute('data-lp-free-id') || '';
+  const field =
+    inline?.getAttribute('data-lp-inline-field') || freeId.split('::').slice(1).join('::');
+  if (field) {
+    const owner =
+      inline?.getAttribute('data-lp-element-id')?.split('::')[0] ||
+      freeId.split('::')[0] ||
+      blockId;
+    return { blockId: owner, element: elementFromField(field), field };
   }
-  const elemHost = el.closest('[data-lp-element-id]') as HTMLElement | null;
+  const elemHost = el.closest<HTMLElement>('[data-lp-element-id]');
   const eid = elemHost?.getAttribute('data-lp-element-id') || '';
   if (eid.includes('::')) {
-    const key = eid.split('::')[1] || 'section';
+    const [owner, key = ''] = eid.split('::');
     if (
       key === 'image' ||
       key === 'cta' ||
@@ -127,12 +220,11 @@ function parseContextTarget(target: EventTarget | null): {
       key.startsWith('item:') ||
       key.startsWith('grid:')
     ) {
-      return { blockId, element: key as LandingPageCanvasElementKey };
+      return { blockId: owner || blockId, element: key as LandingPageCanvasElementKey };
     }
   }
-  if (el.closest('[data-lp-section-bg-hit],[data-lp-selection-target="section-background"]')) {
+  if (el.closest('[data-lp-section-bg-hit],[data-lp-selection-target="section-background"]'))
     return { blockId, element: 'section-background' };
-  }
   return { blockId, element: 'section' };
 }
 
@@ -155,7 +247,7 @@ export function LpCanvasAiQuickPopover({
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const runSuggest = useCallback(
-    async (action: 'rewrite' | 'generate' = 'rewrite') => {
+    async (action: 'rewrite' | 'suggest_3' = 'rewrite') => {
       setBusy(true);
       setError(null);
       try {
@@ -166,7 +258,9 @@ export function LpCanvasAiQuickPopover({
             body: JSON.stringify({
               action,
               fieldKind: state.fieldKind,
-              blockType: state.blockType,
+              blockType: ['Header', 'Countdown', 'Speaker'].includes(state.blockType)
+                ? 'Hero'
+                : state.blockType,
               currentContent: prompt.trim() || state.current,
               pageGoal: 'lead',
               blockContext: `type=${state.blockType};mode=${state.mode}`,
@@ -193,7 +287,7 @@ export function LpCanvasAiQuickPopover({
   );
 
   useEffect(() => {
-    void runSuggest(state.current.trim() ? 'rewrite' : 'generate');
+    void runSuggest(state.mode === 'quick' || !state.current.trim() ? 'suggest_3' : 'rewrite');
   }, [state.blockId, state.field, state.mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -213,16 +307,23 @@ export function LpCanvasAiQuickPopover({
 
   const pos = clampPopover(state.x, state.y);
 
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div
       ref={panelRef}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
       data-lp-ai-quick-popover="1"
-      className="fixed z-[90] max-h-[calc(100dvh-1rem)] w-[min(300px,calc(100vw-1rem))] overflow-y-auto rounded-lg border border-white/15 bg-zinc-950 p-3 shadow-2xl"
+      className="fixed z-[220] max-h-[calc(100dvh-1rem)] w-[min(300px,calc(100vw-1rem))] overflow-y-auto rounded-lg border border-white/15 bg-zinc-950 p-3 shadow-2xl"
       style={{ left: pos.x, top: pos.y, maxHeight: `calc(100dvh - ${pos.y}px - 8px)` }}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-xs font-semibold text-white/90">✨ AI nhanh</div>
-        <button type="button" className="text-[10px] text-white/50 hover:text-white" onClick={onClose}>
+        <button
+          type="button"
+          className="text-[10px] text-white/50 hover:text-white"
+          onClick={onClose}
+        >
           Esc
         </button>
       </div>
@@ -279,13 +380,14 @@ export function LpCanvasAiQuickPopover({
           className="h-7 text-[11px] text-white/70"
           disabled={busy}
           data-lp-ai-regenerate
-          onClick={() => void runSuggest('generate')}
+          onClick={() => void runSuggest('suggest_3')}
         >
           Tạo lại
         </Button>
       </div>
       <p className="mt-2 text-[10px] text-white/40">Không tự ghi đè — chọn Thay thế / Chèn thêm.</p>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -297,409 +399,189 @@ export function LandingPageCanvasContextMenu({
   actions: LandingPageCanvasContextMenuActions;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [clickPos, setClickPos] = useState({ x: 0, y: 0 });
-  const [ai, setAi] = useState<LpCanvasAiPopoverState | null>(null);
-  /** Target of THIS contextmenu open — never fall back to a prior selectedBlock. */
-  const [menuHit, setMenuHit] = useState<{
-    blockId: string;
-    element: LandingPageCanvasElementKey;
-  } | null>(null);
-  const menuHitRef = useRef<{ blockId: string; element: LandingPageCanvasElementKey } | null>(
-    null,
-  );
-
-  // Menu actions bind to the right-click hit, not stale parent selection.
-  const menuBlockId = menuHit?.blockId ?? null;
-  const block =
-    menuBlockId && actions.selectedBlock?.id === menuBlockId ? actions.selectedBlock : null;
-  const menuElement = menuHit?.element ?? 'section';
-  const ctx = resolveInspectorContext(block, menuElement);
-  const sectionLocked = Boolean(block?.locked);
-  const editDisabled = !menuBlockId || sectionLocked;
-
-  const openAi = (mode: LpCanvasAiPopoverState['mode']) => {
-    if (!block || !menuBlockId || sectionLocked) return;
-    const { field, fieldKind } = resolveFieldForContext(block, menuElement, ctx.kind);
-    const rec = block as unknown as Record<string, unknown>;
-    const current = typeof rec[field] === 'string' ? String(rec[field]) : '';
-    setAi({
-      x: clickPos.x + 12,
-      y: clickPos.y + 12,
-      blockId: menuBlockId,
-      field,
-      fieldKind,
-      blockType: block.type as LandingPageBlockType,
-      mode,
-      current,
-    });
+  const [hit, setHit] = useState<ReturnType<typeof parseContextTarget> | null>(null);
+  const hitRef = useRef<ReturnType<typeof parseContextTarget> | null>(null);
+  const capture = (event: ReactMouseEvent) => {
+    if ((event.target as HTMLElement)?.closest?.('[data-lp-inspector],[data-lp-left-rail]')) return;
+    const target = parseContextTarget(event.target);
+    hitRef.current = target;
+    setHit(target);
+    if (target.blockId) actions.onSelectFromTarget(target.blockId, target.element, target.field);
+    else actions.onClearSelection();
   };
-
-  const onContextMenuCapture = useCallback(
-    (e: ReactMouseEvent) => {
-      // Only canvas — ignore inspector / left rail if somehow nested.
-      if ((e.target as HTMLElement | null)?.closest?.('[data-lp-inspector],[data-lp-left-rail]')) {
-        return;
-      }
-      const hit = parseContextTarget(e.target);
-      setClickPos({ x: e.clientX, y: e.clientY });
-      if (hit.blockId) {
-        const next = { blockId: hit.blockId, element: hit.element };
-        menuHitRef.current = next;
-        setMenuHit(next);
-        actions.onSelectFromTarget(hit.blockId, hit.element);
-      } else {
-        // Empty canvas padding — drop prior selection so Delete/Duplicate cannot
-        // act on the previously selected block.
-        menuHitRef.current = null;
-        setMenuHit(null);
-        actions.onClearSelection();
-      }
-    },
-    [actions],
-  );
-
-  const actBlockId = () => menuHitRef.current?.blockId ?? menuHit?.blockId ?? null;
-
-  const kindLabel = useMemo(() => {
-    if (!menuBlockId) return 'Canvas';
-    switch (ctx.kind) {
-      case 'text':
-        return 'Text';
-      case 'image':
-        return 'Image';
-      case 'button':
-        return 'Button';
-      case 'form':
-        return 'Form';
-      case 'video':
-        return 'Video';
-      case 'countdown':
-        return 'Countdown';
-      case 'section':
-        return 'Section';
-      default:
-        return 'Canvas';
-    }
-  }, [ctx.kind, menuBlockId]);
-
+  const blockId = hit?.blockId;
+  const count = blockId ? (actions.selectionCount ?? 1) : 0;
+  const locked = Boolean(actions.selectionLocked ?? actions.selectedBlock?.locked);
+  const editable = count > 0 && (actions.canEditSelection ?? !locked);
+  const run = (action: (id: string) => void) => {
+    const id = hitRef.current?.blockId;
+    if (id) action(id);
+  };
+  const special =
+    'gap-2.5 rounded-md bg-gradient-to-r from-amber-700/80 to-orange-800/70 text-white focus:bg-amber-700';
+  const row = 'min-h-9 gap-2.5 px-2.5 py-2 text-sm [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0';
   return (
-    <>
-      <ContextMenu
-        onOpenChange={(open) => {
-          setMenuOpen(open);
-        }}
-      >
-        <ContextMenuTrigger asChild>
-          <div
-            data-lp-canvas-context-menu="1"
-            data-lp-context-menu-open={menuOpen ? '1' : '0'}
-            onContextMenuCapture={onContextMenuCapture}
-            className="min-w-0"
-          >
-            {children}
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent data-lp-canvas-context-menu-content="1" collisionPadding={8}>
-          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">
-            {kindLabel}
-          </div>
-
-          <ContextMenuItem
-            disabled={editDisabled}
-            onSelect={() => openAi('quick')}
-            data-lp-cm="ai-quick"
-          >
-            ✨ AI nhập nhanh
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={editDisabled}
-            onSelect={() => openAi(ctx.kind === 'button' ? 'cta' : 'rewrite')}
-            data-lp-cm="ai-rewrite"
-          >
-            ✨ AI viết lại
-          </ContextMenuItem>
-
-          <ContextMenuSeparator />
-
-          <ContextMenuItem
-            disabled={!menuBlockId}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onCopyBlock(id);
-            }}
-            data-lp-cm="copy"
-          >
-            Sao chép
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!actions.canPasteBlock || sectionLocked}
-            onSelect={() => actions.onPasteBlock()}
-            data-lp-cm="paste"
-          >
-            Dán
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!menuBlockId}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onDuplicate(id);
-            }}
-            data-lp-cm="duplicate"
-          >
-            Tạo bản sao
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={editDisabled}
-            className="text-red-300 focus:text-red-200"
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onDelete(id);
-            }}
-            data-lp-cm="delete"
-          >
-            Xóa
-          </ContextMenuItem>
-
-          <ContextMenuSeparator />
-
-          <ContextMenuSub>
-            <ContextMenuSubTrigger data-lp-cm="layer">Lớp</ContextMenuSubTrigger>
-            <ContextMenuSubContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto">
-              <ContextMenuItem
-                disabled={editDisabled}
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onMoveLayer(id, 'up');
-                }}
-              >
-                Đưa lên
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={editDisabled}
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onMoveLayer(id, 'down');
-                }}
-              >
-                Đưa xuống
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-
-          <ContextMenuSub>
-            <ContextMenuSubTrigger data-lp-cm="align">Căn chỉnh</ContextMenuSubTrigger>
-            <ContextMenuSubContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto">
-              <ContextMenuItem
-                disabled={editDisabled}
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onAlign(id, 'left');
-                }}
-              >
-                Trái
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={editDisabled}
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onAlign(id, 'center');
-                }}
-              >
-                Giữa
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={editDisabled}
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onAlign(id, 'right');
-                }}
-              >
-                Phải
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-
-          <ContextMenuItem
-            disabled={!menuBlockId}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onToggleLock(id);
-            }}
-            data-lp-cm="lock"
-          >
-            {block?.locked ? 'Mở khóa' : 'Khóa'}
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={editDisabled}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onToggleGroup(id);
-            }}
-            data-lp-cm="group"
-          >
-            {((block?.style || {}) as { lpGrouped?: boolean }).lpGrouped
-              ? 'Bỏ nhóm'
-              : 'Nhóm'}
-          </ContextMenuItem>
-
-          <ContextMenuItem
-            disabled={!menuBlockId}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onCopyStyle(id);
-            }}
-            data-lp-cm="copy-style"
-          >
-            Sao chép kiểu
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={editDisabled || !actions.canPasteStyle}
-            onSelect={() => {
-              const id = actBlockId();
-              if (id) actions.onPasteStyle(id);
-            }}
-            data-lp-cm="paste-style"
-          >
-            Dán kiểu
-          </ContextMenuItem>
-
-          <ContextMenuSeparator />
-
-          {/* Element-specific */}
-          {(ctx.kind === 'text' || ctx.kind === 'button') && block && menuBlockId && !sectionLocked ? (
+    <ContextMenu onOpenChange={setMenuOpen}>
+      <ContextMenuTrigger asChild>
+        <div
+          data-lp-canvas-context-menu="1"
+          data-lp-context-menu-open={menuOpen ? '1' : '0'}
+          onContextMenuCapture={capture}
+          className="min-h-[calc(100dvh-10rem)] min-w-0"
+        >
+          {children}
+        </div>
+      </ContextMenuTrigger>
+      {(count > 0 || actions.canPasteBlock) && (
+        <ContextMenuContent
+          data-lp-canvas-context-menu-content="1"
+          collisionPadding={8}
+          className="w-60 rounded-xl border-zinc-700 bg-zinc-900 p-1.5 shadow-xl"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {count > 0 && (
             <>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (!id || !block) return;
-                  const { field } = resolveFieldForContext(block, menuElement, ctx.kind);
-                  actions.onFocusInlineEdit(id, field);
-                }}
-                data-lp-cm="edit-text"
-              >
-                Sửa text
-              </ContextMenuItem>
-              {ctx.kind === 'button' ? (
+              {actions.grouped ? (
                 <ContextMenuItem
-                  onSelect={() => {
-                    const id = actBlockId();
-                    if (id) actions.onFocusButtonLink(id);
-                  }}
-                  data-lp-cm="edit-link"
+                  className={`${row} ${special}`}
+                  data-lp-cm="ungroup"
+                  disabled={!editable}
+                  onSelect={actions.onUngroupSelection}
                 >
-                  Sửa link / action
+                  <Ungroup />
+                  Bỏ nhóm
+                </ContextMenuItem>
+              ) : count > 1 && actions.canGroupSelection ? (
+                <ContextMenuItem
+                  className={`${row} ${special}`}
+                  data-lp-cm="group"
+                  onSelect={actions.onGroupSelection}
+                >
+                  <Group />
+                  Nhóm
+                </ContextMenuItem>
+              ) : count === 1 && (actions.boxSelectionCount || 0) >= 2 ? (
+                <ContextMenuItem
+                  className={`${row} ${special}`}
+                  data-lp-cm="select-box"
+                  onSelect={actions.onSelectAllInBox}
+                >
+                  <Scan />
+                  <span>
+                    Chọn tất cả phần tử
+                    <br />
+                    trong box
+                  </span>
                 </ContextMenuItem>
               ) : null}
-              <ContextMenuItem onSelect={() => openAi(ctx.kind === 'button' ? 'cta' : 'rewrite')}>
-                ✨ AI {ctx.kind === 'button' ? 'CTA' : 'viết lại'}
-              </ContextMenuItem>
+              {count > 1 && actions.canAlignSelection && editable && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger data-lp-cm="align" className={row}>
+                    <AlignHorizontalJustifyCenter />
+                    Căn chỉnh
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    collisionPadding={8}
+                    sideOffset={6}
+                    className="rounded-lg border-zinc-700 bg-zinc-900 p-1.5 text-white"
+                  >
+                    {(['left', 'center', 'right'] as const).map((align, i) => (
+                      <ContextMenuItem
+                        key={align}
+                        className={row}
+                        data-lp-cm={`align-${align}`}
+                        onSelect={() => run((id) => actions.onAlign(id, align))}
+                      >
+                        {['Trái', 'Giữa', 'Phải'][i]}
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
+              {actions.canCopySelection !== false && (
+                <ContextMenuItem
+                  className={row}
+                  data-lp-cm="copy"
+                  onSelect={() => run(actions.onCopyBlock)}
+                >
+                  <ClipboardCopy />
+                  Sao chép
+                </ContextMenuItem>
+              )}
             </>
-          ) : null}
-
-          {ctx.kind === 'image' && block && menuBlockId && !sectionLocked ? (
-            <>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onReplaceImage(id);
-                }}
-                data-lp-cm="replace-image"
-              >
-                Đổi ảnh
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onImageFit(id, 'cover');
-                }}
-              >
-                Fit: Cover
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onImageFit(id, 'contain');
-                }}
-              >
-                Fit: Contain
-              </ContextMenuItem>
-              <ContextMenuItem onSelect={() => openAi('image')}>✨ AI gợi ý ảnh/alt</ContextMenuItem>
-            </>
-          ) : null}
-
-          {ctx.kind === 'section' && menuBlockId && !sectionLocked ? (
-            <>
-              <ContextMenuItem onSelect={() => openAi('section')} data-lp-cm="ai-section">
-                ✨ AI tạo nội dung section
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onInsertSection(id, 'above');
-                }}
-                data-lp-cm="insert-above"
-              >
-                Thêm section phía trên
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onInsertSection(id, 'below');
-                }}
-                data-lp-cm="insert-below"
-              >
-                Thêm section phía dưới
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  const id = actBlockId();
-                  if (id) actions.onDuplicate(id);
-                }}
-              >
-                Duplicate section
-              </ContextMenuItem>
-            </>
-          ) : null}
-
-          {ctx.kind === 'form' && menuBlockId ? (
-            <ContextMenuItem disabled data-lp-cm="form-hint">
-              Form: CRM ở Inspector → Nội dung
+          )}
+          {actions.canPasteBlock && !locked && (
+            <ContextMenuItem className={row} data-lp-cm="paste" onSelect={actions.onPasteBlock}>
+              <ClipboardPaste />
+              Dán
             </ContextMenuItem>
-          ) : null}
-
-          {ctx.kind === 'video' && block && menuBlockId ? (
-            <ContextMenuItem
-              onSelect={() => {
-                const id = actBlockId();
-                if (id) actions.onFocusInlineEdit(id, 'videoUrl');
-              }}
-              data-lp-cm="edit-video"
-            >
-              Sửa URL video (Inspector)
-            </ContextMenuItem>
-          ) : null}
-
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => actions.onUndo()} data-lp-cm="undo">
-            Undo
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => actions.onRedo()} data-lp-cm="redo">
-            Redo
-          </ContextMenuItem>
+          )}
+          {count > 0 && (
+            <>
+              {actions.canDuplicateSelection !== false && (
+                <ContextMenuItem
+                  className={row}
+                  data-lp-cm="duplicate"
+                  onSelect={() => run(actions.onDuplicate)}
+                >
+                  <Copy />
+                  Tạo bản sao
+                </ContextMenuItem>
+              )}
+              {editable && actions.canLayerSelection !== false && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger data-lp-cm="layer" className={row}>
+                    <Layers />
+                    Lớp
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    collisionPadding={8}
+                    sideOffset={6}
+                    className="rounded-lg border-zinc-700 bg-zinc-900 p-1.5 text-white"
+                  >
+                    <ContextMenuItem
+                      className={row}
+                      data-lp-cm="layer-up"
+                      onSelect={() => run((id) => actions.onMoveLayer(id, 'up'))}
+                    >
+                      Đưa lên
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      className={row}
+                      data-lp-cm="layer-down"
+                      onSelect={() => run((id) => actions.onMoveLayer(id, 'down'))}
+                    >
+                      Đưa xuống
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
+              <ContextMenuItem
+                className={row}
+                data-lp-cm="lock"
+                onSelect={() => run(actions.onToggleLock)}
+              >
+                {locked ? <UnlockKeyhole /> : <LockKeyhole />}
+                {locked ? 'Mở khóa' : 'Khóa'}
+              </ContextMenuItem>
+              {editable && (
+                <>
+                  <ContextMenuSeparator className="mx-1 my-1 bg-zinc-700" />
+                  <ContextMenuItem
+                    className={`${row} text-red-400 focus:text-red-300`}
+                    data-lp-cm="delete"
+                    onSelect={() => run(actions.onDelete)}
+                  >
+                    <Trash2 />
+                    Xóa
+                  </ContextMenuItem>
+                </>
+              )}
+            </>
+          )}
         </ContextMenuContent>
-      </ContextMenu>
-
-      {ai ? (
-        <LpCanvasAiQuickPopover
-          state={ai}
-          pageId={actions.pageId}
-          onClose={() => setAi(null)}
-          onApply={(value, mode) => {
-            actions.onApplyField(ai.blockId, ai.field, value, mode);
-            setAi(null);
-          }}
-        />
-      ) : null}
-    </>
+      )}
+    </ContextMenu>
   );
 }

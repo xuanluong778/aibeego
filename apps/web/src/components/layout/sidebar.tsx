@@ -30,6 +30,8 @@ interface SidebarProps {
 export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: SidebarProps) {
   const t = useT();
   const pathname = usePathname();
+  // Keep editing focused on this page; prefetching other routes loads unused CSS.
+  const prefetchNavigation = pathname.startsWith('/landing-pages/builder/') ? false : undefined;
   const searchParams = useSearchParams();
   const currentPathWithQuery = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
@@ -282,6 +284,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                   label={t(group.title)}
                 >
                   <Link
+                    prefetch={prefetchNavigation}
                     href={onlyItem.href}
                     onClick={onNavigate}
                     className={cn(
@@ -329,6 +332,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                     {overviewToggle}
                     <CollapsedNavHoverLabel enabled label={t(group.title)}>
                       <Link
+                        prefetch={prefetchNavigation}
                         href={group.href}
                         onClick={onNavigate}
                         className={cn(
@@ -354,6 +358,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                     data-main-sidebar-overview-row="expanded"
                   >
                     <Link
+                      prefetch={prefetchNavigation}
                       href={group.href}
                       onClick={onNavigate}
                       className={cn(
@@ -379,6 +384,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                   label={t(group.title)}
                 >
                   <Link
+                    prefetch={prefetchNavigation}
                     href={group.href}
                     onClick={onNavigate}
                     className={cn(
@@ -402,12 +408,9 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
 
             if (collapsed) {
               return (
-                <CollapsedNavHoverLabel
-                  key={group.title}
-                  enabled
-                  label={t(group.title)}
-                >
+                <CollapsedNavHoverLabel key={group.title} enabled label={t(group.title)}>
                   <Link
+                    prefetch={prefetchNavigation}
                     href={hubHref}
                     onClick={onNavigate}
                     className={cn(
@@ -437,6 +440,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                   )}
                 >
                   <Link
+                    prefetch={prefetchNavigation}
                     href={hubHref}
                     onClick={() => {
                       setOpenGroups((prev) => ({ ...prev, [group.title]: true }));
@@ -472,6 +476,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
                       const itemActive = isNavItemActive(item);
                       return (
                         <Link
+                          prefetch={prefetchNavigation}
                           key={`${group.title}-${item.title}`}
                           href={item.href}
                           onClick={onNavigate}
@@ -512,6 +517,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
         )}
       >
         <Link
+          prefetch={prefetchNavigation}
           href={sidebarPlanHref}
           onClick={onNavigate}
           title={collapsed ? sidebarPlanLabel : undefined}

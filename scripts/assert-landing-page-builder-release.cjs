@@ -7,7 +7,6 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
     'landing-page-builder.tsx': [
       'LandingPageElementLibraryModal',
       'sectionInsertCommitRef',
-      'LandingPageBuilderVersionNotice',
       'openLibraryAfterDrop',
       "case 'add-picker-open':",
       'const inspectorPanelWidthPx = INSPECTOR_PANEL_WIDTH',
@@ -26,8 +25,7 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
       '2px dashed #2563EB',
     ],
     'landing-page-draft-recovery.ts': ['landingDraftsHaveSameContent', 'serverSpec'],
-    'landing-page-builder-version-notice.tsx': ['/landing-page-builder-version.json', 'Để sau'],
-    'landing-page-section-insert-target.ts': ['never flip to the left'],
+    'landing-page-section-insert-target.ts': ['never clamp a toolbar into content'],
     'landing-page-canvas-zoom.tsx': ['DESKTOP_FIT_SCALE = 1', 'DESKTOP_SCROLL_PAD_PX = 0'],
     'landing-page-inspector-rail.tsx': ['INSPECTOR_PANEL_WIDTH = 320'],
   })) {
@@ -39,6 +37,7 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
       );
   }
   const builder = fs.readFileSync(path.join(base, 'landing-page-builder.tsx'), 'utf8');
+  assert(!builder.includes('LandingPageBuilderVersionNotice'), 'Builder update popup must remain disabled');
   assert(
     !builder.includes('Chọn một mẫu bên phải để chèn vào vị trí thả'),
     'Refusing old sidebar-only picker implementation',
@@ -63,11 +62,17 @@ function assertLandingPageBuilderBundle(dir) {
   }
   walk(path.join(dir, 'static/chunks'));
   const code = chunks.join('\n');
+  assert(!code.includes('data-lp-builder-version-notice'), 'Builder update popup must not ship');
+  assert(!code.includes('lp-builder-version-dismissed'), 'Builder version polling must not ship');
   for (const marker of [
     'data-lp-element-library-modal',
     'data-lp-text-library-card',
     'data-lp-drop-bar',
-    'data-lp-builder-version-notice',
+    'data-lp-native-item-cell',
+    'data-lp-native-empty-column',
+    'grid-row:auto!important',
+    ':not(button):not([data-lp-transform-chrome])',
+    'min-height:min-content!important',
   ])
     assert(code.includes(marker), `Release artifact missing Builder marker ${marker}`);
 }

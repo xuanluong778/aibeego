@@ -23,6 +23,8 @@ import { sanitizeHtmlFragment } from './landing-page-html-import';
 import { sanitizeTextBoxChrome } from './landing-page-text-box';
 import { normalizeLandingPageThemeTokens } from './landing-page-theme-presets';
 import {
+  ELEMENT_FREE_MAX_X_PX,
+  ELEMENT_FREE_MAX_Y_PX,
   sanitizeFreeLayout,
   sanitizePositionMode,
   sanitizeResponsiveFreeLayout,
@@ -706,8 +708,8 @@ function sanitizeElementFreeLayoutsMap(
     const safeKey = String(key).slice(0, 160);
     if (!safeKey || !val || typeof val !== 'object') continue;
     const s = val as Record<string, unknown>;
-    const x = typeof s.x === 'number' && Number.isFinite(s.x) ? Math.min(640, Math.max(-640, s.x)) : null;
-    const y = typeof s.y === 'number' && Number.isFinite(s.y) ? Math.min(640, Math.max(-640, s.y)) : null;
+    const x = typeof s.x === 'number' && Number.isFinite(s.x) ? Math.min(ELEMENT_FREE_MAX_X_PX, Math.max(-ELEMENT_FREE_MAX_X_PX, s.x)) : null;
+    const y = typeof s.y === 'number' && Number.isFinite(s.y) ? Math.min(ELEMENT_FREE_MAX_Y_PX, Math.max(-ELEMENT_FREE_MAX_Y_PX, s.y)) : null;
     if (x == null || y == null) continue;
     const cleaned: NonNullable<typeof out>[string] = { x, y };
     if (typeof s.width === 'number' && Number.isFinite(s.width)) {
@@ -1232,8 +1234,15 @@ export function duplicateBlock(block: LandingPageBlock): LandingPageBlock {
 export function duplicateLandingPageNestedItem<T extends { id: string }>(item: T): T {
   const copy = JSON.parse(JSON.stringify(item)) as Record<string, unknown>;
   copy.id = uid('item');
-  delete copy.positionMode;
-  delete copy.freeLayout;
+  if (copy.positionMode === 'free' || (copy.freeLayout && typeof copy.freeLayout === 'object')) {
+    copy.positionMode = 'free';
+    const fl = { ...((copy.freeLayout as Record<string, unknown>) || {}) };
+    if (typeof fl.x === 'number') fl.x = Math.round(fl.x + 24);
+    else fl.x = 24;
+    if (typeof fl.y === 'number') fl.y = Math.round(fl.y + 24);
+    else fl.y = 24;
+    copy.freeLayout = fl;
+  }
   return copy as T;
 }
 

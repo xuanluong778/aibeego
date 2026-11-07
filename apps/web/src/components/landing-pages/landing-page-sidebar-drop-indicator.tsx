@@ -41,6 +41,7 @@ export function LandingPageSidebarDropIndicator() {
           data-lp-drop-bar={vertical ? 'column' : '20'}
           style={{
             position: 'fixed',
+            overflow: 'hidden',
             left: box.left,
             top: box.top,
             width: box.width,
@@ -62,6 +63,7 @@ export function LandingPageSidebarDropIndicator() {
           data-lp-drop-image-target
           style={{
             position: 'fixed',
+            overflow: 'hidden',
             left: box.left,
             top: box.top,
             width: box.width,

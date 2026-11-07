@@ -1,4 +1,6 @@
 'use client';
+import {acceptsTextSize, collisionNodes, elementRect, intersects} from './landing-page-no-overlap';
+import { readCanvasElementLayer } from './landing-page-canvas-groups';
 import { resolveSidebarDropTarget } from './landing-page-section-insert-target';
 
 /**
@@ -134,6 +136,7 @@ export type LandingPageCanvasHandlers = {
   onToggleFreePosition?: (blockId: string) => void;
   canReplaceImage?: (blockId: string) => boolean;
   /** Optional per-field canvas text styles (no HTML). */
+  getElementLayer?: (blockId: string, field: string) => number | undefined;
   getTextStyle?: (blockId: string, field: string) => LandingPageInlineTextStyle | undefined;
   onTextStyleChange?: (
     blockId: string,
@@ -545,7 +548,8 @@ export function useCanvasElementFreeDrag({
     }
   };
 
-  const shellStyleRaw = freeDrag.shellStyle;
+  const layer = handlers?.getElementLayer?.(blockId, field);
+  const shellStyleRaw = layer == null ? freeDrag.shellStyle : { ...freeDrag.shellStyle, position: 'relative' as const, zIndex: layer };
   const shellStyle =
     contentHug && shellStyleRaw
       ? (() => {
@@ -1521,7 +1525,7 @@ export function ElementChrome({
         data-lp-element-kind={kind}
         data-lp-free-child={shellStyle ? '1' : undefined}
         data-lp-free-mode={shellStyle ? 'offset' : undefined}
-        style={{ ...(shellStyle || {}), ...customCssStyle }}
+        style={{ ...(shellStyle || {}), ...customCssStyle, ...(readCanvasElementLayer(blockStyle, blockId, layoutField) != null ? { position: 'relative', zIndex: readCanvasElementLayer(blockStyle, blockId, layoutField) } : {}) }}
         className={`${
         kind === 'button' || kind === 'text'
           ? 'inline-block max-w-full'
@@ -1716,6 +1720,15 @@ function HeadingBoxResizeChrome({
     canvasScale: number;
     maxW: number;
     maxH: number;
+    minX: number;
+    minY: number;
+    right: number;
+    bottom: number;
+    baseLeft: number;
+    baseTop: number;
+    sectionEl: HTMLElement | null;
+    originalWrapCss: string;
+    originalTextCss: string;
     startFont: number;
     startLineHeight: number | string | undefined;
     scaleTypography: boolean;
@@ -1745,7 +1758,7 @@ function HeadingBoxResizeChrome({
     if (!el) return;
     el.style.boxSizing = 'border-box';
     el.style.setProperty('width', `${Math.max(80, w)}px`, 'important');
-    el.style.height = `${Math.max(28, h)}px`;
+    el.style.setProperty('height', `${Math.max(28, h)}px`, 'important');
     el.style.minHeight = '0';
     el.style.maxHeight = 'none';
     el.style.minWidth = '0';
@@ -1798,6 +1811,7 @@ function HeadingBoxResizeChrome({
     const scale = s.canvasScale > 0 ? s.canvasScale : 1;
     const dx = (s.pendingX - s.startX) / scale;
     const dy = (s.pendingY - s.startY) / scale;
+    const previousFont=s.lastFont,previousLineHeight=s.lastLineHeight,previousScaleTypography=s.scaleTypography;
     const corner = isHeadingCornerHandle(s.handle);
     const sideEW = s.handle === 'e' || s.handle === 'w';
     const minH = Math.max(28, s.minContentH);
@@ -1871,22 +1885,42 @@ function HeadingBoxResizeChrome({
       s.lastLineHeight = s.startLineHeight;
     }
 
-    if (nextX + nextW > s.maxW) nextX = Math.max(0, s.maxW - nextW);
-    if (nextX < 0) nextX = 0;
-    if (nextY < 0) nextY = 0;
-
+    if (nextX + nextW > s.right) {
+      if(s.handle.includes('w'))nextX=s.right-nextW;
+      else nextW=Math.max(80,s.right-nextX);
+    }
+    if(nextX<s.minX){nextW-=s.minX-nextX;nextX=s.minX;}
+    if(nextY<s.minY)nextY=s.minY;
+    const wrap=wrapRef.current, text=textRef.current;
+    const beforeWrap=wrap.style.cssText,beforeText=text?.style.cssText;
     applyLiveBox(nextW, nextH, nextX, nextY, typography);
     const contentH = measureTextHeight(s.canvasScale);
+    if(sideEW){nextH=Math.max(28,contentH+4);applyLiveBox(nextW,nextH,nextX,nextY,typography);}
     if (nextH < contentH) {
       if (s.handle.includes('n')) nextY -= contentH - nextH;
       if (nextY < 0) nextY = 0;
       nextH = contentH;
       applyLiveBox(nextW, nextH, nextX, nextY, typography);
     }
+    // Inline boxes in a centred parent acquire a new natural left when their
+    // width changes. Compensate that reflow so the grabbed edge stays anchored.
+    let committedX=nextX,committedY=nextY;
+    const surface=s.sectionEl?.getBoundingClientRect();
+    if(surface){
+      const actual=wrap.getBoundingClientRect();
+      committedX+=(surface.left+(s.baseLeft+nextX)*scale-actual.left)/scale;
+      committedY+=(surface.top+(s.baseTop+nextY)*scale-actual.top)/scale;
+      applyLiveBox(nextW,nextH,committedX,committedY,typography);
+    }
+    if(wrap.closest('[data-lp-non-overlap="1"]') && (collisionNodes(wrap).some(n=>intersects(elementRect(wrap),elementRect(n),1)) || (nextX<s.minX-1||nextY<s.minY-1||nextX+nextW>s.right+1||nextY+nextH>s.bottom+1))) {
+      wrap.style.cssText=beforeWrap;if(text&&beforeText!==undefined)text.style.cssText=beforeText;
+      s.lastFont=previousFont;s.lastLineHeight=previousLineHeight;s.scaleTypography=previousScaleTypography;
+      return;
+    }
     s.lastW = nextW;
     s.lastH = nextH;
-    s.lastOX = nextX;
-    s.lastOY = nextY;
+    s.lastOX = committedX;
+    s.lastOY = committedY;
   };
 
   const scheduleMove = (clientX: number, clientY: number) => {
@@ -1914,36 +1948,21 @@ function HeadingBoxResizeChrome({
     const scale = readCanvasPointerScale(wrap);
     const rect = wrap.getBoundingClientRect();
     const textRect = textEl?.getBoundingClientRect();
-    // Prefer locked width, else the painted text box (not a stretched parent).
-    const startW =
-      width && width > 0
-        ? width
-        : Math.max(
-            80,
-            Math.round(
-              (textRect && textRect.width > 0 ? textRect.width : rect.width) /
-                (scale > 0.05 ? scale : 1),
-            ),
-          );
-    const paintedH = Math.max(
-      28,
-      Math.round((textRect?.height || 0) / (scale > 0.05 ? scale : 1)),
-    );
-    const wrapH = Math.max(28, Math.round(rect.height / (scale > 0.05 ? scale : 1)));
-    // Visible frame (may be taller than glyphs from a leftover locked height).
-    const startH = Math.max(paintedH, wrapH, height && height > 0 ? height : 0);
-    const originX = freeOffset?.x ?? 0;
-    const originY = freeOffset?.y ?? 0;
-    const sectionEl =
-      (wrap.closest('[data-lp-section-chrome="1"]') as HTMLElement | null) ||
-      (wrap.closest('[data-lp-block-slot]') as HTMLElement | null) ||
-      (wrap.closest('[data-lp-canvas-root]') as HTMLElement | null);
-    const sectionRect = sectionEl?.getBoundingClientRect();
     const scaleSafe = scale > 0.05 ? scale : 1;
-    const maxW = sectionRect
-      ? Math.max(80, Math.round(sectionRect.width / scaleSafe) - 8)
-      : 1200;
-    const maxH = 2400;
+    const startW = Math.max(80,Math.round(rect.width/scaleSafe));
+    const paintedH = Math.max(28,Math.round((textRect?.height||0)/scaleSafe));
+    const startH = Math.max(28,Math.round(rect.height/scaleSafe));
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(wrap).transform);
+    const originX = matrix.m41, originY = matrix.m42;
+    const sectionEl = wrap.closest<HTMLElement>('[data-lp-item-id]') || wrap.closest<HTMLElement>('[data-lp-section-chrome="1"]') || wrap.closest<HTMLElement>('[data-lp-block-slot]') || wrap.closest<HTMLElement>('[data-lp-canvas-root]');
+    const sectionRect = sectionEl?.getBoundingClientRect();
+    const baseLeft=sectionRect?(rect.left-sectionRect.left)/scaleSafe-originX:0;
+    const baseTop=sectionRect?(rect.top-sectionRect.top)/scaleSafe-originY:0;
+    const minX=-baseLeft,minY=-baseTop;
+    const right=sectionRect?sectionRect.width/scaleSafe-baseLeft:1200;
+    const bottom=sectionRect?sectionRect.height/scaleSafe-baseTop:2400;
+    const maxW=Math.max(80,right-minX),maxH=Math.max(28,bottom-minY);
+
 
     let startFont = baseFontSize && baseFontSize > 0 ? baseFontSize : 0;
     if (!startFont && textEl) {
@@ -1981,6 +2000,8 @@ function HeadingBoxResizeChrome({
       canvasScale: scale,
       maxW,
       maxH,
+      minX,minY,right,bottom,baseLeft,baseTop,sectionEl,
+      originalWrapCss:wrap.style.cssText,originalTextCss:textEl?.style.cssText||'',
       startFont,
       startLineHeight,
       scaleTypography: isHeadingCornerHandle(handle),
@@ -2019,6 +2040,7 @@ function HeadingBoxResizeChrome({
       window.removeEventListener('pointerup', onUp, true);
       window.removeEventListener('pointercancel', onCancel, true);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKey, true);
       document.removeEventListener('lostpointercapture', onLostCapture, true);
       const s = sessionRef.current;
       if (s?.raf) cancelAnimationFrame(s.raf);
@@ -2053,10 +2075,9 @@ function HeadingBoxResizeChrome({
       if (liveText) {
         liveText.style.removeProperty('width');
         liveText.style.removeProperty('max-width');
-        liveText.style.removeProperty('font-size');
-        liveText.style.removeProperty('line-height');
+        if(s.scaleTypography){liveText.style.removeProperty('font-size');liveText.style.removeProperty('line-height');}
       }
-      if (!commit) return;
+      if (!commit) {el.style.cssText=s.originalWrapCss;if(liveText)liveText.style.cssText=s.originalTextCss;return;}
       onCommitBox({
         width: s.lastW,
         height: s.lastH,
@@ -2087,6 +2108,7 @@ function HeadingBoxResizeChrome({
       finish(ev, false);
     };
     const onBlur = () => finish(undefined, false);
+    const onKey = (ev: globalThis.KeyboardEvent) => {if(ev.key==='Escape'){ev.preventDefault();ev.stopPropagation();finish(undefined,false);}};
     const onLostCapture = (ev: Event) => {
       const pe = ev as PointerEvent;
       if (pe.pointerId != null && pe.pointerId !== pointerId) return;
@@ -2097,6 +2119,7 @@ function HeadingBoxResizeChrome({
     window.addEventListener('pointerup', onUp, true);
     window.addEventListener('pointercancel', onCancel, true);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onKey, true);
     document.addEventListener('lostpointercapture', onLostCapture, true);
   };
 
@@ -2396,11 +2419,12 @@ export function InlineEditable({
       typeof textStyle?.width === 'number' && textStyle.width > 0 ? textStyle.width : undefined;
     const pubHeight =
       typeof textStyle?.height === 'number' && textStyle.height > 0 ? textStyle.height : undefined;
-    if (!freeStyle && !textBoxChromeActive(textStyle?.box) && !pubWidth && !pubHeight) return node;
+    if (!freeStyle && !textBoxChromeActive(textStyle?.box) && !pubWidth && !pubHeight && readCanvasElementLayer(blockStyle, blockId, field) == null) return node;
     return (
       <span
         data-lp-text-box="1"
         data-lp-text-hug="1"
+        data-lp-size-accepted={acceptsTextSize(blockStyle,field)?'1':undefined}
         data-lp-heading-resize={isTextBoxResizable ? '1' : undefined}
         data-lp-heading-width-locked={pubWidth ? '1' : undefined}
         data-lp-heading-height-locked={pubHeight ? '1' : undefined}
@@ -2409,6 +2433,7 @@ export function InlineEditable({
         data-lp-free-id={freeStyle ? `${blockId}::${field}` : undefined}
         style={{
           ...freeStyle,
+          ...(readCanvasElementLayer(blockStyle, blockId, field) != null ? { position: 'relative', zIndex: readCanvasElementLayer(blockStyle, blockId, field) } as CSSProperties : {}),
           ...(boxCss as CSSProperties),
           ...(pubWidth
             ? ({ ['--lp-text-box-width' as string]: `${pubWidth}px` } as CSSProperties)
@@ -2547,6 +2572,7 @@ export function InlineEditable({
       data-lp-heading-resize={isTextBoxResizable ? '1' : undefined}
       data-lp-heading-auto-height={isTextBoxResizable && !boxHeight ? '1' : undefined}
       data-lp-text-hug="1"
+        data-lp-size-accepted={acceptsTextSize(blockStyle,field)?'1':undefined}
       data-lp-heading-width-locked={boxWidth ? '1' : undefined}
       data-lp-heading-height-locked={boxHeight ? '1' : undefined}
       data-lp-fill-parent={fillParent ? '1' : undefined}
@@ -3122,7 +3148,7 @@ export function LandingPageCanvasTextToolbarHost({
     };
   }, [handlers, primaryKey]);
 
-  if (!handlers || !primaryKey || !anchorEl) return null;
+  if (!handlers || !primaryKey || !anchorEl || (handlers.selectedElementIds?.length || 0) > 1) return null;
 
   const targetRaw = parseLpSelectionKey(primaryKey);
   if (!targetRaw || !isTextToolbarTarget(targetRaw)) return null;
@@ -3941,25 +3967,15 @@ function TextEditToolbar({
  * Item MIME never accepted by section drop; parent blockId must match.
  * Free-drag (opt-in) via pointer after select — separate from reorder MIME.
  */
-export function ItemReorderChrome({
-  blockId,
-  index,
-  itemId,
-  handlers,
-  children,
-}: {
-  blockId: string;
-  index: number;
-  itemId: string;
-  handlers?: LandingPageCanvasHandlers | null;
-  children: ReactNode;
+export function ItemReorderChrome({ blockId, index, itemId, handlers, children }: {
+  blockId:string; index:number; itemId:string; handlers?:LandingPageCanvasHandlers|null; children:ReactNode;
 }) {
-  if (!handlers) return <>{children}</>;
-  return (
-    <ItemReorderChromeInteractive blockId={blockId} index={index} itemId={itemId} handlers={handlers}>
-      {children}
-    </ItemReorderChromeInteractive>
-  );
+  // React keeps ownership of the native grid children. Flow slots are siblings of
+  // the painted card inside this stable cell, never moved React-owned nodes.
+  return <div data-lp-native-item-cell={itemId} data-lp-native-cell-parent={blockId} className="contents min-w-0">
+    {handlers ? <ItemReorderChromeInteractive blockId={blockId} index={index} itemId={itemId} handlers={handlers}>{children}</ItemReorderChromeInteractive> :
+      <div data-lp-item-id={itemId} data-lp-item-parent={blockId} data-lp-item-index={index} className="min-w-0">{children}</div>}
+  </div>;
 }
 
 function ItemReorderChromeInteractive({
@@ -3986,7 +4002,7 @@ function ItemReorderChromeInteractive({
   const viewport = handlers.viewport || 'desktop';
   const layoutRaw = handlers.getItemFreeLayout?.(blockId, itemId) ?? null;
   const layout = isPlausibleFreeLayout(layoutRaw, 'offset') ? layoutRaw : null;
-  const freeEnabled = Boolean(handlers.onItemFreeLayoutCommit);
+  const freeEnabled = Boolean(handlers.onItemFreeLayoutCommit) && !handlers.isTextElementLocked?.(blockId, element);
 
   const freeDrag = useFreeDragBox({
     enabled: freeEnabled,
@@ -4022,6 +4038,7 @@ function ItemReorderChromeInteractive({
       }}
       onDragLeave={(e) => e.currentTarget.removeAttribute('data-lp-item-drop-over')}
       onDrop={(e) => {
+        if (!Array.from(e.dataTransfer.types).includes(LP_ITEM_MIME)) return;
         e.preventDefault();
         e.stopPropagation();
         e.currentTarget.removeAttribute('data-lp-item-drop-over');

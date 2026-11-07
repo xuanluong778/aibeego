@@ -30,6 +30,7 @@ import { beginFreeDragByFreeId, beginFreeDragFromShell, cancelAllFreeDrags } fro
 import {
   placeVerticalToolbar,
   readToolbarPageBounds,
+  readDropObstacles,
   type DropRect,
 } from './landing-page-section-insert-target';
 
@@ -356,7 +357,7 @@ export function LandingPageElementVerticalToolbar({
 }: LandingPageElementVerticalToolbarProps) {
   const [hoverTarget, setHoverTarget] = useState<LpSelectionTarget | null>(null);
   const [toolbarHover, setToolbarHover] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top: number; side: 'left' | 'right' } | null>(
+  const [pos, setPos] = useState<{ left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' } | null>(
     null,
   );
   const pinnedBySelection = Boolean(primaryTarget);
@@ -368,7 +369,7 @@ export function LandingPageElementVerticalToolbar({
   const toolbarElRef = useRef<HTMLDivElement | null>(null);
 
   const computePosition = useCallback(
-    (target: LpSelectionTarget): { left: number; top: number; side: 'left' | 'right' } | null => {
+    (target: LpSelectionTarget): { left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' } | null => {
       const anchor = findAnchorForTarget(target) || anchorRef.current;
       if (!anchor) return null;
       anchorRef.current = anchor;
@@ -386,14 +387,12 @@ export function LandingPageElementVerticalToolbar({
           : null);
       if (!canvas) return null;
       const cr = canvas.getBoundingClientRect();
-      const section = (anchor.closest('[data-lp-section-chrome]') as HTMLElement | null) || canvas;
-      const sr = section.getBoundingClientRect();
       const scroll = document.querySelector('[data-lp-canvas-scroll]') as HTMLElement | null;
       const inspector = document.querySelector(
         '[data-lp-inspector-shell], [data-lp-inspector]',
       ) as HTMLElement | null;
       const bounds = readToolbarPageBounds({
-        canvas: toDropRect(sr.width > 40 ? sr : cr),
+        canvas: toDropRect(cr),
         scroll: scroll ? toDropRect(scroll.getBoundingClientRect()) : null,
         inspector: inspector ? toDropRect(inspector.getBoundingClientRect()) : null,
         // Keep the bar on the page (section ∩ inspector), not the narrower text column.
@@ -407,6 +406,7 @@ export function LandingPageElementVerticalToolbar({
         canvas: bounds,
         toolbarW,
         toolbarH,
+        obstacles: readDropObstacles(canvas),
         gap: GAP,
         pad: 16,
         viewTop: Math.max(bounds.top + 16, chromeTop),

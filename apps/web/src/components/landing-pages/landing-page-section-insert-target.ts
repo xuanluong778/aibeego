@@ -57,10 +57,30 @@ export function sectionAnchor(
   placement: LandingPageSectionPlacement,
 ): { node: HTMLElement; end?: boolean } | null {
   const a = placement.anchor;
+  if (a.kind === 'field' && a.field.startsWith('__')) {
+    const itemId = a.field.split(':')[1];
+    let box = itemId
+      ? host.querySelector<HTMLElement>(`[data-lp-item-id="${esc(itemId)}"]`)
+      : host.querySelector<HTMLElement>(
+          `[data-lp-section-element][data-lp-block-id="${esc(a.blockId)}"]`,
+        );
+    if (!box && a.field.startsWith('__row:')) box = nativeItemBoxes(host)[0] || null;
+    if (!box) {
+      const cell =
+        typeof placement.columnIndex === 'number'
+          ? host.querySelector<HTMLElement>(`[data-lp-content-column="${placement.columnIndex}"]`)
+          : null;
+      return cell ? { node: cell, end: true } : null;
+    }
+    if (a.field.startsWith('__row:')) return { node: nativeItemRow(box)! };
+    return { node: box };
+  }
+  let targetCell: HTMLElement | null = null;
   if (typeof placement.columnIndex === 'number') {
     const cell = host.querySelector<HTMLElement>(
       `[data-lp-content-column="${esc(String(placement.columnIndex))}"]`,
     );
+    targetCell = cell;
     if (cell && a.kind === 'end') return { node: cell, end: true };
     if (cell && a.kind !== 'end') host = cell;
   }
@@ -76,7 +96,7 @@ export function sectionAnchor(
       : host.querySelector<HTMLElement>(
           `[data-lp-section-element="1"][data-lp-block-id="${esc(a.blockId)}"]`,
         );
-  if (!owner) return null;
+  if (!owner) return targetCell ? { node: targetCell, end: true } : null;
   if (a.kind === 'submit') {
     const node = owner.querySelector<HTMLElement>('form[data-lp-form-block] button[type="submit"]');
     return node ? { node } : null;
@@ -84,8 +104,11 @@ export function sectionAnchor(
   const field = owner.querySelector<HTMLElement>(
     `[data-lp-inline-field="${esc(a.field)}"],[data-lp-field-anchor="${esc(a.field)}"]`,
   );
-  if (!field) return null;
+  if (!field) return targetCell ? { node: targetCell, end: true } : null;
+  const outerBox = field.closest<HTMLElement>('[data-lp-item-id],[data-lp-section-element]');
+  if (outerBox && (owner === outerBox || owner.contains(outerBox))) return { node: outerBox };
   const node =
+    field.closest<HTMLElement>('[data-lp-element-kind="button"]') ||
     field.closest<HTMLElement>('button,a,label') ||
     field.closest<HTMLElement>('[data-lp-inline-wrap]') ||
     field;
@@ -143,7 +166,7 @@ export function clampRectToBounds(rect: DropRect, bounds: DropRect, pad = 2): Dr
   return { left, top, width, height };
 }
 
-/** Place the orange element toolbar on the element's right, always inside the landing page. */
+/** Find a free lane beside the selection; never clamp a toolbar into content. */
 export function placeVerticalToolbar(input: {
   anchor: DropRect;
   canvas: DropRect;
@@ -153,31 +176,139 @@ export function placeVerticalToolbar(input: {
   pad?: number;
   viewTop?: number;
   viewBottom?: number;
-}): { left: number; top: number; side: 'left' | 'right' } | null {
-  const { anchor, canvas, toolbarW, toolbarH } = input;
-  const gap = input.gap ?? 6;
-  const pad = input.pad ?? 16;
-  if (canvas.width < toolbarW + pad * 2 || canvas.height < 8) return null;
-  const canvasRight = canvas.left + canvas.width;
-  const canvasBottom = canvas.top + canvas.height;
-  const viewTop = Math.max(canvas.top + pad, input.viewTop ?? canvas.top + pad);
-  const viewBottom = Math.min(canvasBottom - pad, input.viewBottom ?? canvasBottom - pad);
-  const overlapTop = Math.max(anchor.top, viewTop);
-  const overlapBottom = Math.min(anchor.top + anchor.height, viewBottom);
-  if (overlapBottom - overlapTop <= 0) return null;
+  obstacles?: DropRect[];
+}): { left: number; top: number; side: 'left' | 'right' | 'top' | 'bottom' } | null {
+  const { anchor, canvas, toolbarW: w, toolbarH: h } = input;
+  const gap = input.gap ?? 6,
+    pad = input.pad ?? 8;
+  const left = canvas.left + pad,
+    right = canvas.left + canvas.width - pad;
+  const top = Math.max(canvas.top + pad, input.viewTop ?? canvas.top + pad);
+  const bottom = Math.min(
+    canvas.top + canvas.height - pad,
+    input.viewBottom ?? canvas.top + canvas.height - pad,
+  );
+  if (right - left < w || bottom - top < h) return null;
+  const obstacles = [anchor, ...(input.obstacles || [])];
+  const fits = (x: number, y: number) =>
+    x >= left &&
+    x + w <= right &&
+    y >= top &&
+    y + h <= bottom &&
+    !obstacles.some((o) => rectsOverlap({ left: x, top: y, width: w, height: h }, o, 2));
+  const midY = Math.max(top, Math.min(bottom - h, anchor.top + (anchor.height - h) / 2));
+  const midX = Math.max(left, Math.min(right - w, anchor.left + (anchor.width - w) / 2));
+  const candidates: Array<{
+    left: number;
+    top: number;
+    side: 'left' | 'right' | 'top' | 'bottom';
+  }> = [
+    { left: anchor.left + anchor.width + gap, top: midY, side: 'right' },
+    { left: anchor.left - gap - w, top: midY, side: 'left' },
+    { left: midX, top: anchor.top + anchor.height + gap, side: 'bottom' },
+    { left: midX, top: anchor.top - gap - h, side: 'top' },
+  ];
+  for (const c of candidates) if (fits(c.left, c.top)) return c;
+  const nearby = [...obstacles]
+    .sort(
+      (a, b) =>
+        Math.hypot(a.left - anchor.left, a.top - anchor.top) -
+        Math.hypot(b.left - anchor.left, b.top - anchor.top),
+    )
+    .slice(0, 12);
+  const xs = [
+    left,
+    right - w,
+    ...nearby.flatMap((o) => [o.left - gap - w, o.left + o.width + gap]),
+  ];
+  const ys = [top, bottom - h, ...nearby.flatMap((o) => [o.top - gap - h, o.top + o.height + gap])];
+  const free = xs
+    .flatMap((x) =>
+      ys.map((y) => ({
+        left: x,
+        top: y,
+        side: (x >= anchor.left + anchor.width
+          ? 'right'
+          : x + w <= anchor.left
+            ? 'left'
+            : y >= anchor.top + anchor.height
+              ? 'bottom'
+              : 'top') as 'left' | 'right' | 'top' | 'bottom',
+      })),
+    )
+    .filter((c) => fits(c.left, c.top));
+  free.sort(
+    (a, b) => Math.hypot(a.left - midX, a.top - midY) - Math.hypot(b.left - midX, b.top - midY),
+  );
+  return free[0] || null;
+}
 
-  const preferRight = anchor.left + anchor.width + gap;
-  const minLeft = canvas.left + pad;
-  const maxLeft = canvasRight - pad - toolbarW;
-  const insideRight = Math.min(anchor.left + anchor.width, canvasRight) - pad - toolbarW;
-  // Always dock on the right of the element — never flip to the left.
-  const left = Math.min(Math.max(preferRight <= maxLeft ? preferRight : insideRight, minLeft), maxLeft);
-  const side: 'left' | 'right' = 'right';
+export function rectsOverlap(a: DropRect, b: DropRect, pad = 0): boolean {
+  return (
+    a.left < b.left + b.width + pad &&
+    a.left + a.width > b.left - pad &&
+    a.top < b.top + b.height + pad &&
+    a.top + a.height > b.top - pad
+  );
+}
 
-  const visibleMid = (overlapTop + overlapBottom) / 2 - toolbarH / 2;
-  const topBase = anchor.height > 220 && anchor.top >= viewTop - 8 ? anchor.top + 16 : visibleMid;
-  const top = Math.min(Math.max(viewTop, topBase), viewBottom - toolbarH);
-  return { left, top, side };
+/** Painted boxes and editable elements, excluding editor overlays and page backgrounds. */
+export function readDropObstacles(root: HTMLElement): DropRect[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '[data-lp-item-id],[data-lp-item-id] > *,[data-lp-section-element],[data-lp-free-child],[data-lp-box-block]',
+    ),
+  )
+    .filter((n) => !n.closest('[data-lp-transform-chrome],[data-lp-sidebar-drop-indicator]'))
+    .map((n) => rect(n.getBoundingClientRect()))
+    .filter((r) => r.width > 1 && r.height > 1);
+}
+
+/** Reserve the indicator only in an empty lane; the same target drives the drop. */
+export function fitDropLine(
+  line: DropRect,
+  bounds: DropRect,
+  obstacles: DropRect[],
+  vertical: boolean,
+): DropRect | null {
+  for (const thickness of [vertical ? line.width : line.height, 8, 4]) {
+    const w = vertical ? thickness : Math.min(line.width, bounds.width),
+      h = vertical ? Math.min(line.height, bounds.height) : thickness;
+    const x = Math.max(bounds.left, Math.min(bounds.left + bounds.width - w, line.left));
+    const y = Math.max(bounds.top, Math.min(bounds.top + bounds.height - h, line.top));
+    const coords = vertical
+      ? [x, ...obstacles.flatMap((o) => [o.left - w - 2, o.left + o.width + 2])]
+      : [y, ...obstacles.flatMap((o) => [o.top - h - 2, o.top + o.height + 2])];
+    coords.sort((a, b) => Math.abs(a - (vertical ? x : y)) - Math.abs(b - (vertical ? x : y)));
+    for (const c of coords) {
+      if (Math.abs(c - (vertical ? x : y)) > 40) continue;
+      const r = { left: vertical ? c : x, top: vertical ? y : c, width: w, height: h };
+      if (
+        r.left >= bounds.left &&
+        r.top >= bounds.top &&
+        r.left + w <= bounds.left + bounds.width + 0.5 &&
+        r.top + h <= bounds.top + bounds.height + 0.5 &&
+        !obstacles.some((o) => rectsOverlap(r, o, 1))
+      )
+        return r;
+    }
+  }
+  return null;
+}
+
+export function nativeItemBoxes(host: HTMLElement): HTMLElement[] {
+  return Array.from(host.querySelectorAll<HTMLElement>('[data-lp-item-id]')).filter(
+    (n) =>
+      n.dataset.lpItemParent === host.dataset.lpBlockId && !n.closest('[data-lp-section-element]'),
+  );
+}
+
+export function nativeItemRow(node: HTMLElement): HTMLElement | null {
+  return (
+    node.closest<HTMLElement>('[data-lp-native-flow-grid]') ||
+    node.closest<HTMLElement>('[data-lp-native-item-cell]')?.parentElement ||
+    node.parentElement
+  );
 }
 
 /** Visible landing-page box: canvas ∩ scrollport ∩ content-safe, cut before the inspector. */
@@ -384,6 +515,221 @@ export function resolveSidebarDropTarget(
   payload: LpSidebarPresetPayload,
   point: { clientX: number; clientY: number; target?: EventTarget | null },
 ): SidebarDropTarget | null {
+  const target = resolveSidebarDropTargetRaw(root, host, payload, point);
+  if (!target?.line) return target;
+  const bounds = target.sectionBounds || rect(root.getBoundingClientRect());
+  const line = fitDropLine(
+    target.line,
+    bounds,
+    readDropObstacles(root),
+    target.orientation === 'vertical',
+  );
+  return line ? { ...target, line } : null;
+}
+
+function nativeBoxDrop(
+  host: HTMLElement,
+  point: { clientX: number; clientY: number; target?: EventTarget | null },
+): SidebarDropTarget | null {
+  const nodes = nativeItemBoxes(host);
+  if (!nodes.length) return null;
+  const boxes = nodes.map((n) => rect(n.getBoundingClientRect()));
+  const row = nativeItemRow(nodes[0]!)!;
+  const rowStyle = getComputedStyle(row);
+  if (
+    !row.matches('[data-lp-native-flow-grid]') &&
+    !rowStyle.display.includes('grid') &&
+    !(rowStyle.display.includes('flex') && !rowStyle.flexDirection.startsWith('column'))
+  )
+    return null;
+  const rowBox = rect(row.getBoundingClientRect()),
+    section = rect(host.getBoundingClientRect());
+  const sectionId = host.dataset.lpBlockId!;
+  const indices = nodes.map((n, i) =>
+    Number(n.closest<HTMLElement>('[data-lp-content-column]')?.dataset.lpContentColumn ?? i),
+  );
+  const count = row.hasAttribute('data-lp-content-columns')
+    ? Math.max(Number(row.dataset.lpContentColumns) || 1, ...indices.map((i) => i + 1))
+    : nodes.length;
+  const nativeItemIds = nodes.map((n) => n.dataset.lpItemId!);
+  const allTop = Math.min(rowBox.top, ...boxes.map((b) => b.top)),
+    allBottom = Math.max(rowBox.top + rowBox.height, ...boxes.map((b) => b.top + b.height));
+  const nearest = boxes
+    .map((b, i) => ({
+      i,
+      d:
+        Math.max(b.left - point.clientX, 0, point.clientX - b.left - b.width) ** 2 +
+        Math.max(b.top - point.clientY, 0, point.clientY - b.top - b.height) ** 2,
+    }))
+    .sort((a, b) => a.d - b.d)[0]!.i;
+  const box = boxes[nearest]!,
+    id = nodes[nearest]!.dataset.lpItemId!;
+  const hit =
+    point.target instanceof Element
+      ? point.target
+      : document.elementFromPoint(point.clientX, point.clientY);
+  const attached = hit?.closest<HTMLElement>('[data-lp-section-element]'),
+    cell = attached?.closest<HTMLElement>('[data-lp-content-column]');
+  if (attached && !cell && host.contains(attached)) {
+    const b = rect(attached.getBoundingClientRect()),
+      before = point.clientY < b.top + b.height / 2;
+    return {
+      sectionId,
+      sectionBounds: section,
+      barColor: '#ffffff',
+      position: {
+        mode: 'section-element',
+        blockId: sectionId,
+        anchor: { kind: 'field', blockId: attached.dataset.lpBlockId!, field: '__whole' },
+        edge: before ? 'before' : 'after',
+      },
+      region: b,
+      line: slotBar(
+        b.left,
+        b.width,
+        before ? b.top : b.top + b.height,
+        before ? 'before' : 'after',
+      ),
+    };
+  }
+  if (attached && cell && host.contains(attached)) {
+    const b = rect(attached.getBoundingClientRect()),
+      i = Number(cell.dataset.lpContentColumn);
+    const side =
+      point.clientX < b.left + Math.min(24, b.width * 0.15)
+        ? 'left'
+        : point.clientX > b.left + b.width - Math.min(24, b.width * 0.15)
+          ? 'right'
+          : null;
+    if (side && count < LP_CONTENT_COLUMNS_MAX)
+      return {
+        sectionId,
+        sectionBounds: section,
+        barColor: '#ffffff',
+        orientation: 'vertical',
+        position: {
+          mode: 'section-element',
+          blockId: sectionId,
+          anchor: { kind: 'end' },
+          edge: 'after',
+          columnIndex: i + (side === 'right' ? 1 : 0),
+          splitColumns: count + 1,
+          nativeColumnIndices: indices,
+          nativeItemIds,
+        },
+        region: rowBox,
+        line: {
+          left: side === 'right' ? b.left + b.width + 2 : b.left - 22,
+          top: rowBox.top,
+          width: 20,
+          height: rowBox.height,
+        },
+      };
+    const before = point.clientY < b.top + b.height / 2;
+    return {
+      sectionId,
+      sectionBounds: section,
+      barColor: '#ffffff',
+      position: {
+        mode: 'section-element',
+        blockId: sectionId,
+        anchor: { kind: 'field', blockId: attached.dataset.lpBlockId!, field: '__whole' },
+        edge: before ? 'before' : 'after',
+        columnIndex: i,
+        columnCount: count,
+        nativeColumnIndices: indices,
+        nativeItemIds,
+      },
+      region: b,
+      line: slotBar(
+        b.left,
+        b.width,
+        before ? b.top : b.top + b.height,
+        before ? 'before' : 'after',
+      ),
+    };
+  }
+  if (point.clientY < allTop - 3 || point.clientY > allBottom + 3) {
+    const before = point.clientY < allTop;
+    return {
+      sectionId,
+      sectionBounds: section,
+      barColor: '#ffffff',
+      position: {
+        mode: 'section-element',
+        blockId: sectionId,
+        anchor: { kind: 'field', blockId: sectionId, field: `__row:${id}` },
+        edge: before ? 'before' : 'after',
+      },
+      region: rowBox,
+      line: slotBar(
+        rowBox.left,
+        rowBox.width,
+        before ? allTop : allBottom,
+        before ? 'before' : 'after',
+      ),
+    };
+  }
+  const edge = Math.min(28, box.width * 0.18),
+    left = point.clientX < box.left + edge,
+    right = point.clientX > box.left + box.width - edge;
+  if ((left || right) && count < LP_CONTENT_COLUMNS_MAX) {
+    const at = indices[nearest]! + (right ? 1 : 0);
+    return {
+      sectionId,
+      sectionBounds: section,
+      barColor: '#ffffff',
+      orientation: 'vertical',
+      position: {
+        mode: 'section-element',
+        blockId: sectionId,
+        anchor: { kind: 'end' },
+        edge: 'after',
+        columnIndex: at,
+        splitColumns: count + 1,
+        nativeColumnIndices: indices,
+        nativeItemIds,
+      },
+      region: rowBox,
+      line: {
+        left: right ? box.left + box.width + 2 : box.left - LP_COLUMN_BAR_WIDTH - 2,
+        top: allTop,
+        width: LP_COLUMN_BAR_WIDTH,
+        height: allBottom - allTop,
+      },
+    };
+  }
+  const before = point.clientY < box.top + box.height / 2;
+  return {
+    sectionId,
+    sectionBounds: section,
+    barColor: '#ffffff',
+    position: {
+      mode: 'section-element',
+      blockId: sectionId,
+      anchor: { kind: 'field', blockId: sectionId, field: `__box:${id}` },
+      edge: before ? 'before' : 'after',
+      columnIndex: indices[nearest],
+      columnCount: count,
+      nativeColumnIndices: indices,
+      nativeItemIds,
+    },
+    region: box,
+    line: slotBar(
+      box.left,
+      box.width,
+      before ? box.top : box.top + box.height,
+      before ? 'before' : 'after',
+    ),
+  };
+}
+
+function resolveSidebarDropTargetRaw(
+  root: HTMLElement,
+  host: HTMLElement | null,
+  payload: LpSidebarPresetPayload,
+  point: { clientX: number; clientY: number; target?: EventTarget | null },
+): SidebarDropTarget | null {
   if (!host) {
     if (!isPageSidebarPayload(payload)) return null;
     const sections = Array.from(root.querySelectorAll<HTMLElement>('[data-lp-section-chrome="1"]'));
@@ -443,6 +789,8 @@ export function resolveSidebarDropTarget(
     }
   }
   if (host.dataset.lpBlockType === 'Header' || host.closest('[data-lp-html-document]')) return null;
+  const native = nativeBoxDrop(host, point);
+  if (native) return native;
   const columns = readColumnRects(host);
   const picked = pickColumnBox(point.clientX, columns.container, columns.columns, point.clientY);
   const grid = host.querySelector('[data-lp-content-columns]');
@@ -514,7 +862,20 @@ export function resolveSidebarDropTarget(
     const blockId = owner?.dataset.lpBlockId;
     const key = field.dataset.lpInlineField || field.dataset.lpFieldAnchor;
     if (!blockId || !key || key === 'submitLabel') continue;
-    add({ sectionId, anchor: { kind: 'field', blockId, field: key }, edge: 'after' });
+    add({
+      sectionId,
+      anchor: {
+        kind: 'field',
+        blockId,
+        field: owner?.hasAttribute('data-lp-section-element') ? '__whole' : key,
+      },
+      edge: 'after',
+    });
+  }
+  for (const item of host.querySelectorAll<HTMLElement>('[data-lp-section-element]')) {
+    const id = item.dataset.lpBlockId;
+    if (id)
+      add({ sectionId, anchor: { kind: 'field', blockId: id, field: '__whole' }, edge: 'after' });
   }
   if (host.querySelector('form[data-lp-form-block] button[type="submit"]'))
     add({ sectionId, anchor: { kind: 'submit', blockId: sectionId }, edge: 'after' });

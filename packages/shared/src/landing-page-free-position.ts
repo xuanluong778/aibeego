@@ -22,6 +22,11 @@ export type LandingPageFreeLayout = {
 
 export type FreeResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
+/** Horizontal text offsets must span a desktop section, including across columns. */
+export const ELEMENT_FREE_MAX_X_PX = 2400;
+/** Vertical element offsets: allow moving across a tall section (was 640 → box snapped back). */
+export const ELEMENT_FREE_MAX_Y_PX = 4000;
+
 export const FREE_SIZE_MIN_W = 40;
 export const FREE_SIZE_MIN_H = 28;
 export const FREE_SIZE_MAX_W = 1200;
@@ -824,11 +829,15 @@ export function computeFreeSnap(input: {
   const guides: FreeGuide[] = [];
   const spacings: FreeSpacingLabel[] = [];
 
-  // Clamp bounds: prefer safeArea X; otherwise canvas (supports non-zero canvas.left).
-  const clampLeft = input.safeArea ? input.safeArea.left : input.canvas.left;
-  const clampWidth = input.safeArea ? input.safeArea.width : input.canvas.width;
-  const minX = clampLeft;
-  const maxX = clampLeft + Math.max(0, clampWidth - w);
+  // Movement bounds: span the full surface, never trapping elements within a narrow safe area.
+  // Content safe area guides still snap cleanly within safeAreaThreshold (lines 868-873).
+  const canvasMinX = input.canvas.left;
+  const canvasMaxX = input.canvas.left + Math.max(0, input.canvas.width - w);
+  const minX = Math.min(canvasMinX, input.safeArea ? input.safeArea.left : canvasMinX);
+  const maxX = Math.max(
+    canvasMaxX,
+    input.safeArea ? input.safeArea.right - w : canvasMaxX,
+  );
   const minY = input.canvas.top;
   const maxY = input.canvas.top + Math.max(0, input.canvas.height - h);
 

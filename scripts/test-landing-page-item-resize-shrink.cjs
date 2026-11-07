@@ -54,7 +54,7 @@ const ux = read('apps/web/src/components/landing-pages/landing-page-canvas-ux.ts
 
 gate(
   'OFFSET_SHELL_GETS_OVERFLOW_HIDDEN_AND_MIN_HEIGHT_0',
-  /if \(mode === 'offset'\) \{\s*return \{[\s\S]{0,1200}\.\.\.\(layout\.height\s*\? \{ height: layout\.height, minHeight: 0, overflow: 'hidden' as const \}\s*: null\)/.test(
+  /if \(mode === 'offset'\) \{\s*return \{[\s\S]{0,1200}\.\.\.\((?:layout|src)\.height\s*\? \{[\s\S]{0,100}overflow: 'hidden' as const[\s\S]{0,100}\}\s*: null\)/.test(
     drag,
   ),
   "freeLayoutStyle's offset branch sets minHeight:0 + overflow:hidden alongside height — the actual fix, one shared function benefiting items AND free-dragged elements",
@@ -62,7 +62,7 @@ gate(
 
 gate(
   'FLOW_MODE_STILL_UNTOUCHED',
-  /\.\.\.\(layout\.height\s*\? \{ height: layout\.height, minHeight: 0, overflow: 'hidden' as const \}\s*: null\),\s*boxSizing: 'border-box',\s*\};\s*\}/.test(
+  /\.\.\.\((?:layout|src)\.height\s*\?[\s\S]*?: null\),\s*boxSizing: 'border-box',[\s\S]*?\};\s*\}/.test(
     drag,
   ),
   'when layout.height is unset (never resized), the offset branch adds nothing extra — no behavior change for the common flow case',

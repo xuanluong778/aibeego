@@ -1,5 +1,5 @@
 'use client';
-import { LandingPageBuilderVersionNotice } from './landing-page-builder-version-notice';
+import { projectLandingFlow, visibleStoredLayout, prepareFlowEdit, protectFreeRect } from './landing-page-no-overlap';
 import { sectionElementDeletionIds, removeSectionElements } from '@marketingspa/shared';
 import { LandingPageElementLibraryModal, type ElementLibraryPicker } from './landing-page-element-library-modal';
 import { LandingPageSidebarDropIndicator } from './landing-page-sidebar-drop-indicator';
@@ -35,6 +35,8 @@ import {
   packFreeSectionsVertical,
   isFloatingTextLayerBlock,
   SECTION_CONTENT_FIT_PADDING,
+  ELEMENT_FREE_MAX_X_PX,
+  ELEMENT_FREE_MAX_Y_PX,
   sanitizeLandingPageDraftSpec,
   sanitizeLandingPagePersistSpec,
   specWithEditableHtmlSections,
@@ -116,9 +118,12 @@ import {
   LandingPageCanvasContextMenu,
   LpCanvasAiQuickPopover,
   resolveFieldForContext,
+  readContextFieldValue,
   type LpCanvasAiPopoverState,
   type LpCanvasClipboardStyle,
 } from './landing-page-canvas-context-menu';
+import { LandingPageGroupSelection, CanvasMultiInspector } from './landing-page-group-selection';
+import { targetKey, canvasMoveLimits, readCanvasElementLayer, targetIsLocked, targetIsHidden, targetField, findCanvasTargetNode, selectionBox, boxIdentity, collectBoxTargets, readCanvasGroups, writeCanvasGroups, groupForSelection, canGroupTargets, applyCanvasMoves, selectionRect, type CanvasMove } from './landing-page-canvas-groups';
 import { LandingPageImageField } from './landing-page-image-field';
 import { LandingPageBuilderToolbar } from './landing-page-builder-toolbar';
 import { useRouter } from 'next/navigation';
@@ -497,6 +502,16 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const parsed = parseLpSelectionKey(primarySelectedId);
     return parsed ? normalizeLpSelectionTarget(parsed) : null;
   }, [primarySelectedId]);
+  const selectionTargets = canvasSelection.ids.map(parseLpSelectionKey).filter((t): t is LpSelectionTarget => Boolean(t)).map(normalizeLpSelectionTarget);
+  const multiSelection = selectionTargets.length > 1;
+  const activeCanvasGroup = groupForSelection(spec, selectionTargets.map(targetKey));
+  const canGroupSelection = multiSelection && canGroupTargets(spec, selectionTargets);
+  const selectionHasLocked = selectionTargets.some(t => targetIsLocked(spec,t));
+  const selectionAllLocked = selectionTargets.length > 0 && selectionTargets.every(t => targetIsLocked(spec,t));
+  const selectionAllText = multiSelection && selectionTargets.every(t => Boolean(t.field) && t.element !== 'cta' && !isItemImageField(t.field));
+  const selectionCanSerialize = selectionTargets.every(t => Boolean(t.field) || t.element === 'image' || String(t.element).startsWith('grid:'));
+
+  const [contextBoxTargets, setContextBoxTargets] = useState<LpSelectionTarget[]>([]);
   const inspectorAutoTabKeyRef = useRef<string | null>(null);
   const openInspectorOnSelectRef = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -546,7 +561,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       element,
       field: next.field,
     });
-    setCanvasSelection((prev) => applySelectionClick(prev.ids, prev.primaryId, target, opts));
+    const group = !opts?.shiftKey && readCanvasGroups(specRef.current).find(group => group.members.includes(targetKey(target)));
+    setCanvasSelection((prev) => group ? { ids: group.members, primaryId: targetKey(target) } : applySelectionClick(prev.ids, prev.primaryId, target, opts));
     if (keepAddPanel) {
       requestAnimationFrame(() => scrollCanvasToSection(target.blockId));
       return;
@@ -832,6 +848,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }, [inspectorDesktop, mediaOpen, sectionLibraryOpen, buttonLibraryOpen, formLibraryOpen, elementLibraryPicker]);
   /** In-memory clipboards for canvas context menu (reuse dup/update — no new persist model). */
   const blockClipboardRef = useRef<LandingPageBlock | null>(null);
+  const selectionClipboardRef = useRef<{ spec: LandingPageSpec; targets: LpSelectionTarget[]; positions: Array<{ left: number; top: number; width: number; height: number; imageUrl: string; zIndex: number; textStyle?: LandingPageInlineTextStyle; buttonStyle?: LandingPageBlock['style'] }>; grouped: boolean } | null>(null);
+  const pendingCanvasCloneRef = useRef<Array<{ target: LpSelectionTarget; left: number; top: number }> | null>(null);
   const styleClipboardRef = useRef<LpCanvasClipboardStyle | null>(null);
   const [clipboardTick, setClipboardTick] = useState(0);
   const doctorIdemRef = useRef<string | null>(null);
@@ -859,6 +877,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
    * Autosave stays paused (never force-overwrites) until resolveSaveConflict() runs. */
   const saveConflictRef = useRef(false);
   const specRef = useRef(spec);
+  const flowView=useMemo(()=>projectLandingFlow(spec),[spec]);
+  const flowViewRef=useRef(flowView);flowViewRef.current=flowView;
   // A pending text transition can leave React state behind the live draft.
   // Unrelated renders (device switch, selection) must not overwrite that draft.
   useLayoutEffect(() => { specRef.current = spec; }, [spec]);
@@ -886,10 +906,11 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     if (inspectorRailSurface === 'page-theme') return 'Thiết kế tổng thể';
     if (inspectorRailSurface === 'add-components') return 'THÊM THÀNH PHẦN';
     if (htmlNode && spec.meta?.htmlSource) return htmlNodeLabel(htmlNode.kind);
+    if (multiSelection) return activeCanvasGroup ? 'Nhóm' : 'Vùng chọn';
     const ctx = resolveInspectorContext(selected, selectedElement, primaryTarget?.field);
     if (ctx.kind === 'button') return 'NÚT';
     return ctx.label;
-  }, [inspectorRailSurface, selected, selectedElement, primaryTarget?.field, htmlNode, spec.meta?.htmlSource]);
+  }, [inspectorRailSurface, selected, selectedElement, primaryTarget?.field, htmlNode, spec.meta?.htmlSource, multiSelection, activeCanvasGroup]);
 
   const isButtonInspector =
     resolveInspectorContext(selected, selectedElement, primaryTarget?.field).kind === 'button';
@@ -1696,6 +1717,20 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     };
   }, [pageId, pendingLocalDraft]);
 
+  useLayoutEffect(() => {
+    if (!pendingCanvasCloneRef.current) return;
+    let attempts = 0, raf = 0;
+    const settle = () => {
+      const pending = pendingCanvasCloneRef.current; if (!pending) return;
+      if (pending.some(item => !findCanvasTargetNode(item.target))) { if (++attempts < 15) raf = requestAnimationFrame(settle); return; }
+      pendingCanvasCloneRef.current = null;
+      const moves = pending.map(item => { const node = findCanvasTargetNode(item.target)!, rect = node.getBoundingClientRect(), scale = readCanvasPointerScale(node); return { target: item.target, dx: (item.left - rect.left) / scale, dy: (item.top - rect.top) / scale }; });
+      const next = applyCanvasMoves(specRef.current, moves, true);
+      specRef.current = next; setSpec(next); revisionRef.current += 1; dirtyRef.current = true;
+    };
+    raf = requestAnimationFrame(settle); return () => cancelAnimationFrame(raf);
+  }, [spec]);
+
   // Canvas reserve after spec mutations (delete/duplicate/undo/redo/reload) is owned
   // solely by computeCanvasFreeReserveHeight via LandingPageRenderer's own render +
   // effect (see BUG-15) — spec/blocks changes already flow down as its props, so no
@@ -1712,6 +1747,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }
 
   const undo = useCallback(() => {
+    pendingCanvasCloneRef.current = null;
     // Skip identical snapshots left by duplicate commits so one Undo always
     // restores a visibly different draft when history has a real prior state.
     let prev: LandingPageSpec | undefined;
@@ -1800,6 +1836,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       if ((e.target as HTMLElement | null)?.closest?.('[data-lp-inline-editing="1"]')) return;
       if (document.querySelector('[data-lp-html-document][data-lp-inline-editing="1"]')) return;
       if (e.key === 'Escape') {
+        if (document.documentElement.hasAttribute('data-lp-group-dragging')) return;
         e.preventDefault();
         if (fullscreenPreview) {
           setFullscreenPreview(false);
@@ -1818,6 +1855,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             ? [`${selectedIdRef.current}::section`]
             : [];
         if (!keys.length) return;
+        if (keys.length > 1) { e.preventDefault(); canvasActionRef.current.deleteCanvasSelection(); return; }
         const sectionIds: string[] = [];
         const nested: LpSelectionTarget[] = [];
         for (const selKey of keys) {
@@ -1945,12 +1983,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   function applyAiToBlockField(id: string, field: string, value: string) {
     if (!guardSectionUnlocked(id)) return;
     const current = specRef.current;
-    const next = {
-      ...current,
-      blocks: current.blocks.map((b) =>
-        b.id === id ? ({ ...b, [field]: value } as LandingPageBlock) : b,
-      ),
-    };
+    const next = applyNestedBlockField(current, id, field, value);
     pushHistory(markLandingPageFieldSources(next, [`${id}.${field}`], 'ai'));
   }
 
@@ -3185,36 +3218,187 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         })
       | undefined;
     if (!block) return;
+
+    // Query live rendered dimensions from canvas DOM so duplicated item inherits exact size
+    let domWidth: number | undefined;
+    let domHeight: number | undefined;
+    if (typeof document !== 'undefined') {
+      try {
+        const escId = typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(itemId) : itemId;
+        const el = document.querySelector(
+          `[data-lp-canvas-root] [data-lp-item-id="${escId}"]`,
+        ) as HTMLElement | null;
+        if (el) {
+          const scale = readCanvasPointerScale(el) || 1;
+          const r = el.getBoundingClientRect();
+          if (r.width > 0) domWidth = Math.round(r.width / scale);
+          if (r.height > 0) domHeight = Math.round(r.height / scale);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     if (Array.isArray(block.items)) {
       const idx = block.items.findIndex((it) => it.id === itemId);
       if (idx < 0) return;
-      const copy = duplicateLandingPageNestedItem(block.items[idx]!);
+      const originalItem = block.items[idx]!;
+      const copy = duplicateLandingPageNestedItem(originalItem);
+
+      // Preserve exact visual dimensions and placement of the original box
+      const origFl = (originalItem as { freeLayout?: LandingPageFreeLayout }).freeLayout;
+      const hasFree = (originalItem as { positionMode?: string }).positionMode === 'free' || Boolean(origFl);
+      if (hasFree || (domWidth && domWidth > 0 && domHeight && domHeight > 0)) {
+        const targetWidth = origFl?.width ?? domWidth;
+        const targetHeight = origFl?.height ?? domHeight;
+        copy.positionMode = 'free';
+        copy.freeLayout = {
+          x: Math.round(((origFl?.x ?? 0) + 24)),
+          y: Math.round(((origFl?.y ?? 0) + 24)),
+          ...(targetWidth ? { width: targetWidth } : {}),
+          ...(targetHeight ? { height: targetHeight, reserveHeight: targetHeight } : {}),
+          ...(origFl?.rotate ? { rotate: origFl.rotate } : {}),
+        };
+      }
+
       const items = [...block.items];
       items.splice(idx + 1, 0, copy);
+
+      // Clone lpItemBoxes chrome if present
+      let nextStyle = block.style ? { ...block.style } : undefined;
+      if (block.style?.lpItemBoxes && typeof block.style.lpItemBoxes === 'object') {
+        const currentBoxes = block.style.lpItemBoxes as Record<string, unknown>;
+        if (currentBoxes[itemId]) {
+          nextStyle = {
+            ...nextStyle,
+            lpItemBoxes: {
+              ...currentBoxes,
+              [copy.id]: JSON.parse(JSON.stringify(currentBoxes[itemId])),
+            },
+          };
+        }
+      }
+
+      // Clone meta per-item styles (inlineTextStyles, elementHidden, elementLocked, etc.)
+      const meta = { ...(specRef.current.meta || {}) } as Record<string, unknown>;
+      const cloneMetaKeyed = (mapName: string) => {
+        const currentMap = meta[mapName];
+        if (currentMap && typeof currentMap === 'object' && !Array.isArray(currentMap)) {
+          const m = { ...(currentMap as Record<string, unknown>) };
+          const searchTokens = [
+            `::itemTitle:${itemId}`,
+            `::itemDesc:${itemId}`,
+            `::itemQuestion:${itemId}`,
+            `::itemAnswer:${itemId}`,
+            `::itemQuote:${itemId}`,
+            `::itemAuthor:${itemId}`,
+            `::item:${itemId}`,
+          ];
+          for (const [key, val] of Object.entries(m)) {
+            for (const token of searchTokens) {
+              if (key.includes(token)) {
+                const newKey = key.replace(token, token.replace(`:${itemId}`, `:${copy.id}`));
+                m[newKey] = JSON.parse(JSON.stringify(val));
+              }
+            }
+          }
+          meta[mapName] = m;
+        }
+      };
+      cloneMetaKeyed('inlineTextStyles');
+      cloneMetaKeyed('responsiveInlineTextStyles');
+      cloneMetaKeyed('elementHidden');
+      cloneMetaKeyed('elementLocked');
+
       const next = {
         ...specRef.current,
         blocks: specRef.current.blocks.map((b) =>
-          b.id === blockId ? ({ ...b, items } as LandingPageBlock) : b,
+          b.id === blockId ? ({ ...b, items, ...(nextStyle ? { style: nextStyle } : {}) } as LandingPageBlock) : b,
         ),
+        meta,
       };
       pushHistory(sanitizeLandingPageDraftSpec(markLandingPageUserEdits(next, [`${blockId}.items`])));
       selectCanvas({ blockId: blockId, element: `item:${copy.id}` });
+      setSaveMsg('Đã nhân bản');
       return;
     }
     if (Array.isArray(block.plans)) {
       const idx = block.plans.findIndex((it) => it.id === itemId);
       if (idx < 0) return;
-      const copy = duplicateLandingPageNestedItem(block.plans[idx]!);
+      const originalPlan = block.plans[idx]!;
+      const copy = duplicateLandingPageNestedItem(originalPlan);
+
+      // Preserve exact visual dimensions and placement of the original plan box
+      const origFl = (originalPlan as { freeLayout?: LandingPageFreeLayout }).freeLayout;
+      const hasFree = (originalPlan as { positionMode?: string }).positionMode === 'free' || Boolean(origFl);
+      if (hasFree || (domWidth && domWidth > 0 && domHeight && domHeight > 0)) {
+        const targetWidth = origFl?.width ?? domWidth;
+        const targetHeight = origFl?.height ?? domHeight;
+        copy.positionMode = 'free';
+        copy.freeLayout = {
+          x: Math.round(((origFl?.x ?? 0) + 24)),
+          y: Math.round(((origFl?.y ?? 0) + 24)),
+          ...(targetWidth ? { width: targetWidth } : {}),
+          ...(targetHeight ? { height: targetHeight, reserveHeight: targetHeight } : {}),
+          ...(origFl?.rotate ? { rotate: origFl.rotate } : {}),
+        };
+      }
+
       const plans = [...block.plans];
       plans.splice(idx + 1, 0, copy);
+
+      // Clone lpItemBoxes chrome if present
+      let nextStyle = block.style ? { ...block.style } : undefined;
+      if (block.style?.lpItemBoxes && typeof block.style.lpItemBoxes === 'object') {
+        const currentBoxes = block.style.lpItemBoxes as Record<string, unknown>;
+        if (currentBoxes[itemId]) {
+          nextStyle = {
+            ...nextStyle,
+            lpItemBoxes: {
+              ...currentBoxes,
+              [copy.id]: JSON.parse(JSON.stringify(currentBoxes[itemId])),
+            },
+          };
+        }
+      }
+
+      // Clone meta per-item styles
+      const meta = { ...(specRef.current.meta || {}) } as Record<string, unknown>;
+      const cloneMetaKeyed = (mapName: string) => {
+        const currentMap = meta[mapName];
+        if (currentMap && typeof currentMap === 'object' && !Array.isArray(currentMap)) {
+          const m = { ...(currentMap as Record<string, unknown>) };
+          const searchTokens = [
+            `::planName:${itemId}`,
+            `::planPrice:${itemId}`,
+            `::item:${itemId}`,
+          ];
+          for (const [key, val] of Object.entries(m)) {
+            for (const token of searchTokens) {
+              if (key.includes(token)) {
+                const newKey = key.replace(token, token.replace(`:${itemId}`, `:${copy.id}`));
+                m[newKey] = JSON.parse(JSON.stringify(val));
+              }
+            }
+          }
+          meta[mapName] = m;
+        }
+      };
+      cloneMetaKeyed('inlineTextStyles');
+      cloneMetaKeyed('responsiveInlineTextStyles');
+      cloneMetaKeyed('elementHidden');
+      cloneMetaKeyed('elementLocked');
+
       const next = {
         ...specRef.current,
         blocks: specRef.current.blocks.map((b) =>
-          b.id === blockId ? ({ ...b, plans } as LandingPageBlock) : b,
+          b.id === blockId ? ({ ...b, plans, ...(nextStyle ? { style: nextStyle } : {}) } as LandingPageBlock) : b,
         ),
+        meta,
       };
       pushHistory(sanitizeLandingPageDraftSpec(markLandingPageUserEdits(next, [`${blockId}.plans`])));
       selectCanvas({ blockId: blockId, element: `item:${copy.id}` });
+      setSaveMsg('Đã nhân bản');
     }
   }
 
@@ -3812,6 +3996,591 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     });
   }
 
+  function currentCanvasTargets(): LpSelectionTarget[] {
+    return canvasSelectionRef.current.ids
+      .map(parseLpSelectionKey)
+      .filter((t): t is LpSelectionTarget => Boolean(t))
+      .map(normalizeLpSelectionTarget);
+  }
+  function contextSelectTarget(
+    blockId: string,
+    element: LandingPageCanvasElementKey,
+    field?: string,
+  ) {
+    const target = normalizeLpSelectionTarget({ blockId, element, field });
+    const node = findCanvasTargetNode(target),
+      box = selectionBox(node);
+    setContextBoxTargets(box ? collectBoxTargets(specRef.current, box) : []);
+    if (!canvasSelectionRef.current.ids.some((key) => lpSelectionKeyMatches(key, target)))
+      selectCanvas(target);
+    if (inspectorDesktop) setInspectorPanelOpen(true);
+  }
+  function selectAllInContextBox() {
+    const keys = contextBoxTargets.map(targetKey);
+    if (keys.length < 2) return;
+    setCanvasSelection({ ids: keys, primaryId: keys[0] || null });
+    setInspectorPanelOpen(true);
+    setInspectorRailSurface('element');
+  }
+  function groupCanvasSelection() {
+    const targets = currentCanvasTargets(),
+      current = specRef.current;
+    if (!canGroupTargets(current, targets)) return;
+    const box = selectionBox(findCanvasTargetNode(targets[0]!));
+    const identity = box && boxIdentity(box);
+    if (!identity) return;
+    const members = targets.map(targetKey);
+    const groups = readCanvasGroups(current).filter(
+      (g) => !g.members.some((key) => members.includes(key)),
+    );
+    groups.push({ id: uid('group'), ...identity, members });
+    pushHistory(
+      markLandingPageUserEdits(writeCanvasGroups(current, groups), [
+        `${identity.ownerId}.style.lpElementGroups`,
+      ]),
+    );
+    setCanvasSelection({ ids: members, primaryId: members[0] || null });
+    setSaveMsg('Đã nhóm phần tử');
+  }
+  function ungroupCanvasSelection() {
+    const current = specRef.current,
+      keys = currentCanvasTargets().map(targetKey),
+      group = groupForSelection(current, keys);
+    if (!group || currentCanvasTargets().some((t) => targetIsLocked(current, t))) return;
+    pushHistory(
+      markLandingPageUserEdits(
+        writeCanvasGroups(
+          current,
+          readCanvasGroups(current).filter((g) => g.id !== group.id),
+        ),
+        [`${group.ownerId}.style.lpElementGroups`],
+      ),
+    );
+    setSaveMsg('Đã bỏ nhóm');
+  }
+  function commitCanvasSelectionMove(moves: CanvasMove[]) {
+    if (!moves.length || moves.some((move) => targetIsLocked(specRef.current, move.target))) return;
+    let edited=specRef.current;for(const move of moves){const node=findCanvasTargetNode(move.target),field=node?.getAttribute('data-lp-free-id')?.split('::').slice(1).join('::');if(field)edited=prepareFlowEdit(edited,move.target.blockId,field);}
+    pushHistory(
+      markLandingPageUserEdits(
+        applyCanvasMoves(edited, moves),
+        moves.map((move) => `${targetKey(move.target)}.freeLayout`),
+      ),
+    );
+  }
+  function moveCanvasSelectionBy(dx: number, dy: number) {
+    const targets = currentCanvasTargets(),
+      rect = selectionRect(targets);
+    const first = targets[0]! && findCanvasTargetNode(targets[0]!),
+      box = selectionBox(first);
+    if (!rect || !first || !box) return;
+    const bounds = box.getBoundingClientRect(),
+      scale = readCanvasPointerScale(first);
+    let x = Math.min(
+      Math.max(0, bounds.right - rect.right),
+      Math.max(Math.min(0, bounds.left - rect.left), dx * scale),
+    );
+    let y = Math.min(
+      Math.max(0, bounds.bottom - rect.bottom),
+      Math.max(Math.min(0, bounds.top - rect.top), dy * scale),
+    );
+    for (const target of targets) {
+      const limit = canvasMoveLimits(specRef.current, target),
+        scale = readCanvasPointerScale(findCanvasTargetNode(target));
+      x = Math.max(limit.minX * scale, Math.min(limit.maxX * scale, x));
+      y = Math.max(limit.minY * scale, Math.min(limit.maxY * scale, y));
+    }
+    const members=targets.map(t=>findCanvasTargetNode(t)).filter((n):n is HTMLElement=>Boolean(n));
+    const safe=protectFreeRect(first,rect,{...rect,left:rect.left+x,top:rect.top+y},{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height},new DOMRect(0,0,0,0),1,members);
+    x=safe.left-rect.left;y=safe.top-rect.top;
+    if(Math.abs(x)<0.01&&Math.abs(y)<0.01)return;
+    commitCanvasSelectionMove(
+      targets.map((target) => {
+        const s = readCanvasPointerScale(findCanvasTargetNode(target));
+        return { target, dx: x / s, dy: y / s };
+      }),
+    );
+  }
+  function patchCanvasSelectionStyle(patch: Partial<LandingPageInlineTextStyle>) {
+    const targets = currentCanvasTargets(),
+      current = specRef.current;
+    if (
+      !targets.length ||
+      targets.some(
+        (t) =>
+          !t.field || t.element === 'cta' || isItemImageField(t.field) || targetIsLocked(current, t),
+      )
+    )
+      return;
+    const inline = { ...current.meta?.inlineTextStyles },
+      responsive = { ...current.meta?.responsiveInlineTextStyles };
+    for (const target of targets) {
+      const key = `${target.blockId}::${target.field}`;
+      inline[key] = { ...inline[key], ...patch };
+      responsive[key] = {
+        ...responsive[key],
+        [viewport]: { ...responsive[key]?.[viewport], ...patch },
+      };
+    }
+    pushHistory(
+      markLandingPageUserEdits(
+        {
+          ...current,
+          meta: { ...current.meta, inlineTextStyles: inline, responsiveInlineTextStyles: responsive },
+        },
+        targets.map((t) => `${targetKey(t)}.style`),
+      ),
+    );
+  }
+  function alignCanvasSelection(_blockId: string, align: 'left' | 'center' | 'right') {
+    const targets = currentCanvasTargets(),
+      union = selectionRect(targets);
+    if (!union || targets.length < 2) return;
+    commitCanvasSelectionMove(
+      targets.map((target) => {
+        const node = findCanvasTargetNode(target)!,
+          rect = node.getBoundingClientRect();
+        const x =
+          align === 'left'
+            ? union.left
+            : align === 'right'
+              ? union.right - rect.width
+              : union.left + (union.width - rect.width) / 2;
+        return { target, dx: (x - rect.left) / readCanvasPointerScale(node), dy: 0 };
+      }),
+    );
+  }
+  function toggleCanvasSelectionLock() {
+    const current = specRef.current,
+      targets = currentCanvasTargets();
+    if (!targets.length) return;
+    const unlock = targets.every((t) => targetIsLocked(current, t)),
+      locked = { ...current.meta?.elementLocked };
+    const blocks = current.blocks.map((block) =>
+      targets.some((t) => t.blockId === block.id && isSectionLevelElement(t.element))
+        ? ({ ...block, locked: !unlock } as LandingPageBlock)
+        : block,
+    );
+    for (const target of targets) {
+      if (isSectionLevelElement(target.element)) continue;
+      const key = `${target.blockId}::${target.field || target.element}`;
+      if (unlock) delete locked[key];
+      else locked[key] = true;
+    }
+    // Unlocking a previously section-locked target must also release its owning block.
+    const unlocked = unlock
+      ? blocks.map((block) =>
+          targets.some((t) => t.blockId === block.id)
+            ? ({ ...block, locked: false } as LandingPageBlock)
+            : block,
+        )
+      : blocks;
+    pushHistory(
+      markLandingPageUserEdits(
+        { ...current, blocks: unlocked, meta: { ...current.meta, elementLocked: locked } },
+        targets.map((t) => `${targetKey(t)}.locked`),
+      ),
+    );
+  }
+  function deleteCanvasSelection() {
+    const current = specRef.current,
+      targets = currentCanvasTargets();
+    if (!targets.length || targets.some((t) => targetIsLocked(current, t))) return;
+    const remove = new Set<string>(),
+      hidden = { ...current.meta?.elementHidden };
+    for (const target of targets) {
+      const block = current.blocks.find((b) => b.id === target.blockId);
+      if (!block) continue;
+      const rec = block as unknown as Record<string, unknown>;
+      if (
+        isSectionLevelElement(target.element) ||
+        (block.sectionPlacement && isFloatingTextLayerBlock(block)) ||
+        (block.type === 'CTA' && !rec.headline && !rec.subheadline && !rec.body)
+      )
+        remove.add(block.id);
+      else hidden[`${target.blockId}::${target.field || target.element}`] = true;
+    }
+    const keys = targets.map(targetKey);
+    let next: LandingPageSpec = {
+      ...current,
+      blocks: removeSectionElements(current.blocks, [...remove]),
+      meta: { ...current.meta, elementHidden: hidden },
+    };
+    next = writeCanvasGroups(
+      next,
+      readCanvasGroups(next).filter((group) => !group.members.some((key) => keys.includes(key))),
+    );
+    pushHistory(
+      markLandingPageUserEdits(
+        next,
+        keys.map((key) => `${key}.deleted`),
+      ),
+    );
+    deselectCanvas();
+  }
+  function moveCanvasSelectionLayer(_blockId: string, direction: 'up' | 'down') {
+    const current = specRef.current,
+      targets = currentCanvasTargets();
+    if (!targets.length || targets.some((t) => targetIsLocked(current, t))) return;
+    if (
+      targets.length === 1 &&
+      !targets[0]!.field &&
+      String(targets[0]!.element).startsWith('item:')
+    ) {
+      const block = current.blocks.find((b) => b.id === targets[0]!.blockId) as LandingPageBlock & {
+        items?: Array<{ id: string }>;
+      };
+      const index =
+        block?.items?.findIndex((item) => item.id === String(targets[0]!.element).slice(5)) ?? -1;
+      const next = block?.items?.[index + (direction === 'up' ? -1 : 1)];
+      if (next) reorderListItem(block.id, String(targets[0]!.element).slice(5), next.id);
+      return;
+    }
+    if (targets.length === 1 && isSectionLevelElement(targets[0]!.element)) {
+      moveContextLayer(targets[0]!.blockId, direction);
+      return;
+    }
+    const box = selectionBox(findCanvasTargetNode(targets[0]));
+    if (!box) return;
+    const members = collectBoxTargets(current, box),
+      selected = new Set(targets.map(targetKey));
+    const ranked = members
+      .map((target, index) => {
+        const node = findCanvasTargetNode(target)!,
+          freeId = node.getAttribute('data-lp-free-id')!;
+        const block = current.blocks.find((b) => b.id === target.blockId)!;
+        const field = freeId.slice(freeId.indexOf('::') + 2);
+        return {
+          target,
+          freeId,
+          z: readCanvasElementLayer(block.style as Record<string, unknown>, block.id, field) ?? index,
+        };
+      })
+      .sort((a, b) => a.z - b.z);
+    const picked = ranked.filter((item) => selected.has(targetKey(item.target))),
+      rest = ranked.filter((item) => !selected.has(targetKey(item.target)));
+    const order = direction === 'up' ? [...rest, ...picked] : [...picked, ...rest];
+    const blocks = current.blocks.map((block) => {
+      const owned = order.filter((item) => item.target.blockId === block.id);
+      if (!owned.length) return block;
+      let layers: Record<string, number> = {};
+      try {
+        layers = JSON.parse(String(block.style?.lpElementLayers || '{}'));
+      } catch {
+        /* default ranks */
+      }
+      const style = { ...block.style };
+      owned.forEach((item) => {
+        const rank = order.indexOf(item) + 1;
+        layers[item.freeId] = rank;
+        if (block.sectionPlacement) style.lpZIndex = String(rank);
+      });
+      style.lpElementLayers = JSON.stringify(layers);
+      return { ...block, style } as LandingPageBlock;
+    });
+    pushHistory(
+      markLandingPageUserEdits(
+        { ...current, blocks },
+        targets.map((t) => `${targetKey(t)}.layer`),
+      ),
+    );
+  }
+
+  function captureCanvasClipboard() {
+    const targets = currentCanvasTargets(),
+      current = specRef.current;
+    if (!targets.length) return null;
+    if (targets.length === 1 && isSectionLevelElement(targets[0]!.element)) {
+      copyBlockToClipboard(targets[0]!.blockId);
+      selectionClipboardRef.current = null;
+      return null;
+    }
+    const first = findCanvasTargetNode(targets[0]!),
+      box = selectionBox(first);
+    if (!first || !box) return null;
+    const br = box.getBoundingClientRect();
+    const positions = targets.map((target, index) => {
+      const node = findCanvasTargetNode(target)!,
+        rect = node.getBoundingClientRect(),
+        scale = readCanvasPointerScale(node);
+      const image = node.matches('img')
+        ? (node as HTMLImageElement)
+        : node.querySelector<HTMLImageElement>('img');
+      const source = current.blocks.find((b) => b.id === target.blockId) as LandingPageBlock & {
+        imageUrl?: string;
+        items?: Array<{ id: string; imageUrl?: string }>;
+      };
+      const backgroundImage = getComputedStyle(
+        node.querySelector<HTMLElement>('[data-lp-content-image]') || node,
+      ).backgroundImage;
+      const imageUrl =
+        image?.getAttribute('src') ||
+        (target.field?.startsWith('itemImage:')
+          ? source?.items?.find((item) => item.id === target.field!.slice(10))?.imageUrl
+          : source?.imageUrl) ||
+        backgroundImage.match(/url\(["']?(.*?)["']?\)/)?.[1] ||
+        '';
+      const textNode = node.matches('[data-lp-inline-field]')
+        ? node
+        : node.querySelector<HTMLElement>('[data-lp-inline-field]');
+      const css = getComputedStyle(textNode || node),
+        fontSize = Number.parseFloat(css.fontSize) || 16;
+      const rgb = css.color.match(/\d+/g),
+        color = rgb
+          ? '#' +
+            rgb
+              .slice(0, 3)
+              .map((n) => Number(n).toString(16).padStart(2, '0'))
+              .join('')
+          : css.color;
+      const textStyle: LandingPageInlineTextStyle = {
+        fontSize,
+        fontFamily: css.fontFamily,
+        fontWeight: Number.parseFloat(css.fontWeight) || 400,
+        lineHeight: (Number.parseFloat(css.lineHeight) || fontSize * 1.4) / fontSize,
+        color,
+      };
+      const buttonSurface = node.matches('a,button,[data-lp-button-hit]')
+        ? node
+        : node.querySelector<HTMLElement>('a,button,[data-lp-button-hit]');
+      const buttonCss = getComputedStyle(buttonSurface || textNode || node);
+      const buttonStyle = {
+        background: buttonCss.backgroundColor,
+        color,
+        borderRadius: buttonCss.borderRadius,
+        padding: buttonCss.padding,
+        border: buttonCss.border,
+        boxShadow: buttonCss.boxShadow,
+      };
+      return {
+        left: (rect.left - br.left) / scale,
+        top: (rect.top - br.top) / scale,
+        width: rect.width / scale,
+        height: rect.height / scale,
+        imageUrl,
+        zIndex: Number(getComputedStyle(node).zIndex) || index + 1,
+        textStyle,
+        buttonStyle,
+      };
+    });
+    return {
+      spec: cloneSpec(current),
+      targets,
+      positions,
+      grouped: Boolean(groupForSelection(current, targets.map(targetKey))),
+    };
+  }
+  function copyCanvasSelection() {
+    const clip = captureCanvasClipboard();
+    if (clip) {
+      selectionClipboardRef.current = clip;
+      blockClipboardRef.current = null;
+      setClipboardTick((n) => n + 1);
+      setSaveMsg('Đã sao chép vùng chọn');
+    }
+  }
+  function duplicateCanvasSelection() {
+    const targets = currentCanvasTargets();
+    if (targets.length === 1 && isSectionLevelElement(targets[0]!.element)) {
+      dupBlock(targets[0]!.blockId);
+      return;
+    }
+    if (
+      targets.length === 1 &&
+      !targets[0]!.field &&
+      String(targets[0]!.element).startsWith('item:')
+    ) {
+      dupItem(targets[0]!.blockId, String(targets[0]!.element).slice(5));
+      return;
+    }
+    const clip = captureCanvasClipboard();
+    if (clip) pasteCanvasBundle(clip);
+  }
+  function canvasClipboardCompatible() {
+    const clip = selectionClipboardRef.current;
+    if (!clip) return Boolean(blockClipboardRef.current);
+    const target = selectionTargets[0] || clip.targets[0];
+    const box = selectionBox(findCanvasTargetNode(target));
+    if (!box) return false;
+    const identity = boxIdentity(box);
+    if (!identity || specRef.current.blocks.find((b) => b.id === identity.ownerId)?.locked)
+      return false;
+    const width =
+      Math.max(...clip.positions.map((p) => p.left + p.width)) -
+      Math.min(...clip.positions.map((p) => p.left));
+    const height =
+      Math.max(...clip.positions.map((p) => p.top + p.height)) -
+      Math.min(...clip.positions.map((p) => p.top));
+    const rect = box.getBoundingClientRect(),
+      scale = readCanvasPointerScale(box);
+    return width <= rect.width / scale + 1 && height <= rect.height / scale + 1;
+  }
+  function pasteCanvasSelection() {
+    const clip = selectionClipboardRef.current;
+    if (clip) pasteCanvasBundle(clip);
+    else pasteBlockFromClipboard();
+  }
+  function pasteCanvasBundle(clip: NonNullable<typeof selectionClipboardRef.current>) {
+    const current = specRef.current,
+      selected = currentCanvasTargets();
+    const original = clip.targets[0]!,
+      first = selected[0] || original;
+    const box =
+      selectionBox(findCanvasTargetNode(first)) || selectionBox(findCanvasTargetNode(original));
+    if (!box) return;
+    const identity = boxIdentity(box);
+    if (!identity || current.blocks.find((b) => b.id === identity.ownerId)?.locked) return;
+    const column = box.closest<HTMLElement>('[data-lp-content-column]');
+    const nativeFields = Array.from(
+      box.querySelectorAll<HTMLElement>('[data-lp-inline-field]'),
+    ).filter((node) => !node.closest('[data-lp-section-element]'));
+    const anchorNode = nativeFields[nativeFields.length - 1];
+    const anchorField = anchorNode?.getAttribute('data-lp-inline-field');
+    const anchorOwner = anchorNode?.getAttribute('data-lp-element-id')?.split('::')[0];
+    const anchor =
+      column || !anchorField || !anchorOwner
+        ? { kind: 'end' as const }
+        : { kind: 'field' as const, blockId: anchorOwner, field: anchorField };
+    const placement = {
+      sectionId: identity.ownerId,
+      anchor,
+      edge: 'after' as const,
+      ...(column ? { columnIndex: Number(column.getAttribute('data-lp-content-column')) } : {}),
+    };
+    const newTargets: LpSelectionTarget[] = [],
+      copies: LandingPageBlock[] = [],
+      inline = { ...current.meta?.inlineTextStyles };
+    for (let i = 0; i < clip.targets.length; i++) {
+      const target = clip.targets[i],
+        position = clip.positions[i];
+      if (!target || !position) continue;
+      const source = clip.spec.blocks.find((b) => b.id === target.blockId);
+      if (!source) continue;
+      const field = targetField(target);
+      let copy: LandingPageBlock, nextTarget: LpSelectionTarget;
+      if (
+        target.element === 'image' ||
+        isItemImageField(field) ||
+        String(target.element).startsWith('grid:')
+      ) {
+        copy = {
+          ...defaultBlock('CTA'),
+          headline: '',
+          subheadline: '',
+          body: '',
+          ctaLabel: '',
+          imageUrl: position.imageUrl,
+          style: {
+            lpBox: 'sq-solid',
+            lpFrame: true,
+            width: `${position.width}px`,
+            height: `${position.height}px`,
+            background: 'transparent',
+          },
+          sectionPlacement: placement,
+          spacing: 'none',
+        } as LandingPageBlock;
+        nextTarget = { blockId: copy.id, element: 'image' };
+      } else if (target.element === 'cta') {
+        const rec = source as unknown as Record<string, unknown>;
+        copy = {
+          ...defaultBlock('CTA'),
+          headline: '',
+          subheadline: '',
+          body: '',
+          ctaLabel: readContextFieldValue(source, field || 'ctaLabel'),
+          ctaUrl: String(rec.ctaUrl || '#'),
+          style: source.type === 'CTA' ? { ...source.style } : position.buttonStyle,
+          sectionPlacement: placement,
+          spacing: 'none',
+        } as LandingPageBlock;
+        nextTarget = { blockId: copy.id, element: 'cta', field: 'ctaLabel' };
+      } else {
+        const heading = target.element === 'headline' || /^itemTitle:|^planName:/.test(field || '');
+        const nextField = heading ? 'headline' : 'subheadline';
+        copy = {
+          ...defaultBlock('Benefits'),
+          headline: '',
+          subheadline: '',
+          [nextField]: readContextFieldValue(source, field || String(target.element)),
+          items: [],
+          sectionPlacement: placement,
+          spacing: 'none',
+        } as LandingPageBlock;
+        nextTarget = { blockId: copy.id, element: nextField, field: nextField };
+      }
+      if (nextTarget.field)
+        inline[`${copy.id}::${nextTarget.field}`] = {
+          ...position.textStyle,
+          ...clip.spec.meta?.inlineTextStyles?.[`${target.blockId}::${field || target.element}`],
+          width: Math.round(position.width),
+        };
+      const appearance = Object.fromEntries(
+        Object.entries(copy.style || {}).filter(
+          ([key]) =>
+            ![
+              'lpElementGroups',
+              'lpElementLayers',
+              'lpZIndex',
+              'lpCanvasAbsolute',
+              'lpCanvasX',
+              'lpCanvasY',
+            ].includes(key),
+        ),
+      );
+      copy = {
+        ...copy,
+        style: {
+          ...appearance,
+          lpCanvasAbsolute: '1',
+          lpCanvasX:String(position.left),lpCanvasY:String(position.top),
+          lpZIndex: String(
+            Math.max(0, ...current.blocks.map((block) => Number(block.style?.lpZIndex) || 0)) +
+              [...clip.positions].sort((a, b) => a.zIndex - b.zIndex).indexOf(position) +
+              1,
+          ),
+        },
+      } as LandingPageBlock;
+      copies.push(copy);
+      newTargets.push(nextTarget);
+    }
+    if (!copies.length) return;
+    let next: LandingPageSpec = {
+      ...current,
+      blocks: [...current.blocks, ...copies],
+      meta: { ...current.meta, inlineTextStyles: inline },
+    };
+    if (clip.grouped && copies.length > 1)
+      next = writeCanvasGroups(next, [
+        ...readCanvasGroups(next),
+        { id: uid('group'), ...identity, members: newTargets.map(targetKey) },
+      ]);
+    const br = box.getBoundingClientRect(),
+      scale = readCanvasPointerScale(box);
+    const maxRight = Math.max(...clip.positions.map((position) => position.left + position.width));
+    const maxBottom = Math.max(...clip.positions.map((position) => position.top + position.height));
+    const minLeft = Math.min(...clip.positions.map((position) => position.left)),
+      minTop = Math.min(...clip.positions.map((position) => position.top));
+    if (maxRight - minLeft > br.width / scale + 1 || maxBottom - minTop > br.height / scale + 1)
+      return;
+    const offsetX = Math.min(br.width / scale - maxRight, Math.max(-minLeft, 12)),
+      offsetY = Math.min(br.height / scale - maxBottom, Math.max(-minTop, 12));
+    pendingCanvasCloneRef.current = newTargets.map((target, i) => ({
+      target,
+      left: br.left + (clip.positions[i]!.left + offsetX) * scale,
+      top: br.top + (clip.positions[i]!.top + offsetY) * scale,
+    }));
+    pushHistory(
+      markLandingPageUserEdits(
+        next,
+        copies.map((copy) => `${copy.id}.created`),
+      ),
+    );
+    const keys = newTargets.map(targetKey);
+    setCanvasSelection({ ids: keys, primaryId: keys[0] || null });
+    setSaveMsg('Đã tạo bản sao vùng chọn');
+  }
+
   function copyBlockToClipboard(blockId: string) {
     const block = specRef.current.blocks.find((b) => b.id === blockId);
     if (!block) return;
@@ -3833,16 +4602,18 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     setSaveMsg('Đã dán block');
   }
 
-  function copyStyleToClipboard(blockId: string) {
+  function copyStyleToClipboard(blockId: string, contextField?: string) {
     const block = specRef.current.blocks.find((b) => b.id === blockId);
     if (!block) return;
-    const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+    const field = contextField || inspectorTextFieldKey(selectedElement, primaryTarget?.field);
     const map =
       (specRef.current.meta as { inlineTextStyles?: Record<string, LandingPageInlineTextStyle> } | undefined)
         ?.inlineTextStyles || {};
     const textStyle = field ? map[`${blockId}::${field}`] : undefined;
+    // Group membership, layer ranks and clone coordinates are document state, not appearance.
+    const appearance = Object.fromEntries(Object.entries(block.style || {}).filter(([key]) => !['lpElementGroups', 'lpElementLayers', 'lpZIndex', 'lpCanvasAbsolute', 'lpCanvasX', 'lpCanvasY'].includes(key)));
     styleClipboardRef.current = {
-      style: { ...((block.style || {}) as Record<string, unknown>) },
+      style: appearance,
       background: block.background ?? null,
       imageStyle: {
         ...(((block as { imageStyle?: Record<string, unknown> }).imageStyle ||
@@ -3854,21 +4625,61 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     setSaveMsg('Đã sao chép kiểu');
   }
 
-  function pasteStyleFromClipboard(blockId: string) {
+  function pasteStyleFromClipboard(blockId: string, contextField?: string) {
     const clip = styleClipboardRef.current;
-    if (!clip) return;
+    if (!clip || !guardSectionUnlocked(blockId)) return;
+    const current = specRef.current;
+    const field = contextField || inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+    const key = field ? `${blockId}::${field}` : null;
     const patch: Partial<LandingPageBlock> = {};
-    if (clip.style) patch.style = { ...clip.style } as LandingPageBlock['style'];
+    if (clip.style) {
+      const documentStyle = Object.fromEntries(Object.entries(current.blocks.find(b => b.id === blockId)?.style || {}).filter(([key]) => ['lpElementGroups', 'lpElementLayers', 'lpZIndex', 'lpCanvasAbsolute', 'lpCanvasX', 'lpCanvasY'].includes(key)));
+      patch.style = { ...clip.style, ...documentStyle } as LandingPageBlock['style'];
+    }
     if (clip.background !== undefined) patch.background = clip.background;
     if (clip.imageStyle && Object.keys(clip.imageStyle).length) {
       (patch as { imageStyle?: Record<string, unknown> }).imageStyle = { ...clip.imageStyle };
     }
-    updateBlock(blockId, patch);
-    const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
-    if (field && clip.inlineTextStyle) {
-      patchInlineTextStyle(blockId, field, clip.inlineTextStyle);
+    const meta = { ...current.meta };
+    if (key && clip.inlineTextStyle) {
+      const textStyle = { ...meta.inlineTextStyles?.[key], ...clip.inlineTextStyle };
+      meta.inlineTextStyles = { ...meta.inlineTextStyles, [key]: textStyle };
+      meta.responsiveInlineTextStyles = {
+        ...meta.responsiveInlineTextStyles,
+        [key]: { ...meta.responsiveInlineTextStyles?.[key], [viewport]: textStyle },
+      };
     }
+    pushHistory(markLandingPageUserEdits({
+      ...current,
+      blocks: current.blocks.map(block => block.id === blockId ? { ...block, ...patch } as LandingPageBlock : block),
+      meta,
+    }, [`${blockId}.style`, ...(key ? [`${key}.style`] : [])]));
     setSaveMsg('Đã dán kiểu');
+  }
+
+  function moveContextLayer(blockId: string, direction: 'up' | 'down') {
+    if (!guardSectionUnlocked(blockId)) return;
+    const current = specRef.current;
+    const block = current.blocks.find(block => block.id === blockId);
+    if (!block?.sectionPlacement) { moveBlock(blockId, direction); return; }
+    // Attached elements share a host; changing page order cannot change their paint order.
+    const siblings = current.blocks.filter(row => row.sectionPlacement?.sectionId === block.sectionPlacement!.sectionId)
+      .map((row, index) => ({ row, rank: Number(row.style?.lpZIndex) || index + 1 }))
+      .sort((a, b) => a.rank - b.rank);
+    const from = siblings.findIndex(item => item.row.id === blockId);
+    const to = from + (direction === 'up' ? 1 : -1);
+    if (from < 0 || to < 0 || to >= siblings.length) {
+      setSaveMsg(direction === 'up' ? 'Đã ở lớp trên cùng' : 'Đã ở lớp dưới cùng');
+      return;
+    }
+    [siblings[from], siblings[to]] = [siblings[to]!, siblings[from]!];
+    const ranks = new Map(siblings.map((item, index) => [item.row.id, index + 1]));
+    pushHistory(markLandingPageUserEdits({
+      ...current,
+      blocks: current.blocks.map(row => ranks.has(row.id)
+        ? { ...row, style: { ...row.style, lpZIndex: String(ranks.get(row.id)) } } as LandingPageBlock : row),
+    }, siblings.map(item => `${item.row.id}.style`)));
+    setSaveMsg(direction === 'up' ? 'Đã đưa lên một lớp' : 'Đã đưa xuống một lớp');
   }
 
   function toggleBlockLock(blockId: string) {
@@ -3878,20 +4689,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     setSaveMsg(block.locked ? 'Đã mở khóa' : 'Đã khóa section');
   }
 
-  function toggleBlockGroup(blockId: string) {
-    if (!guardSectionUnlocked(blockId)) return;
-    const block = specRef.current.blocks.find((b) => b.id === blockId);
-    if (!block) return;
-    const style = { ...((block.style || {}) as Record<string, unknown>) };
-    if (style.lpGrouped) delete style.lpGrouped;
-    else style.lpGrouped = true;
-    updateBlock(blockId, { style } as Partial<LandingPageBlock>);
-    setSaveMsg(style.lpGrouped ? 'Đã nhóm (marker)' : 'Đã bỏ nhóm');
-  }
 
-  function alignSelected(blockId: string, align: 'left' | 'center' | 'right') {
+  function alignSelected(blockId: string, align: 'left' | 'center' | 'right', contextField?: string) {
     if (!guardSectionUnlocked(blockId)) return;
-    const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+    const field = contextField || inspectorTextFieldKey(selectedElement, primaryTarget?.field);
     if (field) {
       patchInlineTextStyle(blockId, field, { textAlign: align });
       setSaveMsg(`Căn ${align}`);
@@ -3924,11 +4725,17 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   ) {
     const block = specRef.current.blocks.find((b) => b.id === blockId);
     if (!block) return;
-    const rec = block as unknown as Record<string, unknown>;
-    const prev = typeof rec[field] === 'string' ? String(rec[field]) : '';
+    const prev = readContextFieldValue(block, field);
     const nextVal = mode === 'append' ? `${prev}${prev ? ' ' : ''}${value}` : value;
     applyAiToBlockField(blockId, field, nextVal);
     setSaveMsg(mode === 'append' ? 'Đã chèn thêm AI' : 'Đã thay thế bằng AI');
+  }
+
+  function openContextTextAi(mode: 'quick' | 'rewrite') {
+    const target = currentCanvasTargets()[0]; if (!target || !target.field || targetIsLocked(specRef.current, target)) return;
+    const block = specRef.current.blocks.find(b => b.id === target.blockId), node = findCanvasTargetNode(target); if (!block || !node) return;
+    const rect = node.getBoundingClientRect(), resolved = resolveFieldForContext(block, target.element, 'text', target.field);
+    setTextAiPopover({ x: rect.right + 8, y: rect.top, blockId: block.id, field: resolved.field, fieldKind: resolved.fieldKind, blockType: block.type, mode, current: readContextFieldValue(block, resolved.field) });
   }
 
   function focusInlineEditField(blockId: string, field: string) {
@@ -4426,7 +5233,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     },
   ) {
     if (!guardSectionUnlocked(blockId, 'Section đang khóa — mở khóa trước khi kéo')) return;
-    const current = specRef.current;
+    const current = prepareFlowEdit(specRef.current,blockId,'__section');
     const prevBlock = current.blocks.find((b) => b.id === blockId);
     // Flow section height resize — stay in document flow; only persist minHeight.
     if (payload.positionMode === 'flow') {
@@ -4495,7 +5302,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   ) {
     if (!guardSectionUnlocked(blockId)) return;
     const key = `${blockId}::${field}`;
-    const current = specRef.current;
+    let current = prepareFlowEdit(specRef.current,blockId,field);
+    const editedBlock=current.blocks.find(b=>b.id===blockId);
+    if(editedBlock&&!editedBlock.sectionPlacement&&isFloatingTextLayerBlock(editedBlock))current=prepareFlowEdit(current,blockId,'__section');
     const block = current.blocks.find((b) => b.id === blockId);
     if (block?.sectionPlacement) {
       const host = current.blocks.find((b) => b.id === block.sectionPlacement!.sectionId);
@@ -4723,7 +5532,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   ) {
     if (!guardSectionUnlocked(blockId)) return;
     const key = elementStyleKey(blockId, field);
-    const current = specRef.current;
+    const current = prepareFlowEdit(prepareFlowEdit(specRef.current,blockId,field),blockId,'__size:'+field);
     const meta = (current.meta && typeof current.meta === 'object' ? current.meta : {}) as {
       inlineTextStyles?: Record<string, LandingPageInlineTextStyle>;
       elementFreeLayouts?: Record<string, LandingPageFreeLayout>;
@@ -4836,9 +5645,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     // into the shared item freeLayout when viewport is mobile would break phones; store only
     // when desktop/tablet (item schema has single freeLayout).
     if (payload.viewport === 'mobile') return;
+    const edited = prepareFlowEdit(specRef.current,blockId,itemId);
     const next = {
-      ...specRef.current,
-      blocks: specRef.current.blocks.map((b) => {
+      ...edited,
+      blocks: edited.blocks.map((b) => {
         if (b.id !== blockId) return b;
         const row = b as LandingPageBlock & {
           items?: Array<Record<string, unknown>>;
@@ -4881,6 +5691,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     removeBlocks,
     hideCanvasElements,
     deleteToolbarTarget,
+    deleteCanvasSelection,
     moveBlock,
     reorderBlockById,
     reorderListItem,
@@ -4910,6 +5721,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     removeBlocks,
     hideCanvasElements,
     deleteToolbarTarget,
+    deleteCanvasSelection,
     moveBlock,
     reorderBlockById,
     reorderListItem,
@@ -4932,6 +5744,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
   const canvasHandlers: LandingPageCanvasHandlers = useMemo(
     () => ({
+      getElementLayer: (blockId, field) => readCanvasElementLayer(specRef.current.blocks.find(b => b.id === blockId)?.style as Record<string, unknown> | undefined, blockId, field),
       selection: primaryTarget
         ? {
             blockId: primaryTarget.blockId,
@@ -4960,6 +5773,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         return selectedElementIds.some((id) => lpSelectionKeyMatches(id, normalized));
       },
       isPrimarySelected: (target) => {
+        if (selectedElementIds.length > 1) return false;
         const element = (parseElementKey(target.element) ||
           target.element ||
           'section') as LandingPageCanvasElementKey;
@@ -5122,7 +5936,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         canvasActionRef.current.patchInlineTextStyle(blockId, field, patch),
       viewport,
       getBlockFreeLayout: (blockId) => {
-        const b = specRef.current.blocks.find((row) => row.id === blockId);
+        const b = flowViewRef.current.blocks.find((row) => row.id === blockId);
         if (!b) return null;
         const resolved = resolveFreeLayoutForViewport(
           b.positionMode,
@@ -5151,8 +5965,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         if (!item || item.positionMode !== 'free' || !item.freeLayout) return null;
         // Reject legacy canvas-absolute saves that made cards vanish.
         const fl = item.freeLayout;
-        if (Math.abs(fl.x) > 640 || Math.abs(fl.y) > 640) return null;
-        return fl;
+        if (Math.abs(fl.x) > ELEMENT_FREE_MAX_X_PX || Math.abs(fl.y) > ELEMENT_FREE_MAX_Y_PX) return null;
+        return visibleStoredLayout(b,itemId,fl);
       },
       onItemFreeLayoutCommit: (blockId, itemId, payload) =>
         canvasActionRef.current.commitItemFreeLayout(blockId, itemId, payload),
@@ -5168,8 +5982,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             ?.elementFreeLayouts || {};
         const fl = map[`${blockId}::${field}`];
         if (!fl) return null;
-        if (Math.abs(fl.x) > 640 || Math.abs(fl.y) > 640) return null;
-        return fl;
+        if (Math.abs(fl.x) > ELEMENT_FREE_MAX_X_PX || Math.abs(fl.y) > ELEMENT_FREE_MAX_Y_PX) return null;
+        return visibleStoredLayout(block,field,fl);
       },
       onElementFreeLayoutCommit: (blockId, field, payload) =>
         canvasActionRef.current.commitElementFreeLayout(blockId, field, payload),
@@ -5781,19 +6595,6 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             : null),
         }}
       >
-        <LandingPageBuilderVersionNotice onUpdate={async () => {
-          if (saveConflictRef.current || pendingLocalDraft) throw new Error('Hãy chọn bản nháp muốn tiếp tục trước khi cập nhật giao diện. Chỉnh sửa của bạn vẫn được giữ lại.');
-          flushCanvasEdit();
-          if (dirtyRef.current && !saveConflictRef.current) await persist(specRef.current, page.name, { manual: true });
-          if (dirtyRef.current && !pendingLocalDraft) {
-            writeLocalLandingDraft({ pageId, spec: specRef.current, baseRevision: ackedRevisionRef.current, clientRevision: revisionRef.current, savedAt: new Date().toISOString() });
-          }
-          const stored = readLocalLandingDraft(pageId);
-          if (dirtyRef.current && !pendingLocalDraft && (!stored || JSON.stringify(stored.spec) !== JSON.stringify(specRef.current))) {
-            throw new Error('Chưa giữ được chỉnh sửa trên máy. Hãy lưu hoặc tải bản sao trước khi cập nhật giao diện.');
-          }
-          window.location.reload();
-        }} />
         <LandingPageSidebarDropIndicator />
         {elementLibraryError && !elementLibraryPicker && (mediaOpen || sectionLibraryOpen || buttonLibraryOpen || formLibraryOpen) ? (
           <p role="alert" className="fixed left-1/2 top-6 z-[260] max-w-[90vw] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-800 shadow-lg">{elementLibraryError}</p>
@@ -5909,32 +6710,35 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 pageId,
                 selectedBlock: selected,
                 selectedElement,
-                canPasteBlock: Boolean(blockClipboardRef.current),
+                selectionCount: selectionTargets.length,
+                grouped: Boolean(activeCanvasGroup),
+                canGroupSelection,
+                canCopySelection: selectionCanSerialize || (selectionTargets.length === 1 && isSectionLevelElement(selectionTargets[0]!.element)),
+                canDuplicateSelection: selectionTargets.length === 1 || selectionCanSerialize,
+                canLayerSelection: selectionTargets.length === 1 || canGroupSelection,
+                canAlignSelection: canGroupSelection,
+                canEditSelection: !selectionHasLocked,
+                selectionLocked: selectionAllLocked,
+                boxSelectionCount: contextBoxTargets.length,
+                onSelectAllInBox: selectAllInContextBox,
+                onGroupSelection: groupCanvasSelection,
+                onUngroupSelection: ungroupCanvasSelection,
+                canPasteBlock: canvasClipboardCompatible(),
                 canPasteStyle: Boolean(styleClipboardRef.current),
-                onSelectFromTarget: (blockId, element) => {
-                  const el = (parseElementKey(element) ||
-                    element ||
-                    'section') as LandingPageCanvasElementKey;
-                  selectCanvas(
-                    normalizeLpSelectionTarget({
-                      blockId,
-                      element: el,
-                    }),
-                  );
-                },
-                onClearSelection: () => deselectCanvas(),
+                onSelectFromTarget: contextSelectTarget,
+                onClearSelection: () => { setContextBoxTargets([]); deselectCanvas(); },
                 onUndo: () => undo(),
                 onRedo: () => redo(),
-                onDuplicate: (blockId) => dupBlock(blockId),
-                onDelete: (blockId) => removeBlock(blockId),
-                onCopyBlock: copyBlockToClipboard,
-                onPasteBlock: pasteBlockFromClipboard,
+                onDuplicate: duplicateCanvasSelection,
+                onDelete: deleteCanvasSelection,
+                onCopyBlock: copyCanvasSelection,
+                onPasteBlock: pasteCanvasSelection,
                 onCopyStyle: copyStyleToClipboard,
                 onPasteStyle: pasteStyleFromClipboard,
-                onMoveLayer: (blockId, direction) => moveBlock(blockId, direction),
-                onToggleLock: toggleBlockLock,
-                onAlign: alignSelected,
-                onToggleGroup: toggleBlockGroup,
+                onMoveLayer: moveCanvasSelectionLayer,
+                onToggleLock: toggleCanvasSelectionLock,
+                onAlign: alignCanvasSelection,
+                onToggleGroup: groupCanvasSelection,
                 onInsertSection: insertSectionRelative,
                 onReplaceImage: (blockId) => {
                   selectCanvas({ blockId: blockId, element: 'image' });
@@ -5989,6 +6793,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   </LandingPagePreviewViewport>
                 </LandingPageDeviceFrame>
               )}
+              {multiSelection && <LandingPageGroupSelection targets={selectionTargets} spec={spec} grouped={Boolean(activeCanvasGroup)} canGroup={canGroupSelection} onCommit={commitCanvasSelectionMove} onGroup={groupCanvasSelection} onUngroup={ungroupCanvasSelection} />}
             </LandingPageCanvasContextMenu>
             </LandingPageCanvasZoomLayer>
           </div>
@@ -5997,7 +6802,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
         {!fullscreenPreview ? (
           <LandingPageElementVerticalToolbar
-            enabled
+            enabled={!multiSelection}
             canvasRootRef={canvasScrollRef}
             primaryTarget={primaryTarget}
             onSelect={(t) =>
@@ -6010,7 +6815,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             onSave={saveTargetToSavedLibrary}
             onDuplicate={duplicateToolbarTarget}
             onDelete={deleteToolbarTarget}
-            sectionLocked={isSectionLocked}
+            sectionLocked={id => isSectionLocked(id) || Boolean(primaryTarget && primaryTarget.blockId === id && targetIsLocked(specRef.current, primaryTarget))}
           />
         ) : null}
 
@@ -6230,6 +7035,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
+          {multiSelection ? <CanvasMultiInspector count={selectionTargets.length} allText={selectionAllText} grouped={Boolean(activeCanvasGroup)} canGroup={canGroupSelection} locked={selectionHasLocked} onGroup={groupCanvasSelection} onUngroup={ungroupCanvasSelection} onStyle={patchCanvasSelectionStyle} onMove={moveCanvasSelectionBy} /> : <>
+          {primaryTarget?.field && !isItemImageField(primaryTarget.field) && !htmlInspectorActive && inspectorRailSurface === 'element' && <div data-lp-context-text-actions className="flex flex-wrap gap-1.5 rounded-lg border border-white/10 p-2 text-xs">
+            <button type="button" className="rounded border border-white/20 px-2 py-1.5" data-lp-text-action="ai-quick" disabled={selectionHasLocked} onClick={() => openContextTextAi('quick')}>✨ AI nhập nhanh</button>
+            <button type="button" className="rounded border border-white/20 px-2 py-1.5" data-lp-text-action="ai-rewrite" disabled={selectionHasLocked} onClick={() => openContextTextAi('rewrite')}>✨ AI viết lại</button>
+            <button type="button" className="rounded border border-white/20 px-2 py-1.5" data-lp-text-action="edit" disabled={selectionHasLocked} onClick={() => focusInlineEditField(primaryTarget.blockId, primaryTarget.field!)}>Sửa text</button>
+            <button type="button" className="rounded border border-white/20 px-2 py-1.5" data-lp-text-action="copy-style" onClick={() => copyStyleToClipboard(primaryTarget.blockId, primaryTarget.field)}>Sao chép kiểu</button>
+            {styleClipboardRef.current && <button type="button" className="rounded border border-white/20 px-2 py-1.5" data-lp-text-action="paste-style" disabled={selectionHasLocked} onClick={() => pasteStyleFromClipboard(primaryTarget.blockId, primaryTarget.field)}>Dán kiểu</button>}
+          </div>}
+
 
           {((useInspectorRail && inspectorRailSurface === 'add-components') ||
             (!useInspectorRail && inspectorTab === 'add')) ? (
@@ -7520,7 +8334,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               Public: {page.publicPath}
             </a>
           ) : null}
-          </div>
+
+          </>}
+</div>
         </aside>
         </div>,
             actionBarMounted && inspectorDesktop
