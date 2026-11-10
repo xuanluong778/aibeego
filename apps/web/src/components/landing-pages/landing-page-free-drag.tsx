@@ -1522,7 +1522,17 @@ export function useFreeDragBox({
         });
       }
 
-      const surfaceEl = resolveFreeSurface(el);
+      let surfaceEl = resolveFreeSurface(el);
+      // LeadForm section shell resolves to itself: its own box moves with the drag, so origin/clamp
+      // measured against it flip frame to frame and the form jumps to the top-left. Measure against
+      // the canvas (the shell's real containing block) instead.
+      if (
+        surfaceEl === el &&
+        el.getAttribute('data-lp-block-type') === 'LeadForm' &&
+        el.querySelector('[data-lp-form-hit],[data-lp-form-block],[data-lp-form-card]')
+      ) {
+        surfaceEl = el.closest<HTMLElement>('[data-lp-canvas-root]') || surfaceEl;
+      }
       if (getComputedStyle(surfaceEl).position === 'static') {
         surfaceEl.style.position = 'relative';
       }

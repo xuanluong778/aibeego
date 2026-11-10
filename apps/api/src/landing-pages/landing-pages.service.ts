@@ -27,6 +27,7 @@ import {
   applyBusinessProfileToSpec,
   businessProfileToAiBrief,
   createEmptyLandingPageSpec,
+  createBlankLandingPageSpec,
   cloneLandingPageSpecWithNewIds,
   specWithEditableHtmlSections,
   analyzeLandingPageHeuristic,
@@ -69,7 +70,7 @@ import { AutomationEngineService } from '../crm/automation-engine.service';
 import { LandingPageAiService } from './landing-page-ai.service';
 import { CreditService, isInsufficientCredits } from '../credit/credit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
-import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
+import { isPlatformAdmin, TEMPLATE_EDIT_SLUG_PREFIX, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
 import {
   assertUploadFile,
   PUBLIC_IMAGE_EXT,
@@ -521,7 +522,7 @@ export class LandingPagesService implements OnModuleInit {
       }),
     ]);
     const recent = await this.prisma.landingPage.findMany({
-      where: { organizationId },
+      where: { organizationId, NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } } },
       orderBy: { updatedAt: 'desc' },
       take: 8,
       select: {
@@ -702,6 +703,7 @@ export class LandingPagesService implements OnModuleInit {
     const items = await this.prisma.landingPage.findMany({
       where: {
         organizationId,
+        NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } },
         ...(status ? { status } : {}),
         ...(q
           ? {
@@ -747,14 +749,20 @@ export class LandingPagesService implements OnModuleInit {
   }
 
   async create(user: AuthUser, dto: CreateLandingPageDto) {
+    if (dto.mode === 'blank' && (dto.templateId || dto.templateSlug || dto.draftSpec)) {
+      throw new BadRequestException('Chỉ chọn một nguồn bản nháp.');
+    }
     const idemKey = this.normalizeIdemKey(dto.idempotencyKey);
     const cacheKey = idemKey ? `lp:create:${user.organizationId}:${idemKey}` : null;
 
     return this.withIdempotency(this.createIdem, cacheKey, async () => {
       await this.ensureSystemTemplates();
-      let spec = createEmptyLandingPageSpec(this.toSharedTheme(dto.theme));
+      const blank = dto.mode === 'blank';
+      let spec = blank
+        ? createBlankLandingPageSpec()
+        : createEmptyLandingPageSpec(this.toSharedTheme(dto.theme));
       let templateId: string | null = null;
-      let theme = THEME_MAP[dto.theme || ''] ?? LandingPageTheme.MODERN;
+      let theme = THEME_MAP[(blank ? spec.theme : dto.theme) || ''] ?? LandingPageTheme.MODERN;
 
       if (dto.templateId || dto.templateSlug) {
         const tpl = await this.prisma.landingPageTemplate.findFirst({
@@ -1057,6 +1065,9 @@ export class LandingPagesService implements OnModuleInit {
 
   async publish(user: AuthUser, id: string, dto: PublishLandingPageDto) {
     const gate = await this.assertPage(user.organizationId, id);
+    if (gate.slug.startsWith(TEMPLATE_EDIT_SLUG_PREFIX)) {
+      throw new BadRequestException('Đây là phiên sửa mẫu gốc. Dùng "Lưu vào mẫu" hoặc "Lưu & xuất bản mẫu".');
+    }
     this.assertMutable(gate.status);
     const expected =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)

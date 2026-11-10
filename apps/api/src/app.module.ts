@@ -48,6 +48,7 @@ import { EmailMarketingModule } from './email-marketing/email-marketing.module';
 import { ZaloMarketingModule } from './zalo-marketing/zalo-marketing.module';
 import { ZaloModule } from './zalo/zalo.module';
 import { SalesModule } from './sales/sales.module';
+import { AssistantModule } from './assistant/assistant.module';
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { SalesModule } from './sales/sales.module';
     ZaloMarketingModule,
     ZaloModule,
     SalesModule,
+    AssistantModule,
     MarketingAutopilotModule,
     CreditModule,
     BillingModule,

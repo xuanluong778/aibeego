@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { sidebarNavGroups, type NavGroup, type NavItem } from '@/config/navigation';
 import { useT } from '@/i18n/i18n-provider';
+import { useCurrentUser } from '@/hooks/use-auth';
 import { useSubscriptionDisplay } from '@/hooks/use-subscription-display';
 import { CONTENT_AUTO_POST_BASE } from '@/lib/content-auto-post-routes';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,9 +30,18 @@ interface SidebarProps {
 
 export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: SidebarProps) {
   const t = useT();
+  const { data: currentUser } = useCurrentUser();
+  const isPlatformAdmin = currentUser?.role === 'SUPER_ADMIN';
+  const navGroups = useMemo(
+    () =>
+      sidebarNavGroups.map((g) =>
+        g.items ? { ...g, items: g.items.filter((i) => !i.adminOnly || isPlatformAdmin) } : g,
+      ),
+    [isPlatformAdmin],
+  );
   const pathname = usePathname();
   // Keep editing focused on this page; prefetching other routes loads unused CSS.
-  const prefetchNavigation = pathname.startsWith('/landing-pages/builder/') ? false : undefined;
+  const prefetchNavigation = (pathname.startsWith('/landing-pages/builder/') || pathname === '/landing-pages/manage-templates') ? false : undefined;
   const searchParams = useSearchParams();
   const currentPathWithQuery = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
@@ -218,7 +228,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
   useEffect(() => {
     setOpenGroups((prev) => {
       const next = { ...prev };
-      for (const group of sidebarNavGroups) {
+      for (const group of navGroups) {
         if (group.items?.length && next[group.title] == null) {
           next[group.title] = isGroupActive(group);
         }
@@ -266,7 +276,7 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
       </div>
       <ScrollArea className="min-h-0 flex-1 py-4">
         <nav className={cn('grid gap-2 pb-24', collapsed ? 'px-1' : 'px-2')}>
-          {sidebarNavGroups.map((group) => {
+          {navGroups.map((group) => {
             const active = isGroupActive(group);
             const hasChildren = Boolean(group.items?.length);
             const iconOnlyLinkClass = cn(

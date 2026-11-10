@@ -1,4 +1,4 @@
-/** Scope only the existing injected foundations. No selector overrides and no copied foundations.
+/** Scope the existing injected foundations; library sections reuse them in a local boundary.
  * The zero-specificity exclusion applies to the selector subject, preserving ancestor
  * selectors from the builder/body and the specificity/order of legacy styles.
  */
@@ -7,7 +7,7 @@ export function scopeLegacyLandingPageCss(css: string): string {
   const cached = cache.get(css);
   if (cached) return cached;
   const guard =
-    ':not(:where([data-lp-style-scope="agency-portfolio-v2"], [data-lp-style-scope="agency-portfolio-v2"] *)):not(:where([data-lp-style-scope="restaurant-menu-v2"], [data-lp-style-scope="restaurant-menu-v2"] *)):not(:where([data-lp-style-scope="local-service-v2"], [data-lp-style-scope="local-service-v2"] *)):not(:where([data-lp-style-scope="website-brief-v2"], [data-lp-style-scope="website-brief-v2"] *)):not(:where([data-lp-style-scope="blank-starter-v1"], [data-lp-style-scope="blank-starter-v1"] *))';
+    ':not(:where([data-lp-section-library-scope], [data-lp-section-library-scope] *)):not(:where([data-lp-style-scope="agency-portfolio-v2"], [data-lp-style-scope="agency-portfolio-v2"] *)):not(:where([data-lp-style-scope="restaurant-menu-v2"], [data-lp-style-scope="restaurant-menu-v2"] *)):not(:where([data-lp-style-scope="local-service-v2"], [data-lp-style-scope="local-service-v2"] *)):not(:where([data-lp-style-scope="website-brief-v2"], [data-lp-style-scope="website-brief-v2"] *)):not(:where([data-lp-style-scope="blank-starter-v1"], [data-lp-style-scope="blank-starter-v1"] *))';
   function selector(value: string): string {
     const s = value.trim();
     let depth = 0,
@@ -142,7 +142,9 @@ export function scopeLegacyLandingPageCss(css: string): string {
     }
     return out + text.slice(start);
   }
-  const scoped = sheet(css);
+  // Library sections have an independent legacy renderer, even inside industry/blank pages.
+  // Scope proximity and the upper boundary prevent the surrounding page DNA leaking in.
+  const scoped = sheet(css) + '\n@scope ([data-lp-section-library-scope]) to ([data-lp-library-v2]) {\n' + css.replaceAll('[data-lp-canvas-root]', '[data-lp-library-canvas]') + '\n}';
   cache.set(css, scoped);
   return scoped;
 }

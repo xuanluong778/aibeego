@@ -18,6 +18,8 @@ import { RestaurantMenuBlock } from './landing-page-restaurant-blocks';
 import {WebsiteBriefBlock} from './landing-page-website-blocks';
 import { LocalServiceBlock } from './landing-page-local-service-blocks';
 import { scopeLegacyLandingPageCss } from './landing-page-legacy-css-scope';
+import { readSectionLibraryContext } from './landing-page-section-library-context';
+import { LandingPageSectionLibraryBlockV2 } from './landing-page-section-library-v2';
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
   LandingPageBlock,
@@ -121,6 +123,7 @@ import { LP_PREMIUM_FOUNDATION_CSS } from './landing-page-premium-foundation';
 import { LP_GOLD_FOUNDATION_CSS } from './landing-page-gold-foundation';
 import { LP_VISUAL_FOUNDATION_CSS } from './landing-page-visual-foundation';
 import { LP_PREMIUM_VISUAL_AXIS_CSS } from './landing-page-premium-visual-axis';
+import { LP_COMMERCIAL_TEMPLATE_CSS } from './landing-page-commercial-template-css';
 import { lpImgStyle, lpImgMotionAttr } from './landing-page-content-image-style';
 import { LpContentImage } from './landing-page-content-image';
 
@@ -1098,7 +1101,7 @@ function HeroBlock({
   canvas?: LandingPageCanvasHandlers | null;
   mode?: RenderMode;
 }) {
-  const catalogPreview = mode === 'preview' && !canvas;
+  const catalogPreview = (mode === 'preview' && !canvas) || Boolean(readSectionLibraryContext(block));
   const variant = resolveBlockVariant('Hero', block.variant);
   const composition = resolveHeroComposition(
     block.variant,
@@ -1159,7 +1162,7 @@ function HeroBlock({
   const cta = showCanvasInlineField(block.ctaLabel, canvas, block.id, 'ctaLabel') ? (
     canvas ? (
       <InlineEditable
-        as="span"
+        as={readSectionLibraryContext(block) ? 'a' : 'span'}
         blockId={block.id}
         field="ctaLabel"
         value={block.ctaLabel || ''}
@@ -2457,7 +2460,7 @@ function BlockView({
             {block.ctaLabel && !minimal ? (
               canvas ? (
                 <InlineEditable
-                  as="span"
+                  as={readSectionLibraryContext(block) ? 'a' : 'span'}
                   blockId={block.id}
                   field="ctaLabel"
                   value={block.ctaLabel}
@@ -2834,7 +2837,7 @@ function BlockView({
             }}
           >
             <InlineEditable
-                as="span"
+                as={readSectionLibraryContext(block) ? 'a' : 'span'}
                 blockId={block.id}
                 field="ctaLabel"
                 value={block.ctaLabel || ''}
@@ -2928,7 +2931,7 @@ function BlockView({
         showCanvasInlineField(block.ctaLabel, canvas, block.id, 'ctaLabel') ? (
           canvas ? (
             <InlineEditable
-              as="span"
+              as={readSectionLibraryContext(block) ? 'a' : 'span'}
               blockId={block.id}
               field="ctaLabel"
               value={block.ctaLabel || ''}
@@ -4123,6 +4126,21 @@ export function LandingPageRenderer({
     el.textContent = scopeLegacyLandingPageCss(LP_PREMIUM_VISUAL_AXIS_CSS);
     document.head.appendChild(el);
   }, []);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('lp-commercial-template-css')) return;
+    const el = document.createElement('style');
+    el.id = 'lp-commercial-template-css';
+    el.setAttribute('data-lp-commercial-template-css', '1');
+    el.textContent = LP_COMMERCIAL_TEMPLATE_CSS;
+    document.head.appendChild(el);
+  }, []);
+  useEffect(() => {
+    for (const block of spec.blocks) {
+      const context = readSectionLibraryContext(block);
+      if (context?.version === 1) ensureLandingPageCatalogFonts(mergeDesignFamilyTokens(context.themeTokens, context.designFamily).fontFamily);
+    }
+  }, [spec.blocks]);
   const blankStarter = spec.meta?.rendererVersion === 'blank-starter-v1';
   const agencyStandard = isAgencyPortfolioStandard(spec);
   const restaurantPilot = isRestaurantMenuRepresentative(spec);
@@ -4150,10 +4168,10 @@ export function LandingPageRenderer({
       leadForm &&
       hero &&
       (layout === 'lead_gen' || heroVariant === 'floating-card') &&
-      // Old saved specs retain the previous composition contract. New Vietnamese
-      // templates keep their standalone form when this Hero does not render one.
-      (spec.meta?.templateCopyVersion !== 'vi-VN-v1' ||
-        resolveHeroComposition(hero.variant, layout, true) === 'floating-card'),
+      // The form is only lifted into the Hero when that Hero actually renders it (floating-card).
+      // Otherwise the standalone LeadForm section must stay, or the form disappears entirely
+      // (lead_gen layout + centered/split Hero used to hide the only form on the page).
+      resolveHeroComposition(hero.variant, layout, true) === 'floating-card',
   );
   const canvasBlocks = hero
     ? [hero, ...spec.blocks.filter((b) => b.type !== 'Hero')]
@@ -4384,6 +4402,11 @@ export function LandingPageRenderer({
       data-industry-direction={industryDirection(spec)}
       data-lp-layout={layout}
       data-lp-category={category}
+      data-lp-catalog={
+        typeof spec.meta?.catalogVersion === 'string' && spec.meta.catalogVersion.startsWith('gallery-v22') && !(blankStarter || agencyStandard || restaurantPilot || servicePilot || websitePilot)
+          ? 'v22'
+          : undefined
+      }
       data-lp-gold-standard={goldStandard}
       data-lp-viewport={viewport}
       data-lp-mode={mode}
@@ -4393,6 +4416,11 @@ export function LandingPageRenderer({
       data-lp-goal={goalAttr}
       style={{ width: '100%', maxWidth: '100%', margin: '0 auto' }}
     >
+      {spec.blocks.some(block => readSectionLibraryContext(block)) ? (
+        <style data-lp-section-library-details="1">{`
+          [data-lp-section-library-scope] [data-lp-canvas-ux="1"]  :is([data-lp-hero-cta], [data-lp-cta-band], [data-lp-cta-action-panel]) a[data-lp-inline-field="ctaLabel"]::after { content: "→"; }
+        `}</style>
+      ) : null}
       {(() => {
         const css = buildPageCustomCssBlocks(
           spec.blocks.map((b) => ({
@@ -4444,6 +4472,7 @@ export function LandingPageRenderer({
                 }
               : tokenStyle(tokens)),
             ...(canvasFreeReserve > 0 ? { minHeight: canvasFreeReserve } : null),
+            ...(!canvasHandlers && visibleBlocks.length === 1 && readSectionLibraryContext(visibleBlocks[0]!)?.version === 2 ? { minHeight: 0 } : null),
           }}
           onDragOver={(e)=>{
             if(!canvasHandlers?.onInsertSidebarPreset || !isSidebarPresetDrag(e.dataTransfer.types))return;
@@ -4540,6 +4569,56 @@ export function LandingPageRenderer({
               tablet: rs.tablet?.display === 'none',
               mobile: rs.mobile?.display === 'none',
             };
+            const libraryContext = readSectionLibraryContext(block);
+            if (libraryContext) {
+              const localTokens = libraryContext.version === 2 ? libraryContext.themeTokens : mergeDesignFamilyTokens(libraryContext.themeTokens, libraryContext.designFamily);
+              const localPrimary = localTokens.button || localTokens.primary;
+              return (
+                <div key={block.id} data-lp-block-slot={block.id} data-lp-section-library-scope="1">
+                  <div data-lp-style-scope="legacy" data-lp-renderer="legacy"
+                    data-lp-layout="classic" data-lp-viewport={viewport} data-lp-mode={mode}
+                    data-lp-design-family={libraryContext.designFamily} data-lp-goal="lead"
+                    data-lp-interactive={interactive || canvasHandlers ? '1' : '0'}
+                    data-lp-canvas-ux={canvasHandlers ? '1' : '0'}>
+                    <div data-lp-library-canvas={libraryContext.version === 1 ? "1" : undefined}
+                      data-lp-library-v2={libraryContext.version === 2 ? "1" : undefined}
+                      data-lp-density={localTokens.density || 'comfortable'}
+                      data-lp-btn-style={localTokens.buttonStyle || 'solid'}
+                      data-lp-image-treatment={localTokens.imageTreatment || 'photo-real'}
+                      style={tokenStyle(localTokens)}>
+                      <SelectableShell blockId={block.id} label={`Section ${block.type}`}
+                        selected={Boolean(canvasHandlers?.isSelected?.({ blockId: block.id, element: 'section' }) || canvasHandlers?.isSelected?.({ blockId: block.id, element: 'section-background' }) || canvasHandlers?.isSectionPrimary?.(block.id))}
+                        selectedElement={primaryTarget?.blockId === block.id ? primaryTarget.element : undefined}
+                        handlers={canvasHandlers} allowReorder
+                        designClassName={safeCustomClassName((block.style as Record<string, unknown>)?.className)}
+                        publicFreeLayout={canvasHandlers ? null : resolvePublicSectionFreeLayout(block)}
+                        responsiveHide={responsiveHide} surfaceBlock={block}
+                        surfaceFallback={block.type === 'Hero' ? 'var(--lp-gradient)' : 'var(--lp-surface)'}>
+                        {libraryContext.version === 2 ? (
+                          <LandingPageSectionLibraryBlockV2 block={block} context={libraryContext}
+                            catalogPreview={spec.meta?.rendererVersion === 'section-library-preview-v2'}
+                            canvas={canvasHandlers} viewport={viewport}
+                            renderForm={block.type === 'LeadForm' ? <LeadFormCard block={block as LandingPageLeadFormBlock}
+                              primary={localPrimary} canvas={canvasHandlers} onSubmit={onLeadSubmit}
+                              onFormStart={onFormStart} omitHead plain mode={mode} /> : undefined}
+                            renderCountdown={block.type === 'Countdown' ? <LandingPageCountdownLive block={block as LandingPageCountdownBlock}
+                              primary={localPrimary} blockId={block.id} canvas={canvasHandlers} /> : undefined}
+                          />
+                        ) : block.type === 'Hero' ? (
+                          <HeroBlock block={block as LandingPageTextBlock} layout="classic"
+                            primary={localPrimary} leadForm={null} onLeadSubmit={onLeadSubmit}
+                            onFormStart={onFormStart} canvas={canvasHandlers} mode={mode} />
+                        ) : (
+                          <MemoBlockView block={block} primary={localPrimary} layout="classic"
+                            mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart}
+                            skipLeadForm={false} canvas={canvasHandlers} />
+                        )}
+                      </SelectableShell>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
             if (blankStarter && ['Header', 'Hero', 'LeadForm', 'Features', 'CTA', 'Footer'].includes(block.type)) {
               return <div key={block.id} data-lp-block-slot={block.id}>
                 <SelectableShell blockId={block.id} label={`Section ${block.type}`}

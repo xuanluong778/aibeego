@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Sidebar } from './sidebar';
 import { Topbar } from './topbar';
 import { cn } from '@/lib/utils';
+import { AssistantWidget } from '@/components/assistant/assistant-widget';
 
 const SIDEBAR_EXPANDED = '16rem';
 const SIDEBAR_COLLAPSED = '3.5rem'; // 56px — within 48–60px rail
@@ -176,6 +177,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           {children}
         </main>
+      </div>
+      <div hidden={lpBuilderActive || lpPreviewMode} data-app-assistant-host="1">
+        <AssistantWidget />
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { randomBytes } from 'crypto';
 import { join, sep } from 'path';
 import {
+  LandingPageStatus,
   LandingPageTemplatePublishStatus,
   LandingPageTheme,
   Prisma,
@@ -20,6 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   TEMPLATE_PACK_FORMAT,
   TEMPLATE_PACK_FORMAT_VERSION,
+  TEMPLATE_EDIT_SLUG_PREFIX,
   TEMPLATE_PACK_MANAGED_TAG,
   TEMPLATE_PACK_MAX_ZIP_BYTES,
   TemplatePackError,
@@ -27,11 +29,14 @@ import {
   isPlatformAdmin,
   parseHtmlDocument,
   parseTemplatePack,
+  readZip,
   rewriteHtmlAssetRefs,
   stripSensitiveKeys,
   templatePackReadme,
   type ParsedTemplatePack,
 } from './template-pack';
+
+import { expandTemplateBulkFile, deduplicateTemplateBulkFiles, parseTemplateBulkPreferences } from './template-pack-bulk';
 
 const THEMES = new Set<string>(Object.values(LandingPageTheme));
 const ASSET_MIME: Record<string, string> = {
@@ -217,6 +222,12 @@ export class LandingPageTemplatePackService {
       if (!pack.manifest.name.trim()) pack.manifest.name = row.name;
     }
     this.assertManifest(pack);
+    // Older exported packs stripped the render-only themeTokens key as if it were a secret.
+    // Preserve current colors for such same-theme updates; explicit incoming tokens still win.
+    const previousSpec = row.definition as { themeTokens?: unknown } | null;
+    if (!Object.hasOwn(pack.template, 'themeTokens') && pack.manifest.theme === row.theme && previousSpec?.themeTokens) {
+      pack.template.themeTokens = previousSpec.themeTokens;
+    }
     if (pack.manifest.slug !== row.slug) {
       throw new BadRequestException(`Slug trong gói phải là ${row.slug}`);
     }
@@ -241,6 +252,151 @@ export class LandingPageTemplatePackService {
       },
     });
     return this.serializeAdmin(updated);
+  }
+
+  /**
+   * Chế độ 2: sửa trực tiếp mẫu gốc. Mở (hoặc tạo) một trang làm việc ẩn chứa bản nháp của mẫu
+   * để admin sửa bằng builder. Mẫu chỉ đổi khi gọi saveFromSession.
+   */
+  async openEditSession(user: AuthUser, idOrSlug: string, opts?: { reset?: boolean }) {
+    this.assertAdmin(user);
+    const row = await this.findAdminTemplate(idOrSlug);
+    const slug = `${TEMPLATE_EDIT_SLUG_PREFIX}${row.slug}`.slice(0, 120);
+    const existing = await this.prisma.landingPage.findFirst({
+      where: { organizationId: user.organizationId, slug },
+    });
+    const spec = sanitizeLandingPageSpec(row.definition);
+    if (existing) {
+      if (opts?.reset) {
+        await this.prisma.landingPage.update({
+          where: { id: existing.id },
+          data: { draftSpec: spec as unknown as Prisma.InputJsonValue },
+        });
+      }
+      return { pageId: existing.id, slug: row.slug, name: row.name, reused: !opts?.reset };
+    }
+    const page = await this.prisma.landingPage.create({
+      data: {
+        organizationId: user.organizationId,
+        createdById: user.id,
+        templateId: row.id,
+        name: `[Sửa mẫu] ${row.name}`.slice(0, 120),
+        slug,
+        status: LandingPageStatus.DRAFT,
+        theme: row.theme,
+        draftSpec: spec as unknown as Prisma.InputJsonValue,
+        robotsIndex: false,
+      },
+    });
+    return { pageId: page.id, slug: row.slug, name: row.name, reused: false };
+  }
+
+  /** Ghi bản đang sửa trong builder vào mẫu gốc. `publish` = đưa ngay cho người dùng. */
+  async saveFromSession(user: AuthUser, idOrSlug: string, opts: { publish?: boolean }) {
+    this.assertAdmin(user);
+    const row = await this.findAdminTemplate(idOrSlug);
+    const page = await this.prisma.landingPage.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        slug: `${TEMPLATE_EDIT_SLUG_PREFIX}${row.slug}`.slice(0, 120),
+      },
+    });
+    if (!page) throw new NotFoundException('Chưa mở phiên sửa mẫu. Hãy bấm "Sửa mẫu gốc" trước.');
+    const spec = sanitizeLandingPageSpec(page.draftSpec);
+    if (!Array.isArray(spec.blocks) || spec.blocks.length === 0) {
+      throw new BadRequestException('Mẫu đang trống, không thể lưu vào mẫu gốc.');
+    }
+    await this.snapshot(
+      row.id,
+      row.definition as Prisma.InputJsonValue,
+      user.id,
+      opts.publish ? 'Trước khi sửa và xuất bản từ builder' : 'Trước khi lưu từ builder',
+    );
+    const clean = stripAssetKeys(spec) as LandingPageSpec;
+    await this.prisma.landingPageTemplate.update({
+      where: { id: row.id },
+      data: {
+        definition: clean as unknown as Prisma.InputJsonValue,
+        // Gắn tag để đồng bộ catalog khi khởi động API không ghi đè bản đã sửa tay.
+        tags: uniqueTags([...(row.tags || []), TEMPLATE_PACK_MANAGED_TAG]),
+        ...(row.publishedDefinition == null ? { publishStatus: LandingPageTemplatePublishStatus.DRAFT } : {}),
+      },
+    });
+    if (opts.publish) return this.publish(user, row.id);
+    const fresh = await this.findAdminTemplate(row.id);
+    return this.serializeAdmin(fresh);
+  }
+
+  /** Tải toàn bộ mẫu hệ thống: một ZIP chứa packs/<slug>.zip cho từng mẫu (cùng định dạng upload lại được). */
+  async exportAll(user: AuthUser): Promise<{ filename: string; body: Buffer; count: number }> {
+    this.assertAdmin(user);
+    const rows = await this.prisma.landingPageTemplate.findMany({
+      where: { organizationId: null, isSystem: true },
+      select: { id: true, slug: true },
+      orderBy: { slug: 'asc' },
+    });
+    const entries: Array<{ name: string; data: Buffer }> = [];
+    for (const r of rows) {
+      const pack = await this.exportPack(user, r.id);
+      entries.push({ name: `packs/${r.slug}.zip`, data: pack.body });
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    return { filename: `all-landing-templates-${stamp}.zip`, body: buildStoredZip(entries), count: rows.length };
+  }
+
+  /**
+   * Upload hàng loạt: nhận nhiều file .zip/.html. Một ZIP chứa toàn các gói .zip (bản "tải tất cả")
+   * được tách ra từng mẫu. Slug đã có thì cập nhật, chưa có thì tạo mới (nháp). Lỗi một file không dừng cả lô.
+   */
+  async importBulk(user: AuthUser, files: UploadFile[]) {
+    this.assertAdmin(user);
+    if (!files?.length) throw new BadRequestException('Chưa chọn file nào');
+    let queue: UploadFile[] = [];
+    const preferences = parseTemplateBulkPreferences(process.env.LP_TEMPLATE_BULK_PREFERRED_SOURCES);
+    const results: Array<{ file: string; status: 'created' | 'updated' | 'error'; slug?: string; message?: string }> = [];
+    for (const f of files) {
+      try {
+        queue.push(...expandTemplateBulkFile(f, preferences));
+      } catch (e) {
+        // Preserve the bulk ZIP error instead of retrying it as a 20 MiB single pack.
+        results.push({ file: f.originalname || 'file', status: 'error', message: e instanceof Error ? e.message : 'Không đọc được ZIP tổng' });
+      }
+    }
+    try {
+      queue = deduplicateTemplateBulkFiles(queue, preferences);
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Không xác định được mẫu trùng');
+    }
+    if (queue.length > 300) throw new BadRequestException('Tối đa 300 mẫu mỗi lần upload');
+    for (const f of queue) {
+      const label = f.originalname || 'file';
+      try {
+        const pack = this.parseUpload(f);
+        const slug = pack.manifest.slug;
+        const existing = pack.htmlOnly
+          ? null
+          : await this.prisma.landingPageTemplate.findFirst({
+              where: { slug, organizationId: null, isSystem: true },
+              select: { id: true },
+            });
+        if (existing) {
+          await this.importUpdate(user, slug, f);
+          results.push({ file: label, status: 'updated', slug });
+        } else {
+          const row = await this.importNew(user, f);
+          results.push({ file: label, status: 'created', slug: row.slug });
+        }
+      } catch (e) {
+        results.push({ file: label, status: 'error', message: e instanceof Error ? e.message : 'Lỗi không xác định' });
+      }
+    }
+    return {
+      total: results.length,
+      created: results.filter((r) => r.status === 'created').length,
+      updated: results.filter((r) => r.status === 'updated').length,
+      failed: results.filter((r) => r.status === 'error').length,
+      results,
+    };
   }
 
   async publish(user: AuthUser, idOrSlug: string) {

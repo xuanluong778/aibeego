@@ -72,6 +72,7 @@ export const en: Dictionary = {
     landingMyPages: 'My pages',
     landingCreate: 'Create Landing Page',
     landingTemplates: 'Templates',
+    landingTemplateAdmin: 'Manage templates',
     landingDomain: 'Domain',
     landingAnalytics: 'Analytics',
     appointmentsServices: 'Appointments & Services',

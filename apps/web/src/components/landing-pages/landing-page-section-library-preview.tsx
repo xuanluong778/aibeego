@@ -10,6 +10,7 @@ import type { LandingPageSpec, LandingPageTheme, LandingPageThemeTokens } from '
 import {
   createEmptyLandingPageSpec,
   LANDING_PAGE_THEME_PRESETS,
+  sanitizeLandingPageDraftSpec,
 } from '@marketingspa/shared';
 import { LandingPageRenderer } from './landing-page-renderer';
 import {
@@ -34,13 +35,28 @@ export function buildSectionLibraryPreviewSpec(
     LANDING_PAGE_THEME_PRESETS[theme] ||
     LANDING_PAGE_THEME_PRESETS.MODERN;
 
+  const idCounts = new Map<string, number>();
   const block = materializeSectionLibraryTemplate(template, (prefix) => {
-    // Stable ids so React does not remount the whole tree on parent re-render.
-    return `slprev-${template.id}-${prefix}`;
+    // Stable across renders and unique for every item/plan/field in this preview.
+    const index = (idCounts.get(prefix) || 0) + 1;
+    idCounts.set(prefix, index);
+    return `slprev-${template.id}-${prefix}-${index}`;
   });
 
+  if (opts?.theme || opts?.themeTokens) {
+    const style = (block.style || {}) as Record<string, unknown>;
+    block.style = {
+      ...style,
+      lpSectionLibrary: {
+        ...(style.lpSectionLibrary as Record<string, unknown>),
+        theme,
+        themeTokens: { ...tokens },
+      },
+    } as typeof block.style;
+  }
+
   const base = createEmptyLandingPageSpec(theme);
-  return {
+  return sanitizeLandingPageDraftSpec({
     ...base,
     theme,
     themeTokens: { ...tokens },
@@ -50,8 +66,9 @@ export function buildSectionLibraryPreviewSpec(
       designFamily: template.designFamily || 'conversion',
       conversionGoal: 'lead',
       sectionLibraryPreview: true,
+      ...(template.presentation?.revision === 2 ? {rendererVersion: 'section-library-preview-v2'} : {}),
     },
-  };
+  });
 }
 
 type PreviewProps = {

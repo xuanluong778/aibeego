@@ -153,9 +153,16 @@ test('Scoped CSS preserves declarations, media/keyframes, selector lists and spe
     r.walkDecls((d) => v.push([d.prop, d.value, d.important]));
     return v;
   };
-  assert.deepEqual(declarations(a), declarations(b));
+  const library = b.nodes.find((node) => node.type === 'atrule' && node.name === 'scope');
+  assert.ok(library, 'Library gets an independent CSS scope');
+  assert.equal(library.params, '([data-lp-section-library-scope]) to ([data-lp-library-v2])');
+  assert.deepEqual(declarations(a), declarations(library), 'Library preserves the same declarations');
+  library.remove();
+  assert.deepEqual(declarations(a), declarations(b), 'Existing page declarations remain unchanged');
+  assert.ok(b.toString().includes(':not(:where([data-lp-section-library-scope]'));
+  assert.ok(css.includes('[data-lp-library-canvas]'));
 });
 fs.writeFileSync(
-  '/mnt/data/agency-portfolio-implementation/unit-results.json',
+  process.env.LP_AGENCY_UNIT_REPORT || '/mnt/data/agency-portfolio-implementation/unit-results.json',
   JSON.stringify(results, null, 2),
 );

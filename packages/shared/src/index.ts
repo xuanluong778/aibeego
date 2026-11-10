@@ -154,3 +154,4 @@ export * from './landing-page-blank-starter';
 
 export * from './landing-page-section-elements';
 export * from './landing-page-section-rows';
+export * from './landing-page-commercial-content';

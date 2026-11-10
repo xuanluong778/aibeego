@@ -4,6 +4,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { LeadsModule } from '../leads/leads.module';
 import { CrmModule } from '../crm/crm.module';
 import { WorkManagementModule } from '../work-management/work-management.module';
+import { WorkInsightsService } from '../work-management/work-insights.service';
 import { HrmModule } from '../hrm/hrm.module';
 import { AdsMcpModule } from '../ads-mcp/ads-mcp.module';
 import { ChatbotCskhModule } from '../chatbot-cskh/chatbot-cskh.module';
@@ -25,7 +26,8 @@ import { AssistantWriteToolsService } from './write/write-tools.service';
 
 /**
  * Trợ lý Bạch Cốt Tinh — inject domain services/gateways currently exported.
- * FinanceService / EmployeesService are re-provided here (domain modules do not export them)
+ * FinanceService / EmployeesService / WorkInsightsService are provided here
+ * (domain modules do not export them)
  * so assistant can call existing logic without editing CRM/Finance/HRM/Work/Ads/CSKH files.
  */
 @Module({
@@ -48,6 +50,7 @@ import { AssistantWriteToolsService } from './write/write-tools.service';
     AssistantAuditService,
     FinanceService,
     EmployeesService,
+    WorkInsightsService,
     AssistantDomainToolsService,
     AssistantWriteExecuteService,
     AssistantPendingActionService,

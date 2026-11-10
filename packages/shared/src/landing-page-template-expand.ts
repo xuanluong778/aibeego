@@ -4,6 +4,7 @@
  */
 
 import { applyAgencyPortfolioStandard } from './landing-page-agency-portfolio-standard';
+import { applyCommercialContent } from './landing-page-commercial-content';
 import type { LandingPageCategory, LandingPageTemplateDefinition } from './landing-page-types';
 import { layoutForCategory } from './landing-page-ui';
 import {
@@ -29,7 +30,7 @@ import { resolveProductPremiumStandard } from './landing-page-product-gold-syste
 import { resolveFashionPremiumStandard } from './landing-page-fashion-gold-system';
 import { resolveCosmeticsPremiumStandard } from './landing-page-cosmetics-gold-system';
 
-export const LANDING_PAGE_TEMPLATE_CATALOG_VERSION = 'gallery-v21-production-visual-axis';
+export const LANDING_PAGE_TEMPLATE_CATALOG_VERSION = 'gallery-v22-commercial-content';
 
 function slugFor(seedSlug: string, flowSlugSuffix: string, variantIndex = 0): string {
   if (variantIndex === 0 || !flowSlugSuffix) return seedSlug;
@@ -173,7 +174,7 @@ export function expandLandingPageTemplateCatalog(
           },
         },
       };
-      out.push(applyAgencyPortfolioStandard(def));
+      out.push(applyAgencyPortfolioStandard(applyCommercialContent(def, arch.variantIndex)));
     }
   }
 

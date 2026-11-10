@@ -72,6 +72,7 @@ export const vi: Dictionary = {
     landingMyPages: 'Trang của tôi',
     landingCreate: 'Tạo Landing Page',
     landingTemplates: 'Templates',
+    landingTemplateAdmin: 'Quản lý Templates',
     landingDomain: 'Domain',
     landingAnalytics: 'Analytics',
     appointmentsServices: 'Lịch hẹn & Dịch vụ',

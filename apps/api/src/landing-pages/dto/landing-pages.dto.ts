@@ -61,6 +61,11 @@ export class ListLandingPageTemplatesQueryDto {
 }
 
 export class CreateLandingPageDto {
+  /** Explicit blank starter; omitted by template and AI/URL creation. */
+  @IsOptional()
+  @IsIn(['blank'])
+  mode?: 'blank';
+
   /** Confirmed AI preview, saved atomically with the new draft. */
   @IsOptional()
   @IsObject()

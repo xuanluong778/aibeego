@@ -6100,6 +6100,40 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     }
   }
 
+  const templateEditSlug =
+    page?.slug && page.slug.startsWith('tpl-edit-') ? page.slug.slice('tpl-edit-'.length) : null;
+  const [templateSaving, setTemplateSaving] = useState(false);
+
+  /** Admin đang sửa mẫu gốc: lưu bản hiện tại vào mẫu (và tuỳ chọn xuất bản cho người dùng). */
+  async function saveToTemplate(publishToUsers: boolean) {
+    if (!templateEditSlug || templateSaving) return;
+    if (saveConflictRef.current) {
+      setSaveMsg('Có bản mới hơn ở nơi khác — bấm "Tải bản mới nhất" trước khi lưu mẫu');
+      return;
+    }
+    setTemplateSaving(true);
+    try {
+      await persist(specRef.current, page?.name, { manual: true, wait: true });
+      if (dirtyRef.current || autosaveInflightRef.current) {
+        setSaveMsg('Không lưu kịp bản nháp — thử lại');
+        return;
+      }
+      await apiClient(`/landing-pages/templates/${encodeURIComponent(templateEditSlug)}/save-from-session`, {
+        method: 'POST',
+        body: JSON.stringify({ publish: publishToUsers }),
+      });
+      setSaveMsg(
+        publishToUsers
+          ? 'Đã lưu và xuất bản mẫu gốc. Người dùng sẽ thấy bản mới khi tạo trang.'
+          : 'Đã lưu vào mẫu gốc (bản nháp). Bấm "Lưu & xuất bản mẫu" để người dùng thấy.',
+      );
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : 'Không lưu được vào mẫu gốc');
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
   async function viewLive() {
     const slug = await publish();
     if (!slug || typeof window === 'undefined') return;
@@ -6298,6 +6332,42 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         body:has([data-lp-inspector-drawer], [data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal]) [data-lp-floating-toolbar] { visibility: hidden; }
         body:has([data-lp-builder-root]) [data-lp-free-drag-handle], [data-lp-builder-root] [data-lp-resize-handle], [data-lp-builder-root] [data-lp-rotate-handle] { touch-action: none; }
       `}</style>
+      {!fullscreenPreview && templateEditSlug ? (
+        <div
+          className="flex flex-wrap items-center gap-2 border-b border-amber-400/40 bg-amber-500/15 px-3 py-2 text-xs text-amber-100"
+          data-lp-template-edit-banner
+        >
+          <span className="font-semibold">Đang sửa MẪU GỐC: {templateEditSlug}</span>
+          <span className="hidden opacity-80 md:inline">
+            Thay đổi chỉ vào mẫu khi bạn bấm lưu. Trang của khách đã tạo trước đó không bị ảnh hưởng.
+          </span>
+          <span className="ml-auto flex gap-2">
+            <button
+              type="button"
+              className="rounded border border-amber-300/60 px-2 py-1 hover:bg-amber-400/20 disabled:opacity-50"
+              disabled={templateSaving}
+              onClick={() => void saveToTemplate(false)}
+            >
+              Lưu vào mẫu
+            </button>
+            <button
+              type="button"
+              className="rounded bg-amber-400 px-2 py-1 font-semibold text-black hover:bg-amber-300 disabled:opacity-50"
+              disabled={templateSaving}
+              onClick={() => void saveToTemplate(true)}
+            >
+              Lưu &amp; xuất bản mẫu
+            </button>
+            <button
+              type="button"
+              className="rounded border border-amber-300/60 px-2 py-1 hover:bg-amber-400/20"
+              onClick={() => router.push('/landing-pages/templates')}
+            >
+              Thoát
+            </button>
+          </span>
+        </div>
+      ) : null}
       {!fullscreenPreview ? (
         <LandingPageBuilderToolbar
           viewport={viewport}

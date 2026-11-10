@@ -41,6 +41,30 @@ type Template = {
 
 const PAGE_SIZE = 12;
 
+// Display labels only: category keys remain the API/filter contract.
+const CATEGORY_LABEL: Record<string, string> = {
+  product: 'Sản phẩm',
+  cosmetics: 'Mỹ phẩm',
+  fashion: 'Thời trang',
+  spa: 'Spa',
+  real_estate: 'Bất động sản',
+  seo: 'SEO',
+  website: 'Website',
+  service: 'Dịch vụ',
+  course: 'Khóa học',
+  webinar: 'Hội thảo',
+  coaching: 'Huấn luyện',
+  consulting: 'Tư vấn',
+  quote: 'Báo giá',
+  ebook: 'Sách điện tử',
+  demo: 'Demo',
+  lead_magnet: 'Quà tặng',
+  saas: 'SaaS',
+  clinic: 'Phòng khám',
+  restaurant: 'Nhà hàng',
+  agency: 'Agency',
+};
+
 const BADGE_LABEL: Record<TemplateBadge, string> = {
   new: 'Mới',
   popular: 'Phổ biến',
@@ -80,12 +104,15 @@ function withCatalogCacheBust(path: string) {
   return `${path}${sep}v=${encodeURIComponent(LANDING_PAGE_TEMPLATE_CATALOG_VERSION)}`;
 }
 
-function imagePaths(slug: string, thumb?: string | null, long?: string | null) {
+function imagePaths(slug: string, thumb?: string | null, long?: string | null, managed = false) {
   const fallbackThumb = `/landing-pages/templates/${slug}-thumb.webp`;
   const fallbackLong = `/landing-pages/templates/${slug}-long.webp`;
+  // Uploaded packs own their media. Falling back to catalog screenshots shows an older design.
+  const thumbnail = thumb || (managed ? '' : fallbackThumb);
+  const preview = long || (managed ? thumbnail : fallbackLong);
   return {
-    thumbnail: withCatalogCacheBust(thumb || fallbackThumb),
-    previewLongImage: withCatalogCacheBust(long || fallbackLong),
+    thumbnail: thumbnail ? withCatalogCacheBust(thumbnail) : '',
+    previewLongImage: preview ? withCatalogCacheBust(preview) : '',
   };
 }
 
@@ -306,6 +333,21 @@ export default function LandingPagesTemplatesPage() {
     }
   }
 
+  /** Chế độ admin: sửa trực tiếp mẫu gốc (khác "Sử dụng mẫu" là tạo bản sao riêng). */
+  async function editTemplateSource(slug: string) {
+    setUsing(true);
+    try {
+      const session = await apiClient<{ pageId: string }>(
+        `/landing-pages/templates/${encodeURIComponent(slug)}/edit-session`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      router.push(`/landing-pages/builder/${session.pageId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không mở được mẫu để sửa');
+      setUsing(false);
+    }
+  }
+
   const categories = useMemo(() => {
     const present = new Set(items.map((i) => i.category));
     return LANDING_PAGE_CATEGORIES.filter((c) => present.has(c));
@@ -364,17 +406,18 @@ export default function LandingPagesTemplatesPage() {
       </div>
 
       <div className="mb-5 flex flex-wrap gap-2" data-lp-template-categories>
-        <Button size="sm" variant={category === '' ? 'default' : 'outline'} onClick={() => setCategory('')}>
+        <Button size="sm" className="w-auto flex-none whitespace-nowrap" variant={category === '' ? 'default' : 'outline'} onClick={() => setCategory('')}>
           Tất cả
         </Button>
         {(category ? LANDING_PAGE_CATEGORIES : categories).map((c) => (
           <Button
             key={c}
+            className="w-auto flex-none whitespace-nowrap"
             size="sm"
             variant={category === c ? 'default' : 'outline'}
             onClick={() => setCategory(c)}
           >
-            {c}
+            {CATEGORY_LABEL[c] || c}
           </Button>
         ))}
       </div>
@@ -382,7 +425,7 @@ export default function LandingPagesTemplatesPage() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs opacity-60">
         <span>
           {loading ? 'Đang tải…' : `${items.length} mẫu`}
-          {category ? ` · ${category}` : ' · mọi category'}
+          {category ? ` · ${CATEGORY_LABEL[category] || category}` : ' · mọi category'}
         </span>
         <span className="hidden sm:inline">
           {hoverOk ? 'Rê chuột vào ảnh để xem toàn trang' : 'Chạm Xem trước để xem đầy đủ trên mobile'}
@@ -408,7 +451,7 @@ export default function LandingPagesTemplatesPage() {
       ) : (
         <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pageItems.map((tpl) => {
-            const imgs = imagePaths(tpl.slug, tpl.thumbnailUrl, tpl.previewLongImage);
+            const imgs = imagePaths(tpl.slug, tpl.thumbnailUrl, tpl.previewLongImage, tpl.tags.includes('pack:managed'));
             const badges = parseBadges(tpl);
             const family = tpl.designFamily || '';
             const goal = tpl.conversionGoal || '';
@@ -465,6 +508,19 @@ export default function LandingPagesTemplatesPage() {
                       Sử dụng mẫu
                     </Button>
                   </div>
+                  {isAdmin ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 w-full border-amber-400/50 text-amber-100"
+                      disabled={using}
+                      data-lp-edit-template-source
+                      title="Sửa trực tiếp mẫu gốc. Người dùng sẽ thấy thay đổi sau khi bạn xuất bản mẫu."
+                      onClick={() => void editTemplateSource(tpl.slug)}
+                    >
+                      Sửa mẫu gốc
+                    </Button>
+                  ) : null}
                   {isAdmin ? (
                     <details className="relative mt-2" data-lp-template-more>
                       <summary className="cursor-pointer list-none text-center text-xs text-white/70 [&::-webkit-details-marker]:hidden">

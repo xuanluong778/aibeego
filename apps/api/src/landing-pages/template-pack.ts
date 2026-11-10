@@ -8,8 +8,11 @@ import { describeHtmlImportLimits, landingSpecFromHtml, sanitizeTemplateHtml } f
 export const TEMPLATE_PACK_FORMAT = 'aibeego.landing-template';
 export const TEMPLATE_PACK_FORMAT_VERSION = 1;
 export const TEMPLATE_PACK_MANAGED_TAG = 'pack:managed';
+/** Trang làm việc ẩn dùng để admin sửa trực tiếp mẫu gốc trong builder. Không bao giờ publish. */
+export const TEMPLATE_EDIT_SLUG_PREFIX = 'tpl-edit-';
 
 export const TEMPLATE_PACK_MAX_ZIP_BYTES = 20 * 1024 * 1024;
+export const TEMPLATE_BULK_MAX_ZIP_BYTES = 256 * 1024 * 1024;
 export const TEMPLATE_PACK_MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024;
 export const TEMPLATE_PACK_MAX_FILES = 40;
 export const TEMPLATE_PACK_MAX_ASSET_BYTES = 8 * 1024 * 1024;
@@ -156,15 +159,18 @@ function findEocd(buf: Buffer): number {
   throw new TemplatePackError('File không phải ZIP hợp lệ');
 }
 
-export function readZip(buf: Buffer): Map<string, Buffer> {
-  if (buf.length < 22 || buf.length > TEMPLATE_PACK_MAX_ZIP_BYTES) {
+export function readZip(buf: Buffer, opts?: { bundle?: boolean }): Map<string, Buffer> {
+  const maxZip = opts?.bundle ? TEMPLATE_BULK_MAX_ZIP_BYTES : TEMPLATE_PACK_MAX_ZIP_BYTES;
+  const maxFiles = opts?.bundle ? 16000 : TEMPLATE_PACK_MAX_FILES;
+  const maxUncompressed = opts?.bundle ? 400 * 1024 * 1024 : TEMPLATE_PACK_MAX_UNCOMPRESSED_BYTES;
+  if (buf.length < 22 || buf.length > maxZip) {
     throw new TemplatePackError('Dung lượng ZIP không hợp lệ');
   }
   const eocd = findEocd(buf);
   const count = buf.readUInt16LE(eocd + 10);
   const centralSize = buf.readUInt32LE(eocd + 12);
   let ptr = buf.readUInt32LE(eocd + 16);
-  if (count > TEMPLATE_PACK_MAX_FILES) throw new TemplatePackError('ZIP có quá nhiều file');
+  if (count > maxFiles) throw new TemplatePackError('ZIP có quá nhiều file');
   if (ptr > buf.length || centralSize > buf.length) throw new TemplatePackError('ZIP hỏng');
   const out = new Map<string, Buffer>();
   let uncompressedTotal = 0;
@@ -193,7 +199,7 @@ export function readZip(buf: Buffer): Map<string, Buffer> {
     const dataOff = localOff + 30 + localNameLen + localExtraLen;
     if (dataOff + compSize > buf.length) throw new TemplatePackError('ZIP hỏng');
     uncompressedTotal += uncompSize;
-    if (uncompressedTotal > TEMPLATE_PACK_MAX_UNCOMPRESSED_BYTES) {
+    if (uncompressedTotal > maxUncompressed) {
       throw new TemplatePackError('ZIP giải nén vượt dung lượng cho phép');
     }
     const compressed = buf.slice(dataOff, dataOff + compSize);
@@ -201,14 +207,14 @@ export function readZip(buf: Buffer): Map<string, Buffer> {
     if (method === 0) data = compressed;
     else if (method === 8) {
       try {
-        data = inflateRawSync(compressed);
+        data = inflateRawSync(compressed, { maxOutputLength: Math.max(1, maxUncompressed - (uncompressedTotal - uncompSize)) });
       } catch {
         throw new TemplatePackError('Không đọc được file nén trong ZIP');
       }
     } else {
       throw new TemplatePackError('Kiểu nén ZIP không được hỗ trợ');
     }
-    if (data.length !== uncompSize && uncompSize !== 0) {
+    if (data.length !== uncompSize) {
       throw new TemplatePackError('Kích thước file trong ZIP không khớp');
     }
     if (out.has(safe)) throw new TemplatePackError(`File bị trùng: ${safe}`);
@@ -438,7 +444,7 @@ export function stripSensitiveKeys(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (SECRET_KEY.test(k)) continue;
+    if (k !== 'themeTokens' && SECRET_KEY.test(k)) continue;
     out[k] = stripSensitiveKeys(v);
   }
   return out;

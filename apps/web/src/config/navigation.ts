@@ -44,6 +44,8 @@ export interface NavItem {
   title: string;
   href: string;
   icon: LucideIcon;
+  /** Chỉ hiện cho quản trị hệ thống (SUPER_ADMIN). */
+  adminOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -119,6 +121,7 @@ export const sidebarNavGroups: NavGroup[] = [
       { title: 'nav.landingMyPages', href: '/landing-pages/pages', icon: PanelsTopLeft },
       { title: 'nav.landingCreate', href: '/landing-pages/create', icon: ChevronRight },
       { title: 'nav.landingTemplates', href: '/landing-pages/templates', icon: Layers },
+      { title: 'nav.landingTemplateAdmin', href: '/landing-pages/manage-templates', icon: Layers, adminOnly: true },
       { title: 'nav.landingDomain', href: '/landing-pages/domain', icon: Link2 },
       { title: 'nav.landingAnalytics', href: '/landing-pages/analytics', icon: BarChart3 },
     ],

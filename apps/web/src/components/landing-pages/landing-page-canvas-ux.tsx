@@ -907,6 +907,12 @@ function SelectableShellInteractive({
       const pe = ev as unknown as globalThis.PointerEvent;
       const p = pointerRef.current;
       if (!p || freeDrag.dragging || p.dragHandle) return;
+      // Mouse released where no pointerup reached us (over a handle that stops propagation,
+      // outside the window, …): end the marquee instead of letting it follow the cursor.
+      if (pe.pointerType === 'mouse' && pe.buttons === 0) {
+        handleSectionPointerUp(pe.clientX, pe.clientY);
+        return;
+      }
       const dx = Math.abs(pe.clientX - p.x);
       const dy = Math.abs(pe.clientY - p.y);
       if (dx <= TAP_MOVE_PX && dy <= TAP_MOVE_PX) return;
@@ -924,13 +930,29 @@ function SelectableShellInteractive({
       // otherwise isLpMarqueeSelecting stays true and freezes all section select/drag.
       handleSectionPointerUp(pe.clientX, pe.clientY);
     };
+    // Capture-phase safety net: only while a marquee is actually drawn, so a plain click still
+    // reaches the section's own pointerup (tap-to-select).
+    const onUpCapture: EventListener = (ev) => {
+      if (pointerRef.current?.marquee) onUp(ev);
+    };
+    const onBlur = () => {
+      pointerRef.current = null;
+      clearMarquee();
+      detachMarqueeWin();
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointerup', onUpCapture, true);
+    window.addEventListener('pointercancel', onUpCapture, true);
+    window.addEventListener('blur', onBlur);
     marqueeWinCleanupRef.current = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointerup', onUpCapture, true);
+      window.removeEventListener('pointercancel', onUpCapture, true);
+      window.removeEventListener('blur', onBlur);
     };
   };
 
@@ -1240,6 +1262,10 @@ function SelectableShellInteractive({
           onPointerMove={(e) => {
             const p = pointerRef.current;
             if (!p || freeDrag.dragging || p.dragHandle) return;
+            if (e.pointerType === 'mouse' && e.buttons === 0) {
+              handleSectionPointerUp(e.clientX, e.clientY);
+              return;
+            }
             const dx = Math.abs(e.clientX - p.x);
             const dy = Math.abs(e.clientY - p.y);
             if (dx <= TAP_MOVE_PX && dy <= TAP_MOVE_PX) return;

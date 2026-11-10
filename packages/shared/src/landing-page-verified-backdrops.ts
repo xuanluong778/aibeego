@@ -8,24 +8,20 @@ import type { LandingPageCategory } from './landing-page-types';
 /** Verified Unsplash photo IDs — curated per category theme. */
 export const VERIFIED_CATEGORY_BACKDROPS: Record<string, readonly string[]> = {
   agency: [
-    'photo-1497366216548-37526070297c',
     'photo-1497366811353-6870744d04b2',
-    'photo-1486406146926-c627a92ad1ab',
-    'photo-1556761175-5973dc0f32e7',
     'photo-1542744173-8e7e53415bb0',
+    'photo-1556761175-5973dc0f32e7',
     'photo-1522071820081-009f0129c71c',
-    'photo-1556761175-b413da4baf72',
     'photo-1552664730-d307ca884978',
+    'photo-1497366216548-37526070297c',
+    'photo-1486406146926-c627a92ad1ab',
   ],
   clinic: [
     'photo-1576091160399-112ba8d25d1d',
-    'photo-1519494026892-80bbd2d6fd0d',
     'photo-1631217868264-e5b90bb7e133',
     'photo-1666214280557-f1b5022eb634',
+    'photo-1519494026892-80bbd2d6fd0d',
     'photo-1584820927498-cfe5211fd8bf',
-    'photo-1579684385127-1ef15d508118',
-    'photo-1581578731548-c64695cc6952',
-    'photo-1621905252507-b35492cc74b4',
   ],
   saas: [
     'photo-1460925895917-afdab827c52f',
@@ -72,32 +68,20 @@ export const VERIFIED_CATEGORY_BACKDROPS: Record<string, readonly string[]> = {
     'photo-1523275335684-37898b6baf30',
     'photo-1572635196237-14b3f281503f',
     'photo-1526170375885-4d8ecf77b99f',
-    'photo-1497633762265-9d179a990aa6',
-    'photo-1507003211169-0a1dd7228f2d',
-    'photo-1481627834876-b7833e8f5570',
   ],
   fashion: [
     'photo-1490481651871-ab68de25d43d',
-    'photo-1515886657613-9f3515b0c78f',
     'photo-1469334031218-e382a71b716b',
-    'photo-1558618666-fcd25c85cd64',
-    'photo-1522335789203-aabd1fc54bc9',
-    'photo-1596462502278-27bfdc403348',
+    'photo-1515886657613-9f3515b0c78f',
   ],
   cosmetics: [
     'photo-1596462502278-27bfdc403348',
     'photo-1522335789203-aabd1fc54bc9',
     'photo-1512496015851-a90fb38ba796',
-    'photo-1558618666-fcd25c85cd64',
-    'photo-1490481651871-ab68de25d43d',
-    'photo-1515886657613-9f3515b0c78f',
   ],
   spa: [
     'photo-1540555700478-4be289fbecef',
     'photo-1544367567-0f2fcb009e0b',
-    'photo-1518611012118-696072aa579a',
-    'photo-1571019614242-c5c5dee9f50b',
-    'photo-1517836357463-d25dfeac3438',
     'photo-1506126613408-eca07ce68773',
   ],
   course: [
@@ -116,10 +100,10 @@ export const VERIFIED_CATEGORY_BACKDROPS: Record<string, readonly string[]> = {
     'photo-1553877522-43269d4ea984',
   ],
   coaching: [
-    'photo-1571019614242-c5c5dee9f50b',
-    'photo-1518611012118-696072aa579a',
-    'photo-1544367567-0f2fcb009e0b',
-    'photo-1517836357463-d25dfeac3438',
+    'photo-1600880292203-757bb62b4baf',
+    'photo-1552664730-d307ca884978',
+    'photo-1522202176988-66273c2fd55f',
+    'photo-1434030216411-0b793f4b4173',
     'photo-1506126613408-eca07ce68773',
   ],
   restaurant: [
@@ -127,7 +111,6 @@ export const VERIFIED_CATEGORY_BACKDROPS: Record<string, readonly string[]> = {
     'photo-1414235077428-338989a2e8c0',
     'photo-1555396273-367ea4eb4db5',
     'photo-1559339352-11d035aa65de',
-    'photo-1556761175-b413da4baf72',
   ],
   real_estate: [
     'photo-1600596542815-ffad4c1539a9',
@@ -146,7 +129,6 @@ export const VERIFIED_CATEGORY_BACKDROPS: Record<string, readonly string[]> = {
   ebook: [
     'photo-1456513080510-7bf3a84b82f8',
     'photo-1481627834876-b7833e8f5570',
-    'photo-1507003211169-0a1dd7228f2d',
     'photo-1497633762265-9d179a990aa6',
     'photo-1524178232363-1fb2b075b655',
   ],

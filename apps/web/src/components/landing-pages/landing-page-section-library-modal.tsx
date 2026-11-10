@@ -30,7 +30,7 @@ export type LandingPageSectionLibraryModalProps = {
   onClose: () => void;
   onInsertTemplate: (templateId: string) => void;
   onInsertBlank: () => void;
-  /** Page theme — insert inherits these; browse previews use template DNA. */
+  /** Page theme is retained for compatibility; library sections keep their own design. */
   pageTheme?: LandingPageTheme | null;
   pageThemeTokens?: LandingPageThemeTokens | null;
 };
@@ -317,8 +317,7 @@ export function LandingPageSectionLibraryModal({
                   eager
                 />
                 <p className="mt-3 text-[10px] leading-relaxed text-zinc-400">
-                  Preview dùng theme thư viện để so sánh style. Khi <strong>Thêm section</strong>,
-                  block kế thừa themeTokens của Landing Page đang mở.
+                  Khi <strong>Thêm section</strong>, bố cục, nội dung và màu sắc của mẫu được giữ nguyên.
                 </p>
               </div>
               <div className="border-t border-zinc-100 p-3">

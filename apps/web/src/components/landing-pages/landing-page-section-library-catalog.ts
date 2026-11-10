@@ -1,11 +1,13 @@
 /**
  * Section Library catalog — 100 production templates.
  * Each template materializes to ONE live LandingPageBlock (existing 17 types + variants).
- * Neutral copy; brand colors come from page themeTokens after insert.
+ * Each inserted section retains the exact visual context shown by its preview.
  */
 
 import type { LandingPageBlock, LandingPageBlockType, LandingPageTheme, LandingPageThemeTokens } from '@marketingspa/shared';
 import { LANDING_PAGE_THEME_PRESETS, verifiedBackdropUrl } from '@marketingspa/shared';
+import { finishSectionLibraryTemplate } from './landing-page-section-library-quality';
+import type { SectionLibraryPresentation } from './landing-page-section-library-context';
 
 export const LP_SECTION_LIBRARY_CATEGORIES = [
   { id: 'hero', label: 'Hero', count: 11 },
@@ -68,6 +70,7 @@ export type LpSectionThumbLayout =
   | 'countdown';
 
 export type LpSectionLibraryTemplate = {
+  presentation?: SectionLibraryPresentation;
   id: string;
   category: LpSectionLibraryCategoryId;
   label: string;
@@ -79,7 +82,7 @@ export type LpSectionLibraryTemplate = {
   blockType: LandingPageBlockType;
   /** Partial block fields merged onto a typed shell (id assigned at insert). */
   patch: Record<string, unknown>;
-  /** Library browse theme (insert still uses the live page themeTokens). */
+  /** Visual context retained by both preview and inserted section. */
   previewTheme?: LandingPageTheme;
   previewTokens?: LandingPageThemeTokens;
   designFamily?: string;
@@ -149,9 +152,9 @@ function buildCatalog(): LpSectionLibraryTemplate[] {
       id: h.id,
       category: 'hero',
       label: h.label,
-      description: h.composition,
-      tags: ['hero', 'banner', h.composition],
-      composition: h.composition,
+      description: h.composition!,
+      tags: ['hero', 'banner', h.composition!],
+      composition: h.composition!,
       thumb: h.thumb,
       blockType: 'Hero',
       patch: h.patch,
@@ -227,7 +230,7 @@ function buildCatalog(): LpSectionLibraryTemplate[] {
         spacing: 'lg',
         items: items(
           Array.from({ length: b.n }, (_, i) => ({
-            title: benefitCopy[i % benefitCopy.length]![0],
+            title: benefitCopy[i % benefitCopy.length]![0]!,
             description: benefitCopy[i % benefitCopy.length]![1],
             ...(b.variant === 'image-cards' ? { imageUrl: img(10 + i) } : null),
           })),
@@ -832,87 +835,7 @@ function buildCatalog(): LpSectionLibraryTemplate[] {
   return t;
 }
 
-const PREVIEW_THEMES: LandingPageTheme[] = ['MODERN', 'PREMIUM', 'MINIMAL', 'BOLD', 'CORPORATE'];
-const DESIGN_FAMILIES = [
-  'editorial',
-  'minimal',
-  'luxury',
-  'bold',
-  'corporate',
-  'conversion',
-  'product',
-  'local',
-  'portfolio',
-  'organic',
-] as const;
-
-/** Stamp browse-only visual DNA + richer backgrounds without duplicating insert logic. */
-function polishCatalog(raw: LpSectionLibraryTemplate[]): LpSectionLibraryTemplate[] {
-  return raw.map((tpl, index) => {
-    const previewTheme = PREVIEW_THEMES[index % PREVIEW_THEMES.length]!;
-    const designFamily = DESIGN_FAMILIES[index % DESIGN_FAMILIES.length]!;
-    const baseTokens = { ...LANDING_PAGE_THEME_PRESETS[previewTheme] };
-    const patch = { ...tpl.patch };
-
-    // Distinct surface treatments per composition family (still themeToken-driven).
-    if (patch.background == null) {
-      if (/overlay|fullbleed|full-bleed|banner|dark/i.test(tpl.composition + tpl.label)) {
-        patch.background = baseTokens.primary;
-      } else if (/minimal/i.test(tpl.composition + tpl.label)) {
-        patch.background = baseTokens.background;
-      } else if (/luxury|premium|editorial/i.test(tpl.composition + tpl.label + designFamily)) {
-        patch.background = baseTokens.surface || baseTokens.background;
-      }
-    }
-
-    // Ensure image-heavy layouts always carry media (preview ≈ insert).
-    if (
-      (tpl.thumb.startsWith('hero-') ||
-        tpl.thumb === 'image-left' ||
-        tpl.thumb === 'image-right' ||
-        tpl.thumb === 'gallery-grid' ||
-        tpl.thumb === 'gallery-mosaic' ||
-        tpl.thumb === 'alternating') &&
-      !patch.imageUrl &&
-      tpl.blockType === 'Hero'
-    ) {
-      patch.imageUrl = verifiedBackdropUrl('product', index);
-    }
-
-    if (Array.isArray(patch.items)) {
-      patch.items = (patch.items as Array<Record<string, unknown>>).map((it, i) => {
-        if (
-          (tpl.thumb === 'cards-3' ||
-            tpl.thumb === 'cards-4' ||
-            tpl.thumb === 'image-left' ||
-            tpl.thumb === 'alternating' ||
-            tpl.thumb.startsWith('gallery')) &&
-          !it.imageUrl &&
-          (tpl.blockType === 'Product' ||
-            tpl.blockType === 'Features' ||
-            tpl.blockType === 'Benefits' ||
-            tpl.blockType === 'Gallery')
-        ) {
-          return { ...it, imageUrl: verifiedBackdropUrl('product', index * 3 + i + 7) };
-        }
-        return it;
-      });
-    }
-
-    const styleTags = [designFamily, previewTheme.toLowerCase(), tpl.composition];
-    return {
-      ...tpl,
-      previewTheme,
-      previewTokens: baseTokens,
-      designFamily,
-      tags: Array.from(new Set([...tpl.tags, ...styleTags])),
-      patch,
-      description: `${tpl.description} · ${designFamily} · ${previewTheme}`,
-    };
-  });
-}
-
-export const LP_SECTION_LIBRARY_TEMPLATES: LpSectionLibraryTemplate[] = polishCatalog(buildCatalog());
+export const LP_SECTION_LIBRARY_TEMPLATES: LpSectionLibraryTemplate[] = buildCatalog().map(finishSectionLibraryTemplate);
 
 export function assertSectionLibraryCount(): number {
   return LP_SECTION_LIBRARY_TEMPLATES.length;
@@ -959,5 +882,16 @@ export function materializeSectionLibraryTemplate(
     enabled: true,
     spacing: 'md',
     ...patch,
+    style: {
+      ...((patch.style || {}) as Record<string, unknown>),
+      lpSectionLibrary: {
+        version: template.presentation?.revision === 2 ? 2 : 1,
+        ...(template.presentation ? { presentation: { ...template.presentation } } : {}),
+        templateId: template.id,
+        theme: template.previewTheme || 'MODERN',
+        themeTokens: { ...(template.previewTokens || LANDING_PAGE_THEME_PRESETS[template.previewTheme || 'MODERN']) },
+        designFamily: template.designFamily || 'conversion',
+      },
+    },
   } as LandingPageBlock;
 }
