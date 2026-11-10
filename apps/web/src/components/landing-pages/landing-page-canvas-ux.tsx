@@ -1551,6 +1551,7 @@ export function ElementChrome({
       <div
         data-lp-element-id={`${blockId}::${element}`}
         data-lp-element-kind={kind}
+        data-lp-element-field={selectField || undefined}
         data-lp-free-child={shellStyle ? '1' : undefined}
         data-lp-free-mode={shellStyle ? 'offset' : undefined}
         style={{ ...(shellStyle || {}), ...customCssStyle, ...(readCanvasElementLayer(blockStyle, blockId, layoutField) != null ? { position: 'relative', zIndex: readCanvasElementLayer(blockStyle, blockId, layoutField) } : {}) }}

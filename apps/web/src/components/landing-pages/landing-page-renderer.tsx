@@ -1,4 +1,5 @@
 'use client';
+import { installLpMotion, LP_MOTION_CSS } from './landing-page-motion-runtime';
 import {LandingPageRenderOverlapGuard} from './landing-page-render-overlap-guard';
 import { projectLandingFlow } from './landing-page-no-overlap';
 import { LandingPageSectionElements } from './landing-page-section-elements';
@@ -1279,7 +1280,7 @@ function HeroBlock({
               style={{ color: 'var(--lp-text)' }}
             />
           ) : (
-            <span>{t}</span>
+            <span data-lp-motion-field={`trustPoint:${i}`}>{t}</span>
           )}
         </CheckItem>
       ))}
@@ -4053,6 +4054,14 @@ export function LandingPageRenderer({
   onHtmlSelectNode?: (node: import('./landing-page-html-nodes').HtmlNodeSnapshot) => void;
   onHtmlBindPatch?: (patch: import('./landing-page-html-nodes').HtmlPatchFn | null) => void;
 }) {
+  const motionRoot = useRef<HTMLDivElement>(null);
+  const motionPlayed = useRef(new Set<string>());
+  const motionEditing = Boolean(interactive || canvas);
+  const motionHtmlImport = Boolean(spec.meta?.htmlSource || spec.meta?.htmlSections?.length);
+  useEffect(() => {
+    if (!motionRoot.current || motionHtmlImport) return;
+    return installLpMotion(motionRoot.current, spec, motionEditing, motionPlayed.current);
+  }, [spec, motionEditing, motionHtmlImport]);
   const sourceSpec=spec;spec=useMemo(()=>projectLandingFlow(sourceSpec),[sourceSpec]);
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -4396,6 +4405,7 @@ export function LandingPageRenderer({
   return (
     <div
       className={className}
+      ref={motionRoot}
       data-lp-style-scope={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
       data-lp-renderer={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
       data-agency-direction={agencyPortfolioDirection(spec)}
@@ -4416,6 +4426,7 @@ export function LandingPageRenderer({
       data-lp-goal={goalAttr}
       style={{ width: '100%', maxWidth: '100%', margin: '0 auto' }}
     >
+      {!motionHtmlImport && spec.blocks.some(block => block.style?.lpMotion) ? <style data-lp-motion-css>{LP_MOTION_CSS}</style> : null}
       {spec.blocks.some(block => readSectionLibraryContext(block)) ? (
         <style data-lp-section-library-details="1">{`
           [data-lp-section-library-scope] [data-lp-canvas-ux="1"]  :is([data-lp-hero-cta], [data-lp-cta-band], [data-lp-cta-action-panel]) a[data-lp-inline-field="ctaLabel"]::after { content: "→"; }

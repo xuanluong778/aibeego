@@ -237,6 +237,7 @@ export type LpButtonLinkKind =
   | 'none';
 
 export type LandingPageButtonInspectorProps = {
+  motionPanel?: ReactNode;
   block: LandingPageBlock;
   textStyle?: LandingPageInlineTextStyle | null;
   isHidden: boolean;
@@ -359,6 +360,7 @@ function hexOrFallback(raw: unknown, fallback: string): string {
 }
 
 export function LandingPageButtonInspector({
+  motionPanel,
   block,
   textStyle,
   isHidden,
@@ -680,6 +682,7 @@ export function LandingPageButtonInspector({
         />
       </InspectorAccordion>
 
+      {motionPanel}
       <InspectorAccordion title="Thiết kế nút" data-lp="btn-design" defaultOpen>
         <InspectorFieldLabel>Kiểu</InspectorFieldLabel>
         <InspectorSegmented

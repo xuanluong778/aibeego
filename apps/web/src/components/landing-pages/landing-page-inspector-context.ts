@@ -50,6 +50,7 @@ export function resolveInspectorContext(
 
   const fieldKey = typeof selectedField === 'string' ? selectedField.trim() : '';
   if (fieldKey) {
+    if (fieldKey.startsWith('planCta:')) return { kind: 'button', label: 'Nút trong thẻ', dataAttr: 'button' };
     // Gallery/card image — must win before item: text mapping.
     if (isItemImageField(fieldKey)) {
       return { kind: 'image', label: 'Ảnh', dataAttr: 'image' };

@@ -1,3 +1,4 @@
+import { sanitizeLandingPageMotionStyle, remapLandingPageMotion } from './landing-page-motion';
 import { sanitizeSectionPlacement } from './landing-page-section-elements';
 import { isVersionedLandingPageCanvasSpec, remapAgencyPortfolioCloneIds } from './landing-page-agency-portfolio-standard';
 /**
@@ -895,8 +896,13 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
   const layerName = clampText(b.layerName ?? '', 80, mode) || undefined;
   const style =
     b.style && typeof b.style === 'object' && !Array.isArray(b.style)
-      ? (b.style as Record<string, unknown>)
+      ? { ...(b.style as Record<string, unknown>) }
       : undefined;
+  if (style && 'lpMotion' in style) {
+    const motion = sanitizeLandingPageMotionStyle(style.lpMotion);
+    if (motion) style.lpMotion = motion;
+    else delete style.lpMotion;
+  }
   const responsiveStyle =
     b.responsiveStyle && typeof b.responsiveStyle === 'object'
       ? (b.responsiveStyle as Record<string, unknown>)
@@ -1227,6 +1233,17 @@ export function duplicateBlock(block: LandingPageBlock): LandingPageBlock {
       id: uid('fld'),
     }));
   }
+  if (copy.style?.lpMotion) {
+    const ids = new Map<string, string>();
+    for (const name of ['items', 'plans', 'fields'] as const) {
+      const before = (block as unknown as Record<string, unknown>)[name];
+      const after = copy[name];
+      if (Array.isArray(before) && Array.isArray(after)) before.forEach((row, index) => {
+        if (row.id && after[index]?.id) ids.set(row.id, after[index].id);
+      });
+    }
+    copy.style = { ...copy.style, lpMotion: remapLandingPageMotion(copy.style.lpMotion, ids) };
+  }
   return sanitizeBlock(copy, 'persist', copy.style?.industryVideoPlaceholder === true)!;
 }
 
@@ -1279,6 +1296,17 @@ export function cloneLandingPageSpecWithNewIds(input: LandingPageSpec): LandingP
         if ((isVersionedLandingPageCanvasSpec(raw) || hasSectionElements) && row.id) idMap.set(row.id, nestedId);
         return { ...row, id: nestedId };
       });
+    }
+    if (next.style?.lpMotion) {
+      const localIds = new Map<string, string>();
+      for (const name of ['items', 'plans', 'fields'] as const) {
+        const before = (block as unknown as Record<string, unknown>)[name];
+        const after = next[name];
+        if (Array.isArray(before) && Array.isArray(after)) before.forEach((row, index) => {
+          if (row.id && after[index]?.id) localIds.set(row.id, after[index].id);
+        });
+      }
+      next.style = { ...next.style, lpMotion: remapLandingPageMotion(next.style.lpMotion, localIds) };
     }
     return next as LandingPageBlock;
   });

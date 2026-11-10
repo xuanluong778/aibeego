@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Compact accordion group for inspector design sections. */
@@ -8,30 +8,52 @@ export function InspectorAccordion({
   title,
   defaultOpen = true,
   children,
+  className,
+  headerClassName,
+  bodyClassName,
+  chevronPosition = 'end',
   'data-lp': dataLp,
 }: {
   title: string;
   defaultOpen?: boolean;
   children: ReactNode;
+  className?: string;
+  headerClassName?: string;
+  bodyClassName?: string;
+  chevronPosition?: 'start' | 'end';
   'data-lp'?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div
-      className="overflow-hidden rounded-lg border border-white/10"
+      className={cn('overflow-hidden rounded-lg border border-white/10', className)}
       data-lp-inspector-accordion={dataLp || title}
       data-open={open ? '1' : '0'}
     >
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/5"
+        className={cn(
+          'flex w-full items-center gap-2 px-2.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/5',
+          headerClassName,
+        )}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
+        {chevronPosition === 'start' ? (
+          <span aria-hidden="true" className="text-base font-normal">
+            {open ? '⌄' : '›'}
+          </span>
+        ) : null}
         <span className="flex-1">{title}</span>
-        <span className="text-[10px] opacity-50">{open ? '▾' : '▸'}</span>
+        {chevronPosition === 'end' ? (
+          <span className="text-[10px] opacity-50">{open ? '▾' : '▸'}</span>
+        ) : null}
       </button>
-      {open ? <div className="space-y-2 border-t border-white/5 px-2.5 py-2.5">{children}</div> : null}
+      {open ? (
+        <div className={cn('space-y-2 border-t border-white/5 px-2.5 py-2.5', bodyClassName)}>
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -44,7 +66,7 @@ export function InspectorSegmented<T extends string>({
   'data-lp': dataLp,
 }: {
   value: T;
-  options: Array<{ value: T; label: string; title?: string }>;
+  options: Array<{ value: T; label: string }>;
   onChange: (v: T) => void;
   'data-lp'?: string;
 }) {
@@ -60,11 +82,10 @@ export function InspectorSegmented<T extends string>({
           type="button"
           role="tab"
           aria-selected={value === opt.value}
-          title={opt.title}
           className={cn(
-            'min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-medium transition',
+            'flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-medium transition',
             value === opt.value
-              ? 'bg-white/15 text-white shadow-sm ring-1 ring-white/20'
+              ? 'bg-white/15 text-white shadow-sm'
               : 'text-white/50 hover:bg-white/5 hover:text-white/80',
           )}
           onClick={() => onChange(opt.value)}
@@ -84,8 +105,6 @@ export function InspectorSliderNumber({
   max = 120,
   step = 1,
   onChange,
-  /** Live scrub — called every input tick WITHOUT committing document history. */
-  onLiveChange,
   unit = 'px',
 }: {
   label: string;
@@ -94,39 +113,14 @@ export function InspectorSliderNumber({
   max?: number;
   step?: number;
   onChange: (n: number) => void;
-  onLiveChange?: (n: number) => void;
   unit?: string;
 }) {
-  const scrubbingRef = useRef(false);
-  const liveRef = useRef(value);
-  const [display, setDisplay] = useState(value);
-
-  useEffect(() => {
-    if (scrubbingRef.current) return;
-    setDisplay(value);
-    liveRef.current = value;
-  }, [value]);
-
-  function emitLive(n: number) {
-    liveRef.current = n;
-    setDisplay(n);
-    if (onLiveChange) onLiveChange(n);
-    else onChange(n);
-  }
-
-  function commit() {
-    if (!scrubbingRef.current) return;
-    scrubbingRef.current = false;
-    // Only commit once at pointer-up when using live scrub path.
-    if (onLiveChange) onChange(liveRef.current);
-  }
-
   return (
     <label className="block text-[11px]" data-lp-inspector-slider={label}>
       <span className="mb-1 flex items-center justify-between opacity-60">
         <span>{label}</span>
         <span className="tabular-nums text-white/70">
-          {display}
+          {value}
           {unit}
         </span>
       </span>
@@ -137,13 +131,8 @@ export function InspectorSliderNumber({
           min={min}
           max={max}
           step={step}
-          value={display}
-          onPointerDown={() => {
-            scrubbingRef.current = true;
-          }}
-          onPointerUp={commit}
-          onPointerCancel={commit}
-          onChange={(e) => emitLive(Number(e.target.value))}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
         />
         <input
           type="number"
@@ -151,14 +140,11 @@ export function InspectorSliderNumber({
           min={min}
           max={max}
           step={step}
-          value={display}
+          value={value}
           onChange={(e) => {
             const n = Number(e.target.value);
             if (!Number.isFinite(n)) return;
-            const clamped = Math.min(max, Math.max(min, n));
-            liveRef.current = clamped;
-            setDisplay(clamped);
-            onChange(clamped);
+            onChange(Math.min(max, Math.max(min, n)));
           }}
         />
       </div>

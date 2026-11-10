@@ -139,7 +139,7 @@ function wrapCell(
 ) {
   if (!canvas) {
     return (
-      <div className={className} style={style}>
+      <div className={className} style={style} data-lp-motion-key={`countdown:${label.toLowerCase()}`} data-lp-motion-field={`countdownCell:${label}`}>
         {children}
       </div>
     );

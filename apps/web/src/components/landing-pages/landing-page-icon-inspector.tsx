@@ -6,7 +6,7 @@
  * Box icons: patch block.style directly (existing lpBox chrome).
  */
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { LandingPageBlock } from '@marketingspa/shared';
 import {
   InspectorAccordion,
@@ -87,13 +87,14 @@ function recordToCssDecls(rec: Record<string, string>): string {
 }
 
 type Props = {
+  motionPanel?: ReactNode;
   block: LandingPageBlock;
   /** Canvas element key, e.g. item:trust-icon-0 — omit for box/graphics block. */
   elementKey?: string | null;
   onUpdateBlock: (id: string, patch: Partial<LandingPageBlock>) => void;
 };
 
-export function LandingPageIconInspector({ block, elementKey, onUpdateBlock }: Props) {
+export function LandingPageIconInspector({ block, elementKey, onUpdateBlock, motionPanel }: Props) {
   const style = useMemo(
     () => ({ ...((block.style || {}) as Record<string, unknown>) }),
     [block],
@@ -254,6 +255,7 @@ export function LandingPageIconInspector({ block, elementKey, onUpdateBlock }: P
 
   return (
     <div className="space-y-2.5" data-lp-icon-inspector="1" data-lp-context="icon">
+      {motionPanel}
       <div className="flex items-center justify-between gap-2 px-0.5">
         <div className="text-sm font-semibold tracking-wide text-white">ICON</div>
         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/50">

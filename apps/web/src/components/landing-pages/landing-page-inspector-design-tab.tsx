@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { LandingPageBlock } from '@marketingspa/shared';
 import {
   LP_HEADING_LEVEL_PRESETS,
@@ -1351,6 +1351,7 @@ export function CustomCssPanel({
 }
 
 export function LandingPageInspectorDesignTab({
+  motionPanel,
   selected,
   selectedElement,
   selectedField,
@@ -1368,6 +1369,7 @@ export function LandingPageInspectorDesignTab({
   resolvedFreeLayout,
   onPatchFreeLayout,
 }: {
+  motionPanel?: ReactNode;
   selected: LandingPageBlock | null;
   selectedElement?: LandingPageCanvasElementKey;
   /** Raw canvas selection field (e.g. itemImage:…) — used for inspector context. */
@@ -1532,6 +1534,7 @@ export function LandingPageInspectorDesignTab({
       data-lp-context={ctx.dataAttr}
     >
       {header}
+      {motionPanel}
       {isCard && typeof selectedElement === 'string' && selectedElement.startsWith('item:') ? (
         <LandingPageItemBoxPanel
           block={selected}

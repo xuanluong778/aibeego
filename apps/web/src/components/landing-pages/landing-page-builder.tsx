@@ -1,4 +1,6 @@
 'use client';
+import { LandingPageMotionPanel } from './landing-page-motion-panel';
+import { lpMotionLocalKey, patchLandingPageMotion, readLandingPageMotion, remapLandingPageMotion, type LandingPageMotion } from '@marketingspa/shared';
 import { projectLandingFlow, visibleStoredLayout, prepareFlowEdit, protectFreeRect } from './landing-page-no-overlap';
 import { sectionElementDeletionIds, removeSectionElements, moveIntoSectionRow, type LandingPageSectionRowOp } from '@marketingspa/shared';
 import { LandingPageElementLibraryModal, type ElementLibraryPicker } from './landing-page-element-library-modal';
@@ -1947,6 +1949,21 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     pushHistory(marked);
   }
 
+  function updateMotion(target: LpSelectionTarget, value?: LandingPageMotion) {
+    const block = specRef.current.blocks.find(block => block.id === target.blockId);
+    if (!block || targetIsLocked(specRef.current, target)) return;
+    const key = lpMotionLocalKey(target);
+    if (JSON.stringify(readLandingPageMotion(block.style, key)) === JSON.stringify(value)) return;
+    updateBlock(block.id, { style: patchLandingPageMotion(block.style, key, value) } as Partial<LandingPageBlock>);
+  }
+
+  function motionPanel() {
+    if (!selected || specRef.current.meta?.htmlSource || specRef.current.meta?.htmlSections?.length) return null;
+    const target = primaryTarget?.blockId === selected.id ? primaryTarget : { blockId: selected.id, element: selectedElement || 'section' };
+    return <LandingPageMotionPanel key={`${target.blockId}::${lpMotionLocalKey(target)}`} block={selected} target={target}
+      disabled={targetIsLocked(specRef.current, target)} onChange={updateMotion} />;
+  }
+
   /** End a coalesce gesture so the next edit starts a fresh undo step. */
   function endUpdateBlockGesture() {
     gestureHistStarted.current = false;
@@ -3300,6 +3317,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         }
       }
 
+      if (block.style?.lpMotion) nextStyle = { ...nextStyle, lpMotion: remapLandingPageMotion(block.style.lpMotion, new Map([[itemId, copy.id]]), true) };
+
       // Clone meta per-item styles (inlineTextStyles, elementHidden, elementLocked, etc.)
       const meta = { ...(specRef.current.meta || {}) } as Record<string, unknown>;
       const cloneMetaKeyed = (mapName: string) => {
@@ -3382,6 +3401,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           };
         }
       }
+
+      if (block.style?.lpMotion) nextStyle = { ...nextStyle, lpMotion: remapLandingPageMotion(block.style.lpMotion, new Map([[itemId, copy.id]]), true) };
 
       // Clone meta per-item styles
       const meta = { ...(specRef.current.meta || {}) } as Record<string, unknown>;
@@ -4530,6 +4551,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         } as LandingPageBlock;
         nextTarget = { blockId: copy.id, element: nextField, field: nextField };
       }
+      const motion = readLandingPageMotion(source.style, lpMotionLocalKey(target));
+      const cleanStyle = { ...copy.style } as Record<string, unknown>;
+      delete cleanStyle.lpMotion;
+      copy = { ...copy, style: patchLandingPageMotion(cleanStyle, lpMotionLocalKey(nextTarget), motion) } as LandingPageBlock;
       if (nextTarget.field)
         inline[`${copy.id}::${nextTarget.field}`] = {
           ...position.textStyle,
@@ -7253,6 +7278,10 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               }}
             />
           ) : null}
+
+          {!htmlInspectorActive && selected &&
+          inspectorRailSurface !== 'page-theme' && inspectorRailSurface !== 'add-components' &&
+          (inspectorTab === 'design' || inspectorTab === 'content') ? motionPanel() : null}
 
           {!htmlInspectorActive && isButtonInspector &&
           selected &&

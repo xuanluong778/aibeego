@@ -6,6 +6,7 @@
 import type { LandingPageBlock, LandingPageSpec } from './landing-page-types';
 
 export type LandingPageCanvasStyle = {
+  lpMotion?: import('./landing-page-motion').LandingPageMotionStyle;
   /** Opt-in empty video slot for the versioned industry renderer; legacy ignores it. */
   industryVideoPlaceholder?: boolean;
   /** Editable poster treatment for that industry's Video block. */
