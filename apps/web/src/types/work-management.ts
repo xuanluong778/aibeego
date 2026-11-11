@@ -19,6 +19,14 @@ export interface WorkChecklistItem {
   sortOrder: number;
 }
 
+export type WorkCustomFieldDef = {
+  id: string;
+  name: string;
+  type: 'text' | 'number' | 'date' | 'select';
+  required?: boolean;
+  options?: string[];
+};
+
 export interface WorkTask {
   id: string;
   organizationId: string;
@@ -61,6 +69,7 @@ export interface WorkTask {
   assignees: WorkEmployeeRef[];
   watchers: WorkEmployeeRef[];
   checklist: WorkChecklistItem[];
+  customFields?: Record<string, unknown>;
 }
 
 export interface WorkComment {
@@ -136,17 +145,20 @@ export interface WorkProject {
   createdAt: string;
   updatedAt: string;
   columns?: WorkBoardColumn[];
+  customFieldDefs?: WorkCustomFieldDef[];
   _count?: { tasks: number };
 }
 
 export interface WorkProjectDetail extends WorkProject {
   columns: WorkBoardColumn[];
   tasks: WorkTask[];
+  customFieldDefs?: WorkCustomFieldDef[];
 }
 
 export interface CreateWorkProjectInput {
   name: string;
   description?: string;
+  customFieldDefs?: WorkCustomFieldDef[];
 }
 
 export interface CreateWorkTaskInput {
@@ -163,6 +175,7 @@ export interface CreateWorkTaskInput {
   labels?: string[];
   progress?: number;
   checklist?: Array<{ title: string; isDone?: boolean; sortOrder?: number }>;
+  customFields?: Record<string, unknown>;
 }
 
 export type UpdateWorkTaskInput = Partial<
@@ -173,6 +186,7 @@ export type UpdateWorkTaskInput = Partial<
   startDate?: string | null;
   deadline?: string | null;
   isArchived?: boolean;
+  customFields?: Record<string, unknown>;
 };
 
 export interface MoveWorkTaskInput {

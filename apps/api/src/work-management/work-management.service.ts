@@ -83,6 +83,16 @@ export class WorkManagementService {
     });
     if (!project) throw new NotFoundException('Không tìm thấy dự án');
 
+    // Migrate legacy default name 'Đang làm' -> 'Làm việc' while preserving custom names
+    const legacyCol = project.columns.find((c) => c.key === 'IN_PROGRESS' && c.name === 'Đang làm');
+    if (legacyCol) {
+      await this.prisma.workBoardColumn.update({
+        where: { id: legacyCol.id },
+        data: { name: 'Làm việc' },
+      });
+      legacyCol.name = 'Làm việc';
+    }
+
     const visibility = workTaskVisibilityWhere(scope, user);
     const tasks = await this.prisma.workTask.findMany({
       where: {
@@ -112,6 +122,7 @@ export class WorkManagementService {
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
         createdById: user.employeeId || null,
+        customFieldDefs: (dto.customFieldDefs ?? []) as unknown as Prisma.InputJsonValue,
         columns: {
           create: DEFAULT_WORK_COLUMNS.map((c) => ({
             key: c.key,
@@ -147,8 +158,32 @@ export class WorkManagementService {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
         ...(dto.isArchived !== undefined ? { isArchived: dto.isArchived } : {}),
+        ...(dto.customFieldDefs !== undefined
+          ? { customFieldDefs: dto.customFieldDefs as unknown as Prisma.InputJsonValue }
+          : {}),
       },
       include: { columns: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  // ── Columns ──────────────────────────────────────────────────────────────
+
+  async renameColumn(
+    organizationId: string,
+    user: AuthUser,
+    columnId: string,
+    name: string,
+  ) {
+    if (!canManageAnyTask(user.role) && !isWorkOrgWideRole(user.role)) {
+      throw new ForbiddenException('Chỉ quản lý dự án mới có thể đổi tên cột');
+    }
+    const col = await this.prisma.workBoardColumn.findFirst({
+      where: { id: columnId, project: { organizationId } },
+    });
+    if (!col) throw new NotFoundException('Không tìm thấy cột');
+    return this.prisma.workBoardColumn.update({
+      where: { id: columnId },
+      data: { name: name.trim() },
     });
   }
 
@@ -221,6 +256,17 @@ export class WorkManagementService {
     });
     const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;
 
+    const customFieldDefs = ((project as any).customFieldDefs ?? []) as Array<{
+      id: string;
+      name: string;
+      type: string;
+      required?: boolean;
+      options?: string[];
+    }>;
+    if (customFieldDefs.length > 0) {
+      this.validateCustomFields(customFieldDefs, dto.customFields ?? {});
+    }
+
     const assigneeIds = dto.assigneeIds ?? [];
     const watcherIds = dto.watcherIds ?? [];
     await this.assertEmployeesInOrg(organizationId, [
@@ -244,6 +290,7 @@ export class WorkManagementService {
         labels: dto.labels ?? [],
         progress: dto.progress ?? 0,
         sortOrder,
+        customFields: (dto.customFields ?? {}) as Prisma.InputJsonValue,
         assignees: {
           create: assigneeIds.map((employeeId) => ({ employeeId })),
         },
@@ -353,6 +400,23 @@ export class WorkManagementService {
       }
     }
 
+    if (dto.customFields !== undefined) {
+      const proj = await this.prisma.workProject.findUnique({
+        where: { id: existing.projectId },
+        select: { customFieldDefs: true },
+      });
+      const defs = ((proj as any)?.customFieldDefs ?? []) as Array<{
+        id: string;
+        name: string;
+        type: string;
+        required?: boolean;
+        options?: string[];
+      }>;
+      if (defs.length > 0) {
+        this.validateCustomFields(defs, dto.customFields);
+      }
+    }
+
     const task = await this.prisma.workTask.update({
       where: { id: taskId },
       data: {
@@ -369,6 +433,9 @@ export class WorkManagementService {
         ...(dto.labels !== undefined ? { labels: dto.labels } : {}),
         ...(dto.progress !== undefined ? { progress: dto.progress } : {}),
         ...(dto.isArchived !== undefined ? { isArchived: dto.isArchived } : {}),
+        ...(dto.customFields !== undefined
+          ? { customFields: dto.customFields as Prisma.InputJsonValue }
+          : {}),
       },
       include: taskInclude,
     });
@@ -399,6 +466,28 @@ export class WorkManagementService {
       where: { id: dto.columnId, projectId: task.projectId },
     });
     if (!column) throw new BadRequestException('Cột không thuộc dự án');
+
+    // ── Approval flow guard ───────────────────────────────────────────────
+    // Only managers/org-wide roles may drag PENDING_REVIEW → DONE directly.
+    // Assignees must use the submit-review → approve flow.
+    const fromColForGuard = await this.prisma.workBoardColumn.findFirst({
+      where: { id: task.columnId },
+    });
+    const isMovingToDone =
+      column.key === WORK_COLUMN_KEYS.DONE &&
+      fromColForGuard?.key !== WORK_COLUMN_KEYS.DONE;
+    if (isMovingToDone && !canManageAnyTask(user.role) && !isWorkOrgWideRole(user.role)) {
+      // Assignee trying to bypass approval — only allowed if already in PENDING_REVIEW approved flow
+      const lastReview = await this.prisma.workTaskReviewEvent.findFirst({
+        where: { taskId, type: 'APPROVE' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!lastReview) {
+        throw new ForbiddenException(
+          'Công việc cần được duyệt trước khi chuyển sang Hoàn thành. Hãy dùng nút "Nộp duyệt".',
+        );
+      }
+    }
 
     const siblings = await this.prisma.workTask.findMany({
       where: {
@@ -507,6 +596,37 @@ export class WorkManagementService {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
+  private validateCustomFields(
+    defs: Array<{ id: string; name: string; type: string; required?: boolean; options?: string[] }>,
+    values: Record<string, unknown>,
+  ) {
+    for (const def of defs) {
+      const val = values[def.id];
+      if (def.required && (val === undefined || val === null || val === '')) {
+        throw new BadRequestException(`Trường bắt buộc "${def.name}" chưa có dữ liệu`);
+      }
+      if (val === undefined || val === null || val === '') continue;
+
+      if (def.type === 'number') {
+        const num = Number(val);
+        if (isNaN(num)) {
+          throw new BadRequestException(`Trường "${def.name}" phải là số hợp lệ`);
+        }
+      } else if (def.type === 'date') {
+        const d = new Date(String(val));
+        if (isNaN(d.getTime())) {
+          throw new BadRequestException(`Trường "${def.name}" phải là ngày hợp lệ (YYYY-MM-DD)`);
+        }
+      } else if (def.type === 'select') {
+        if (def.options && def.options.length > 0 && !def.options.includes(String(val))) {
+          throw new BadRequestException(
+            `Giá trị "${val}" không hợp lệ cho trường "${def.name}". Lựa chọn hợp lệ: ${def.options.join(', ')}`,
+          );
+        }
+      }
+    }
+  }
+
   private serializeTask(task: Prisma.WorkTaskGetPayload<{ include: typeof taskInclude }>) {
     return {
       id: task.id,
@@ -528,6 +648,7 @@ export class WorkManagementService {
       progress: task.progress,
       sortOrder: task.sortOrder,
       isArchived: task.isArchived,
+      customFields: ((task as any).customFields ?? {}) as Record<string, unknown>,
       copiedFromId: task.copiedFromId,
       revisionCount: task.revisionCount,
       lastSubmittedById: task.lastSubmittedById,

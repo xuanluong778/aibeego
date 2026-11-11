@@ -129,7 +129,10 @@ export const PUBLIC_MEDIA_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp
 export const PUBLIC_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
 
 export function sanitizeOriginalName(name: string): string {
-  const base = String(name || 'file')
+  if (!name || !name.trim()) {
+    throw new BadRequestException('Tên file không hợp lệ');
+  }
+  const base = String(name)
     .replace(/[/\\]/g, '_')
     .replace(/\0/g, '')
     .trim();

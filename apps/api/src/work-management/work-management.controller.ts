@@ -23,14 +23,20 @@ import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { createUploadMulterOptions } from '../common/uploads/upload-policy';
 import { WorkManagementService } from './work-management.service';
 import { WorkCollabService } from './work-collab.service';
+import { WorkInsightsService } from './work-insights.service';
 import { WORK_PERMISSIONS } from './work-management.constants';
 import {
+  AuditQueryDto,
+  CalendarQueryDto,
   CreateWorkCommentDto,
   CreateWorkProjectDto,
   CreateWorkTaskDto,
+  ExportReportQueryDto,
+  ManualTimeDto,
   MoveWorkTaskDto,
   ReviewDecisionDto,
   SubmitReviewDto,
+  UpdateWorkColumnDto,
   UpdateWorkCommentDto,
   UpdateWorkProjectDto,
   UpdateWorkTaskDto,
@@ -43,6 +49,7 @@ export class WorkManagementController {
   constructor(
     private readonly service: WorkManagementService,
     private readonly collab: WorkCollabService,
+    private readonly insights: WorkInsightsService,
   ) {}
 
   // ── Projects / Tasks (existing) ─────────────────────────────────────────
@@ -294,5 +301,115 @@ export class WorkManagementController {
   @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
   markAllRead(@CurrentUser() user: AuthUser) {
     return this.collab.markAllNotificationsRead(user.organizationId, user);
+  }
+
+  // ── Column rename ────────────────────────────────────────────────────────
+
+  @Patch('columns/:id')
+  @RequirePermissions(WORK_PERMISSIONS.PROJECT_WRITE)
+  renameColumn(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkColumnDto,
+  ) {
+    return this.service.renameColumn(user.organizationId, user, id, dto.name);
+  }
+
+  // ── Insights: Việc của tôi ───────────────────────────────────────────────
+
+  @Get('my-work')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
+  myWork(@CurrentUser() user: AuthUser) {
+    return this.insights.myWork(user.organizationId, user);
+  }
+
+  // ── Insights: Lịch ──────────────────────────────────────────────────────
+
+  @Get('calendar')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
+  calendar(@CurrentUser() user: AuthUser, @Query() q: CalendarQueryDto) {
+    return this.insights.calendar(user.organizationId, user, { from: q.from, to: q.to });
+  }
+
+  // ── Insights: Dashboard ──────────────────────────────────────────────────
+
+  @Get('dashboard')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
+  dashboard(
+    @CurrentUser() user: AuthUser,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    const mode = groupBy === 'project' ? 'project' : 'employee';
+    return this.insights.dashboard(user.organizationId, user, mode);
+  }
+
+  // ── Insights: Xuất báo cáo ───────────────────────────────────────────────
+
+  @Get('export-report')
+  @Get('reports/export')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
+  async exportReport(
+    @CurrentUser() user: AuthUser,
+    @Query() q: ExportReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const format = q.format === 'xlsx' ? 'xlsx' : 'csv';
+    const result = await this.insights.exportReport(user.organizationId, user, format);
+    res.set({
+      'Content-Type': result.contentType,
+      'Content-Disposition': `attachment; filename="${result.filename}"`,
+    });
+    return result.body;
+  }
+
+  // ── Time tracking ────────────────────────────────────────────────────────
+
+  @Get('tasks/:id/time-logs')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_READ)
+  listTimeLogs(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.insights.listTimeLogs(user.organizationId, user, id);
+  }
+
+  @Post('tasks/:id/time/start')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_WRITE)
+  startTimer(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.insights.startTimer(user.organizationId, user, id);
+  }
+
+  @Post('tasks/:id/time/pause')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_WRITE)
+  pauseTimer(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.insights.pauseTimer(user.organizationId, user, id);
+  }
+
+  @Post('tasks/:id/time/stop')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_WRITE)
+  stopTimer(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.insights.stopTimer(user.organizationId, user, id);
+  }
+
+  @Post('tasks/:id/time/manual')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_WRITE)
+  manualTime(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ManualTimeDto,
+  ) {
+    return this.insights.manualTime(user.organizationId, user, id, {
+      durationMinutes: dto.durationMinutes,
+      note: dto.note,
+    });
+  }
+
+  // ── Audit logs ───────────────────────────────────────────────────────────
+
+  @Get('audit-logs')
+  @RequirePermissions(WORK_PERMISSIONS.TASK_MANAGE)
+  auditLogs(@CurrentUser() user: AuthUser, @Query() q: AuditQueryDto) {
+    return this.insights.listAuditLogs(user.organizationId, user, {
+      taskId: q.taskId,
+      projectId: q.projectId,
+      limit: q.limit,
+    });
   }
 }

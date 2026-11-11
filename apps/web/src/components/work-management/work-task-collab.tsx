@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bell, FileText, Image as ImageIcon } from 'lucide-react';
+import { Bell, FileText, Image as ImageIcon, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -49,17 +49,23 @@ export function WorkDocumentsPanel({ projectId }: { projectId: string }) {
     <>
       <div className="space-y-3 rounded-xl border p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Tài liệu dự án</h3>
-          <Input
-            type="file"
-            className="max-w-xs"
-            accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.webm,.mov,.zip"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) upload.mutate(f);
-              e.target.value = '';
-            }}
-          />
+          <span className="text-xs text-muted-foreground">Tài liệu, hình ảnh, văn bản đính kèm cho dự án</span>
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              className="sr-only"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.webm,.mov,.zip"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) upload.mutate(f);
+                e.target.value = '';
+              }}
+            />
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-background hover:bg-muted text-xs font-medium cursor-pointer transition-colors shadow-sm">
+              <Upload className="h-3.5 w-3.5" />
+              {upload.isPending ? 'Đang tải lên...' : 'Tải lên tài liệu'}
+            </span>
+          </label>
         </div>
         <div className="max-h-48 space-y-2 overflow-y-auto">
           {(docsQ.data ?? []).map((f) => (

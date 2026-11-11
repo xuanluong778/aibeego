@@ -349,3 +349,128 @@ export function useManualTaskTime(taskId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: [...KEY, 'time-logs', taskId] }),
   });
 }
+
+// ── Insights hooks ───────────────────────────────────────────────────────
+
+export type MyWorkBucketTask = {
+  id: string;
+  title: string;
+  columnName: string;
+  columnKey: string;
+  priority: string;
+  deadline?: string | null;
+  risk?: string;
+  project?: { id: string; name: string };
+};
+
+export type MyWorkData = {
+  today: string;
+  timezone: string;
+  counts: Record<string, number>;
+  buckets: Record<string, MyWorkBucketTask[]>;
+  warning?: string | null;
+};
+
+export function useWorkMyWork() {
+  return useQuery({
+    queryKey: [...KEY, 'my-work'],
+    queryFn: () => apiClient<MyWorkData>('/work-management/my-work'),
+    retry: (count, err) => {
+      if (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 401) return false;
+      return count < 1;
+    },
+  });
+}
+
+export type CalendarEvent = MyWorkBucketTask & { date: string | null };
+
+export function useWorkCalendar(from: string, to: string) {
+  return useQuery({
+    queryKey: [...KEY, 'calendar', from, to],
+    queryFn: () =>
+      apiClient<{ events: CalendarEvent[]; timezone: string }>(
+        `/work-management/calendar?from=${from}&to=${to}`,
+      ),
+    enabled: !!from && !!to,
+  });
+}
+
+export type DashboardGroup = {
+  id: string;
+  name: string;
+  counts: {
+    inProgress: number;
+    pendingReview: number;
+    overdue: number;
+    done: number;
+    atRisk: number;
+    onTimeRate?: string;
+  };
+  workload?: { score: number; onTimeRate: string };
+};
+
+export type DashboardData = {
+  today: string;
+  timezone: string;
+  groupBy: string;
+  groups: DashboardGroup[];
+  totals?: Record<string, number>;
+};
+
+export function useWorkDashboard(groupBy: 'employee' | 'project' = 'employee') {
+  return useQuery({
+    queryKey: [...KEY, 'dashboard', groupBy],
+    queryFn: () =>
+      apiClient<DashboardData>(`/work-management/dashboard?groupBy=${groupBy}`),
+  });
+}
+
+// ── Column rename hook ───────────────────────────────────────────────────
+
+export type WorkBoardColumn = {
+  id: string;
+  key: string;
+  name: string;
+  sortOrder: number;
+};
+
+export function useUpdateWorkColumn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      apiClient<WorkBoardColumn>(`/work-management/columns/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+// ── Export report hook ───────────────────────────────────────────────────
+
+export function useExportWorkReport() {
+  return useMutation({
+    mutationFn: async (format: 'csv' | 'xlsx' = 'csv') => {
+      const url = `/work-management/export-report?format=${format}`;
+      // Use raw fetch to handle binary response
+      const { getApiBaseUrl } = await import('@/lib/api-client');
+      const { authStorage } = await import('@/lib/auth-storage');
+      const baseUrl = getApiBaseUrl();
+      const token = authStorage.getAccessToken();
+      const res = await fetch(`${baseUrl}${url}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const ext = format === 'xlsx' ? '.xlsx' : '.csv';
+      const disp = res.headers.get('content-disposition') ?? '';
+      const match = disp.match(/filename="?([^"]+)"?/);
+      const filename = match?.[1] ?? `work-report${ext}`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+  });
+}

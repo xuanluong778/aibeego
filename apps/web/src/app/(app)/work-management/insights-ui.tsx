@@ -130,23 +130,61 @@ export default function MyWorkPage() {
   });
 
   if (meQ.isLoading || (meQ.isSuccess && q.isLoading)) {
-    return <LoadingState message={t('work.loadingMyWork')} />;
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.myWork')}
+          description="Quản lý công việc được giao của bạn"
+        />
+        <SubNav />
+        <LoadingState message={t('work.loadingMyWork')} />
+      </div>
+    );
   }
   if (meQ.isError) {
     const msg =
       meQ.error && typeof meQ.error === 'object' && 'message' in meQ.error
         ? String((meQ.error as { message: string }).message)
         : t('work.invalidSession');
-    return <ErrorState message={msg} onRetry={() => meQ.refetch()} />;
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.myWork')}
+          description="Quản lý công việc được giao của bạn"
+        />
+        <SubNav />
+        <ErrorState message={msg} onRetry={() => meQ.refetch()} />
+      </div>
+    );
   }
   if (q.isError) {
     const msg =
       q.error && typeof q.error === 'object' && 'message' in q.error
         ? String((q.error as { message: string }).message)
         : t('work.loadFailed');
-    return <ErrorState message={msg} onRetry={() => q.refetch()} />;
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.myWork')}
+          description="Quản lý công việc được giao của bạn"
+        />
+        <SubNav />
+        <ErrorState message={msg} onRetry={() => q.refetch()} />
+      </div>
+    );
   }
-  if (!q.data) return <EmptyState title={t('work.noData')} />;
+  if (!q.data) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.myWork')}
+          description="Quản lý công việc được giao của bạn"
+        />
+        <SubNav />
+        <EmptyState title={t('work.noData')} />
+      </div>
+    );
+  }
 
   const sections: Array<{ key: string; title: string }> = [
     { key: 'today', title: t('work.today') },
@@ -243,8 +281,30 @@ export function WorkDashboardPageInner() {
     a.click();
   }
 
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState onRetry={q.refetch} />;
+  if (q.isLoading) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.dashboard')}
+          description={t('work.dashboardDesc')}
+        />
+        <SubNav />
+        <LoadingState />
+      </div>
+    );
+  }
+  if (q.isError) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t('work.dashboard')}
+          description={t('work.dashboardDesc')}
+        />
+        <SubNav />
+        <ErrorState onRetry={q.refetch} />
+      </div>
+    );
+  }
   const s = q.data!.summary;
 
   return (
@@ -272,13 +332,13 @@ export function WorkDashboardPageInner() {
           <Download className="h-3.5 w-3.5 mr-1" /> CSV
         </Button>
         <Button variant="outline" size="sm" onClick={() => exportReport('xlsx')}>
-          <Download className="h-3.5 w-3.5 mr-1" /> Excel
+          <Download className="h-3.5 w-3.5 mr-1" /> Excel (.xls)
         </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
-          ['Đang làm', s.inProgress],
+          ['Làm việc', s.inProgress],
           ['Chờ duyệt', s.pendingReview],
           ['Quá hạn', s.overdue],
           ['Hoàn thành', s.done],

@@ -5769,6 +5769,7 @@ model WorkProject {
   description    String?   @db.Text
   isArchived     Boolean   @default(false) @map("is_archived")
   createdById    String?   @map("created_by_id")
+  customFieldDefs Json?    @default("[]") @map("custom_field_defs")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -5838,6 +5839,7 @@ model WorkTask {
   isRecurrenceTemplate Boolean @default(false) @map("is_recurrence_template")
   lastReminderSentAt DateTime? @map("last_reminder_sent_at")
   lastOverdueNotifiedAt DateTime? @map("last_overdue_notified_at")
+  customFields   Json?     @default("{}") @map("custom_fields")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 

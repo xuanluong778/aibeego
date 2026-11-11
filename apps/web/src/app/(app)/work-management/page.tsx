@@ -1,10 +1,12 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Archive,
+  ChevronDown,
+  ChevronRight,
   Copy,
   GripVertical,
   LayoutGrid,
@@ -12,9 +14,11 @@ import {
   BarChart3,
   CalendarDays,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/page-state';
@@ -41,6 +45,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -53,8 +58,11 @@ import {
   useCopyWorkTask,
   useArchiveWorkTask,
   useSoftDeleteWorkTask,
+  useUpdateWorkColumn,
 } from '@/hooks/use-work-management';
 import { useHrmEmployees } from '@/hooks/use-hrm';
+import { useCurrentUser, hasPermission } from '@/hooks/use-auth';
+import { WorkEmployeePicker } from '@/components/work-management/work-employee-picker';
 import { PRIORITY_LABELS, type WorkTask } from '@/types/work-management';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/format';
@@ -95,8 +103,12 @@ function WorkManagementBoard() {
   const projectQ = useWorkProject(projectId);
   const [query, setQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
+  const [deadlineFilter, setDeadlineFilter] = useState<string>('all');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<string | null>(null);
+  const [targetColumnId, setTargetColumnId] = useState<string | undefined>(undefined);
+  const [docsOpen, setDocsOpen] = useState(false);
 
   const [projectDialog, setProjectDialog] = useState(false);
   const [projectName, setProjectName] = useState('');
@@ -106,6 +118,10 @@ function WorkManagementBoard() {
   const [editTask, setEditTask] = useState<WorkTask | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [detailSnapshot, setDetailSnapshot] = useState<WorkTask | null>(null);
+  const [renameColumnId, setRenameColumnId] = useState<string | null>(null);
+  const [renameColumnName, setRenameColumnName] = useState('');
+  const updateColumn = useUpdateWorkColumn();
+
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -118,6 +134,7 @@ function WorkManagementBoard() {
     labels: '',
     progress: 0,
     checklistText: '',
+    customFields: {} as Record<string, any>,
   });
 
   const projects = useMemo(() => projectsQ.data ?? [], [projectsQ.data]);
@@ -196,8 +213,26 @@ function WorkManagementBoard() {
     if (priorityFilter !== 'all') {
       list = list.filter((t) => t.priority === priorityFilter);
     }
+    if (assigneeFilter !== 'all') {
+      list = list.filter((t) => t.assignees.some((a) => a.id === assigneeFilter));
+    }
+    if (deadlineFilter === 'overdue') {
+      const today = new Date().toISOString().slice(0, 10);
+      list = list.filter((t) => t.deadline && t.deadline < today);
+    } else if (deadlineFilter === 'this_week') {
+      const today = new Date();
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      const start = startOfWeek.toISOString().slice(0, 10);
+      const end = endOfWeek.toISOString().slice(0, 10);
+      list = list.filter((t) => t.deadline && t.deadline >= start && t.deadline <= end);
+    } else if (deadlineFilter === 'has_deadline') {
+      list = list.filter((t) => !!t.deadline);
+    }
     return list;
-  }, [projectQ.data?.tasks, query, priorityFilter]);
+  }, [projectQ.data?.tasks, query, priorityFilter, assigneeFilter, deadlineFilter]);
 
   const tasksByColumn = useMemo(() => {
     const map: Record<string, WorkTask[]> = {};
@@ -212,8 +247,23 @@ function WorkManagementBoard() {
     return map;
   }, [columns, tasks]);
 
+  // Full column list (unfiltered) to guarantee correct sortOrder calculation during drag-drop
+  const allTasksByColumn = useMemo(() => {
+    const map: Record<string, WorkTask[]> = {};
+    for (const c of columns) map[c.id] = [];
+    for (const t of projectQ.data?.tasks ?? []) {
+      if (!map[t.columnId]) map[t.columnId] = [];
+      map[t.columnId]!.push(t);
+    }
+    for (const id of Object.keys(map)) {
+      map[id]!.sort((a, b) => a.sortOrder - b.sortOrder);
+    }
+    return map;
+  }, [columns, projectQ.data?.tasks]);
+
   function openCreateTask(columnId?: string) {
     setEditTask(null);
+    setTargetColumnId(columnId);
     setForm({
       title: '',
       description: '',
@@ -226,11 +276,9 @@ function WorkManagementBoard() {
       labels: '',
       progress: 0,
       checklistText: '',
+      customFields: {},
     });
     setTaskDialog(true);
-    if (columnId) {
-      (window as unknown as { __wmCol?: string }).__wmCol = columnId;
-    }
   }
 
   function openEditTask(task: WorkTask) {
@@ -247,6 +295,7 @@ function WorkManagementBoard() {
       labels: task.labels.join(', '),
       progress: task.progress,
       checklistText: task.checklist.map((c) => `${c.isDone ? '[x] ' : ''}${c.title}`).join('\n'),
+      customFields: (task.customFields as Record<string, any>) || {},
     });
     setTaskDialog(true);
   }
@@ -285,6 +334,7 @@ function WorkManagementBoard() {
           labels,
           progress: form.progress,
           checklist,
+          customFields: form.customFields,
         },
         { onSuccess: () => setTaskDialog(false) },
       );
@@ -292,7 +342,7 @@ function WorkManagementBoard() {
       createTask.mutate(
         {
           projectId,
-          columnId: (window as unknown as { __wmCol?: string }).__wmCol,
+          columnId: targetColumnId,
           title: form.title.trim(),
           description: form.description || undefined,
           assignerId: form.assignerId || undefined,
@@ -304,11 +354,12 @@ function WorkManagementBoard() {
           labels,
           progress: form.progress,
           checklist,
+          customFields: form.customFields,
         },
         {
           onSuccess: () => {
             setTaskDialog(false);
-            (window as unknown as { __wmCol?: string }).__wmCol = undefined;
+            setTargetColumnId(undefined);
           },
         },
       );
@@ -317,14 +368,11 @@ function WorkManagementBoard() {
 
   function onDrop(columnId: string) {
     if (!draggingId) return;
-    const list = tasksByColumn[columnId] ?? [];
-    const from = tasks.find((t) => t.id === draggingId);
-    const sameCol = from?.columnId === columnId;
-    const sortOrder = sameCol ? list.findIndex((t) => t.id === draggingId) : list.length;
+    const fullList = allTasksByColumn[columnId] ?? [];
     moveTask.mutate({
       id: draggingId,
       columnId,
-      sortOrder: sortOrder < 0 ? list.length : sortOrder,
+      sortOrder: fullList.length,
     });
     setDraggingId(null);
     setDropCol(null);
@@ -396,24 +444,41 @@ function WorkManagementBoard() {
         </Button>
       </div>
 
-      {projectId && <WorkDocumentsPanel projectId={projectId} />}
+      {projectId && (
+        <div className="rounded-lg border bg-muted/30">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors rounded-lg"
+            onClick={() => setDocsOpen((v) => !v)}
+            aria-expanded={docsOpen}
+          >
+            {docsOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+            Tài liệu dự án
+          </button>
+          {docsOpen && <div className="px-2 pb-2"><WorkDocumentsPanel projectId={projectId} /></div>}
+        </div>
+      )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            className="pl-9"
+            className="pl-9 h-9"
             placeholder={t('work.filterPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder={t('work.priority')} />
+          <SelectTrigger className="w-[150px] h-9">
+            <SelectValue placeholder="Ưu tiên" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t('work.allPriorities')}</SelectItem>
+            <SelectItem value="all">Tất cả ưu tiên</SelectItem>
             {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
               <SelectItem key={k} value={k}>
                 {v}
@@ -421,6 +486,45 @@ function WorkManagementBoard() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger className="w-[160px] h-9">
+            <SelectValue placeholder="Người thực hiện" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tất cả người thực hiện</SelectItem>
+            {employees.map((emp) => (
+              <SelectItem key={emp.id} value={emp.id}>
+                {emp.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={deadlineFilter} onValueChange={setDeadlineFilter}>
+          <SelectTrigger className="w-[150px] h-9">
+            <SelectValue placeholder="Deadline" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tất cả deadline</SelectItem>
+            <SelectItem value="overdue">Quá hạn</SelectItem>
+            <SelectItem value="this_week">Tuần này</SelectItem>
+            <SelectItem value="has_deadline">Có deadline</SelectItem>
+          </SelectContent>
+        </Select>
+        {(query || priorityFilter !== 'all' || assigneeFilter !== 'all' || deadlineFilter !== 'all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 gap-1"
+            onClick={() => {
+              setQuery('');
+              setPriorityFilter('all');
+              setAssigneeFilter('all');
+              setDeadlineFilter('all');
+            }}
+          >
+            <X className="h-3.5 w-3.5" /> Xóa bộ lọc
+          </Button>
+        )}
       </div>
 
       {!projectId && (
@@ -452,18 +556,33 @@ function WorkManagementBoard() {
                 }}
               >
                 <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b bg-background/60 rounded-t-xl">
-                  <div>
-                    <p className="text-sm font-semibold">{col.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{col.name}</p>
                     <p className="text-[11px] text-muted-foreground">{items.length} việc</p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 w-8 p-0"
-                    onClick={() => openCreateTask(col.id)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-0.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Đổi tên cột"
+                      onClick={() => {
+                        setRenameColumnId(col.id);
+                        setRenameColumnName(col.name);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Tạo việc mới"
+                      onClick={() => openCreateTask(col.id)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                   {items.map((task, index) => (
@@ -487,10 +606,12 @@ function WorkManagementBoard() {
                         e.preventDefault();
                         e.stopPropagation();
                         if (!draggingId || draggingId === task.id) return;
+                        const fullList = allTasksByColumn[col.id] ?? [];
+                        const targetIdx = fullList.findIndex((t) => t.id === task.id);
                         moveTask.mutate({
                           id: draggingId,
                           columnId: col.id,
-                          sortOrder: index,
+                          sortOrder: targetIdx >= 0 ? targetIdx : fullList.length,
                         });
                         setDraggingId(null);
                         setDropCol(null);
@@ -561,6 +682,27 @@ function WorkManagementBoard() {
                             >
                               <Trash2 className="h-3.5 w-3.5 mr-2" /> Xóa
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+                              Chuyển trạng thái
+                            </div>
+                            {columns
+                              .filter((c) => c.id !== col.id)
+                              .map((targetCol) => (
+                                <DropdownMenuItem
+                                  key={targetCol.id}
+                                  onClick={() => {
+                                    const fullList = allTasksByColumn[targetCol.id] ?? [];
+                                    moveTask.mutate({
+                                      id: task.id,
+                                      columnId: targetCol.id,
+                                      sortOrder: fullList.length,
+                                    });
+                                  }}
+                                >
+                                  → {targetCol.name}
+                                </DropdownMenuItem>
+                              ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -572,6 +714,40 @@ function WorkManagementBoard() {
           })}
         </div>
       )}
+
+      {/* Rename column dialog */}
+      <Dialog open={!!renameColumnId} onOpenChange={(v) => !v && setRenameColumnId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Đổi tên cột Kanban</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Tên hiển thị cột</Label>
+            <Input
+              value={renameColumnName}
+              onChange={(e) => setRenameColumnName(e.target.value)}
+              placeholder="Nhập tên cột..."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameColumnId(null)}>
+              Hủy
+            </Button>
+            <Button
+              disabled={!renameColumnName.trim() || updateColumn.isPending}
+              onClick={() => {
+                if (!renameColumnId || !renameColumnName.trim()) return;
+                updateColumn.mutate(
+                  { id: renameColumnId, name: renameColumnName.trim() },
+                  { onSuccess: () => setRenameColumnId(null) },
+                );
+              }}
+            >
+              {updateColumn.isPending ? 'Đang lưu...' : 'Lưu tên cột'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create project */}
       <Dialog open={projectDialog} onOpenChange={setProjectDialog}>
@@ -641,25 +817,6 @@ function WorkManagementBoard() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Người giao</Label>
-                <Select
-                  value={form.assignerId || '__none__'}
-                  onValueChange={(v) => setForm({ ...form, assignerId: v === '__none__' ? '' : v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">—</SelectItem>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
                 <Label>Ưu tiên</Label>
                 <Select
                   value={form.priority}
@@ -685,7 +842,7 @@ function WorkManagementBoard() {
                   onChange={(e) => setForm({ ...form, startDate: e.target.value })}
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 sm:col-span-2">
                 <Label>Deadline</Label>
                 <Input
                   type="date"
@@ -694,46 +851,121 @@ function WorkManagementBoard() {
                 />
               </div>
             </div>
-            <div className="space-y-1">
-              <Label>Người thực hiện (giữ Ctrl/Cmd để chọn nhiều)</Label>
-              <select
-                multiple
-                className="w-full min-h-[88px] rounded-md border bg-background px-2 py-1 text-sm"
+
+            {/* Employee assignments */}
+            <div className="space-y-3 pt-2 border-t">
+              <WorkEmployeePicker
+                label="Người giao việc"
+                value={form.assignerId}
+                onChange={(id) => setForm({ ...form, assignerId: id })}
+                multiple={false}
+                placeholder="Gõ tên, mã hoặc email để tìm..."
+                initialEmployees={
+                  editTask?.assigner
+                    ? [{ id: editTask.assigner.id, name: editTask.assigner.name }]
+                    : []
+                }
+              />
+              <WorkEmployeePicker
+                label="Người thực hiện"
                 value={form.assigneeIds}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    assigneeIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-                  })
+                onChange={(ids) => setForm({ ...form, assigneeIds: ids })}
+                multiple={true}
+                placeholder="Gõ tên, mã hoặc email..."
+                initialEmployees={
+                  editTask?.assignees?.map((a) => ({ id: a.id, name: a.name })) ?? []
                 }
-              >
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Người theo dõi</Label>
-              <select
-                multiple
-                className="w-full min-h-[72px] rounded-md border bg-background px-2 py-1 text-sm"
+              />
+              <WorkEmployeePicker
+                label="Người theo dõi"
                 value={form.watcherIds}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    watcherIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-                  })
+                onChange={(ids) => setForm({ ...form, watcherIds: ids })}
+                multiple={true}
+                placeholder="Gõ tên, mã hoặc email..."
+                initialEmployees={
+                  editTask?.watchers?.map((w) => ({ id: w.id, name: w.name })) ?? []
                 }
-              >
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
+
+            {/* Custom fields */}
+            {projectQ.data?.customFieldDefs && projectQ.data.customFieldDefs.length > 0 && (
+              <div className="space-y-3 pt-2 border-t">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Trường tùy chỉnh dự án
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {projectQ.data.customFieldDefs.map((def) => (
+                    <div key={def.id} className="space-y-1">
+                      <Label className="text-xs">
+                        {def.name} {def.required && <span className="text-destructive">*</span>}
+                      </Label>
+                      {def.type === 'select' ? (
+                        <Select
+                          value={form.customFields[def.id] || '__none__'}
+                          onValueChange={(v) =>
+                            setForm({
+                              ...form,
+                              customFields: {
+                                ...form.customFields,
+                                [def.id]: v === '__none__' ? '' : v,
+                              },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="Chọn..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">—</SelectItem>
+                            {(def.options ?? []).map((opt) => (
+                              <SelectItem key={opt} value={opt} className="text-xs">
+                                {opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : def.type === 'number' ? (
+                        <Input
+                          type="number"
+                          value={form.customFields[def.id] ?? ''}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              customFields: { ...form.customFields, [def.id]: e.target.value },
+                            })
+                          }
+                          className="h-8 text-xs"
+                        />
+                      ) : def.type === 'date' ? (
+                        <Input
+                          type="date"
+                          value={form.customFields[def.id] ?? ''}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              customFields: { ...form.customFields, [def.id]: e.target.value },
+                            })
+                          }
+                          className="h-8 text-xs"
+                        />
+                      ) : (
+                        <Input
+                          value={form.customFields[def.id] ?? ''}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              customFields: { ...form.customFields, [def.id]: e.target.value },
+                            })
+                          }
+                          className="h-8 text-xs"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               <Label>Nhãn (phân tách bằng dấu phẩy)</Label>
               <Input

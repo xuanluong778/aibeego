@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -15,6 +16,26 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+export class WorkCustomFieldDefDto {
+  @IsString()
+  id!: string;
+
+  @IsString()
+  name!: string;
+
+  @IsString()
+  type!: 'text' | 'number' | 'date' | 'select';
+
+  @IsOptional()
+  @IsBoolean()
+  required?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  options?: string[];
+}
+
 export class CreateWorkProjectDto {
   @IsString()
   @MinLength(1)
@@ -25,6 +46,12 @@ export class CreateWorkProjectDto {
   @IsString()
   @MaxLength(5000)
   description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WorkCustomFieldDefDto)
+  customFieldDefs?: WorkCustomFieldDefDto[];
 }
 
 export class UpdateWorkProjectDto {
@@ -42,6 +69,12 @@ export class UpdateWorkProjectDto {
   @IsOptional()
   @IsBoolean()
   isArchived?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WorkCustomFieldDefDto)
+  customFieldDefs?: WorkCustomFieldDefDto[];
 }
 
 export class ChecklistItemInputDto {
@@ -128,6 +161,9 @@ export class CreateWorkTaskDto {
   @Type(() => ChecklistItemInputDto)
   @ArrayMaxSize(100)
   checklist?: ChecklistItemInputDto[];
+
+  @IsOptional()
+  customFields?: Record<string, unknown>;
 }
 
 export class UpdateWorkTaskDto {
@@ -189,6 +225,9 @@ export class UpdateWorkTaskDto {
   @ValidateNested({ each: true })
   @Type(() => ChecklistItemInputDto)
   checklist?: ChecklistItemInputDto[];
+
+  @IsOptional()
+  customFields?: Record<string, unknown>;
 }
 
 export class MoveWorkTaskDto {
@@ -269,4 +308,52 @@ export class ReviewDecisionDto {
   @IsString()
   @MaxLength(5000)
   note?: string;
+}
+
+export class UpdateWorkColumnDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  name!: string;
+}
+
+export class ExportReportQueryDto {
+  @IsOptional()
+  @IsString()
+  format?: 'csv' | 'xlsx';
+}
+
+export class CalendarQueryDto {
+  @IsString()
+  from!: string;
+
+  @IsString()
+  to!: string;
+}
+
+export class ManualTimeDto {
+  @IsNumber()
+  @Min(1)
+  @Max(1440)
+  durationMinutes!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class AuditQueryDto {
+  @IsOptional()
+  @IsString()
+  taskId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  limit?: number;
 }

@@ -16,7 +16,7 @@ import { defaultPermissionCodesForRole, SYSTEM_ROLES } from '../apps/api/src/com
 assert.equal(DEFAULT_WORK_COLUMNS.length, 7);
 assert.deepEqual(
   DEFAULT_WORK_COLUMNS.map((c) => c.name),
-  ['Việc mới', 'Đã giao', 'Đang làm', 'Chờ duyệt', 'Cần sửa', 'Hoàn thành', 'Tạm dừng'],
+  ['Việc mới', 'Đã giao', 'Làm việc', 'Chờ duyệt', 'Cần sửa', 'Hoàn thành', 'Tạm dừng'],
 );
 
 // --- Org-wide roles ---

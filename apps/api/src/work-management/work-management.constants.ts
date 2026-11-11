@@ -2,7 +2,7 @@
 export const DEFAULT_WORK_COLUMNS = [
   { key: 'NEW', name: 'Việc mới', sortOrder: 0 },
   { key: 'ASSIGNED', name: 'Đã giao', sortOrder: 1 },
-  { key: 'IN_PROGRESS', name: 'Đang làm', sortOrder: 2 },
+  { key: 'IN_PROGRESS', name: 'Làm việc', sortOrder: 2 },
   { key: 'PENDING_REVIEW', name: 'Chờ duyệt', sortOrder: 3 },
   { key: 'NEEDS_FIX', name: 'Cần sửa', sortOrder: 4 },
   { key: 'DONE', name: 'Hoàn thành', sortOrder: 5 },
