@@ -41,6 +41,11 @@ import {
   ELEMENT_FREE_MAX_Y_PX,
   sanitizeLandingPageDraftSpec,
   sanitizeLandingPagePersistSpec,
+  countdownPresetById,
+  countdownLaunchInsertPatch,
+  LP_COUNTDOWN_PRESETS,
+  isCountdownLaunchStyle,
+  type LandingPageCountdownLaunchStyle,
   specWithEditableHtmlSections,
   duplicateLandingPageNestedItem,
   type LandingPageBlock,
@@ -473,7 +478,7 @@ function defaultBlock(type: LandingPageBlockType): LandingPageBlock {
         type: 'Countdown',
         headline: 'Ưu đãi kết thúc sau',
         subheadline: 'Đặt lịch trước khi hết giờ',
-        endsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 12 * 60 * 60 * 1000).toISOString(),
         timezone: 'Asia/Ho_Chi_Minh',
         showDays: true,
         showHours: true,
@@ -2473,6 +2478,52 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       element: block.items[0] ? (`item:${block.items[0].id}` as const) : 'section',
     });
     setSaveMsg('Đã chèn nhóm nút');
+  }
+
+  function insertCountdownPreset(presetId: LandingPageCountdownLaunchStyle, pos?: LpSidebarInsertPos) {
+    const preset = countdownPresetById(presetId);
+    if (!preset) return;
+    const current = specRef.current;
+    const blocks = [...current.blocks];
+    const insertAt = resolveInsertIndex(blocks, pos);
+    const asFree = shouldInsertAsFreeLayer(pos);
+    const freeLayout = asFree
+      ? resolveFreeLayerLayout(blocks, pos, { width: 920, height: 420 })
+      : undefined;
+    const base = defaultBlock('Countdown') as LandingPageBlock;
+    const patch = countdownLaunchInsertPatch(preset, (base.style || {}) as Record<string, unknown>);
+    const block = {
+      ...base,
+      ...patch,
+      ...(asFree && freeLayout
+        ? { positionMode: 'free' as const, freeLayout, spacing: 'none' as const }
+        : null),
+    };
+    blocks.splice(insertAt, 0, block);
+    pushHistory(
+      markLandingPageUserEdits(sanitizeLandingPageDraftSpec({ ...current, blocks }), [
+        `${block.id}.headline`,
+        `${block.id}.styleVariant`,
+      ]),
+    );
+    selectCanvas({ blockId: block.id, element: 'section' });
+    setSaveMsg(`Đã chèn bộ hẹn giờ «${preset.label}»`);
+  }
+
+  function insertCountdownFromLibrary(presetId: LandingPageCountdownLaunchStyle) {
+    const pos = pickerInsertPosRef.current;
+    if (pos) {
+      if (consumeDropChoice(pos, () => insertCountdownPreset(presetId, pos))) closeElementLibrary();
+      return;
+    }
+    insertCountdownPreset(presetId);
+    closeElementLibrary();
+  }
+
+  function openCountdownLibrary(pos?: LpSidebarInsertPos | null) {
+    pickerInsertPosRef.current = pos ?? null;
+    setElementLibraryError('');
+    setElementLibraryPicker({ kind: 'block', type: 'Countdown' });
   }
 
   function insertBlockTypeAt(type: LandingPageBlockType, pos?: LpSidebarInsertPos) {
@@ -6722,6 +6773,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onBox={preset=>chooseElementPreset(pos=>insertBoxPreset(preset,pos))}
           onForm={preset=>chooseElementPreset(pos=>insertFormPreset(preset,pos))}
           onBlock={type=>chooseElementPreset(pos=>insertBlockTypeAt(type,pos))}
+          onCountdown={(id)=>insertCountdownFromLibrary(id)}
           onMedia={()=>{setElementLibraryPicker(null);setMediaOpen(true);}}
         />
         <LandingPageMediaModal
@@ -7174,6 +7226,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
               onOpenSectionLibrary={() => openSectionLibrary(null)}
               onOpenButtonLibrary={() => openButtonLibrary(null)}
               onOpenFormLibrary={() => openFormLibrary(null)}
+              onOpenCountdownLibrary={() => openCountdownLibrary(null)}
               onInsertTitlePreset={(preset) => {
                 const pos = pickerInsertPosRef.current ?? undefined;
                 pickerInsertPosRef.current = null;
@@ -7862,16 +7915,82 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                   <select
                     className="lp-dark-select w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-sm text-white"
                     value={(selected as { styleVariant?: string }).styleVariant || 'boxes'}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextStyle = e.target.value;
+                      const preset = countdownPresetById(nextStyle);
+                      if (preset) {
+                        const patch = countdownLaunchInsertPatch(
+                          preset,
+                          ((selected as { style?: Record<string, unknown> }).style || {}) as Record<
+                            string,
+                            unknown
+                          >,
+                        );
+                        updateBlock(selected.id, {
+                          styleVariant: patch.styleVariant,
+                          variant: patch.variant,
+                          showSignup: true,
+                          background: patch.background,
+                          style: patch.style,
+                          kicker:
+                            (selected as { kicker?: string }).kicker || patch.kicker,
+                          formHeadline:
+                            (selected as { formHeadline?: string }).formHeadline ||
+                            patch.formHeadline,
+                          submitLabel:
+                            (selected as { submitLabel?: string }).submitLabel ||
+                            patch.submitLabel,
+                        } as Partial<LandingPageBlock>);
+                        return;
+                      }
                       updateBlock(selected.id, {
-                        styleVariant: e.target.value,
-                      } as Partial<LandingPageBlock>)
-                    }
+                        styleVariant: nextStyle,
+                        showSignup: false,
+                      } as Partial<LandingPageBlock>);
+                    }}
                   >
                     <option value="boxes">Ô số</option>
                     <option value="inline">Nằm ngang</option>
                     <option value="minimal">Tối giản</option>
+                    {LP_COUNTDOWN_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
                   </select>
+                  {isCountdownLaunchStyle(
+                    (selected as { styleVariant?: string }).styleVariant,
+                  ) ? (
+                    <>
+                      <Label className="text-xs">Nhãn thương hiệu</Label>
+                      <Input
+                        value={(selected as { kicker?: string }).kicker || ''}
+                        onChange={(e) =>
+                          updateBlock(selected.id, {
+                            kicker: e.target.value,
+                          } as Partial<LandingPageBlock>)
+                        }
+                      />
+                      <Label className="text-xs">Tiêu đề form</Label>
+                      <Input
+                        value={(selected as { formHeadline?: string }).formHeadline || ''}
+                        onChange={(e) =>
+                          updateBlock(selected.id, {
+                            formHeadline: e.target.value,
+                          } as Partial<LandingPageBlock>)
+                        }
+                      />
+                      <Label className="text-xs">Nút đăng ký</Label>
+                      <Input
+                        value={(selected as { submitLabel?: string }).submitLabel || ''}
+                        onChange={(e) =>
+                          updateBlock(selected.id, {
+                            submitLabel: e.target.value,
+                          } as Partial<LandingPageBlock>)
+                        }
+                      />
+                    </>
+                  ) : null}
                   <Label className="text-xs">Khi hết giờ</Label>
                   <select
                     className="lp-dark-select w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-sm text-white"

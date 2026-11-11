@@ -62,7 +62,25 @@ export const LANDING_PAGE_COUNTDOWN_EXPIRE = [
 ] as const;
 export type LandingPageCountdownExpire = (typeof LANDING_PAGE_COUNTDOWN_EXPIRE)[number];
 
-export const LANDING_PAGE_COUNTDOWN_STYLES = ['boxes', 'inline', 'minimal'] as const;
+export const LANDING_PAGE_COUNTDOWN_LAUNCH_STYLE_IDS = [
+  'amethyst-flip',
+  'champagne-editorial',
+  'cyan-grid',
+  'emerald-halo',
+  'copper-ember',
+  'rose-glass',
+  'silver-minimal',
+  'cobalt-orbit',
+  'lime-terminal',
+  'opal-ribbon',
+] as const;
+
+export const LANDING_PAGE_COUNTDOWN_STYLES = [
+  'boxes',
+  'inline',
+  'minimal',
+  ...LANDING_PAGE_COUNTDOWN_LAUNCH_STYLE_IDS,
+] as const;
 export type LandingPageCountdownStyle = (typeof LANDING_PAGE_COUNTDOWN_STYLES)[number];
 
 export const LANDING_PAGE_STATUSES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
@@ -371,6 +389,8 @@ export type LandingPageCountdownBlock = LandingPageBlockBase & {
   type: 'Countdown';
   headline?: string;
   subheadline?: string;
+  /** Brand / eyebrow above the headline (launch templates). */
+  kicker?: string;
   /** ISO-8601 end datetime (preferred). */
   endsAt: string;
   /** IANA timezone label for display (e.g. Asia/Ho_Chi_Minh). */
@@ -384,6 +404,10 @@ export type LandingPageCountdownBlock = LandingPageBlockBase & {
   expireCtaLabel?: string;
   expireCtaUrl?: string;
   styleVariant?: LandingPageCountdownStyle;
+  /** Split signup card on the 10 launch-countdown templates. */
+  showSignup?: boolean;
+  formHeadline?: string;
+  submitLabel?: string;
 };
 
 export type LandingPageBlock =

@@ -198,7 +198,22 @@ export const LANDING_PAGE_BLOCK_VARIANTS = {
   LeadForm: LANDING_PAGE_LEAD_FORM_VARIANTS,
   CTA: LANDING_PAGE_CTA_VARIANTS,
   Footer: LANDING_PAGE_FOOTER_VARIANTS,
-  Countdown: ['default', 'boxes', 'inline', 'minimal'] as const,
+  Countdown: [
+    'default',
+    'boxes',
+    'inline',
+    'minimal',
+    'amethyst-flip',
+    'champagne-editorial',
+    'cyan-grid',
+    'emerald-halo',
+    'copper-ember',
+    'rose-glass',
+    'silver-minimal',
+    'cobalt-orbit',
+    'lime-terminal',
+    'opal-ribbon',
+  ] as const,
 } as const satisfies Record<LandingPageBlockType, readonly string[]>;
 
 export type LandingPageBlockVariantMap = {

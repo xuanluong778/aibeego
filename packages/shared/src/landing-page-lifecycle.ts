@@ -14,6 +14,7 @@ import {
   type LandingPageBlockType,
   type LandingPageCountdownExpire,
   type LandingPageCountdownStyle,
+  LANDING_PAGE_COUNTDOWN_STYLES,
   type LandingPageImageStyle,
   type LandingPageLeadFormField,
   type LandingPageSpec,
@@ -970,8 +971,13 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
         ? expireRaw
         : 'zero';
     const styleRaw = String(b.styleVariant || 'boxes');
-    const styleVariant: LandingPageCountdownStyle =
-      styleRaw === 'inline' || styleRaw === 'minimal' || styleRaw === 'boxes' ? styleRaw : 'boxes';
+    const styleVariant: LandingPageCountdownStyle = (
+      LANDING_PAGE_COUNTDOWN_STYLES as readonly string[]
+    ).includes(styleRaw)
+      ? (styleRaw as LandingPageCountdownStyle)
+      : 'boxes';
+    const launch =
+      styleVariant !== 'boxes' && styleVariant !== 'inline' && styleVariant !== 'minimal';
     let endsAt = clampText(b.endsAt ?? '', 64, mode);
     if (!endsAt || Number.isNaN(Date.parse(endsAt))) {
       endsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -981,6 +987,7 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
       type: 'Countdown',
       headline: clampText(b.headline ?? '', 200, mode),
       subheadline: clampText(b.subheadline ?? '', 400, mode),
+      kicker: clampText(b.kicker ?? '', 80, mode) || undefined,
       endsAt,
       timezone: clampText(b.timezone ?? 'Asia/Ho_Chi_Minh', 64, mode) || 'Asia/Ho_Chi_Minh',
       showDays: b.showDays !== false,
@@ -992,6 +999,9 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
       expireCtaLabel: clampText(b.expireCtaLabel ?? '', 80, mode),
       expireCtaUrl: draftUrl(b.expireCtaUrl) ?? '#lead-form',
       styleVariant,
+      showSignup: launch ? b.showSignup !== false : b.showSignup === true,
+      formHeadline: clampText(b.formHeadline ?? '', 120, mode) || undefined,
+      submitLabel: clampText(b.submitLabel ?? '', 80, mode) || undefined,
     };
   }
 

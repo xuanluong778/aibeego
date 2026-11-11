@@ -28,6 +28,10 @@ function assertLandingPageBuilderSource(root = path.join(__dirname, '..')) {
     'landing-page-section-insert-target.ts': ['never clamp a toolbar into content'],
     'landing-page-canvas-zoom.tsx': ['DESKTOP_FIT_SCALE = 1', 'DESKTOP_SCROLL_PAD_PX = 0'],
     'landing-page-inspector-rail.tsx': ['INSPECTOR_PANEL_WIDTH = 320'],
+    'landing-page-countdown-library.tsx': [
+      'data-lp-countdown-library',
+      'data-lp-countdown-template',
+    ],
   })) {
     const source = fs.readFileSync(path.join(base, file), 'utf8');
     for (const marker of markers)
@@ -73,6 +77,9 @@ function assertLandingPageBuilderBundle(dir) {
     'grid-row:auto!important',
     ':not(button):not([data-lp-transform-chrome])',
     'min-height:min-content!important',
+    'data-lp-countdown-library',
+    'data-lp-countdown-template',
+    'data-lp-countdown-launch',
   ])
     assert(code.includes(marker), `Release artifact missing Builder marker ${marker}`);
 }

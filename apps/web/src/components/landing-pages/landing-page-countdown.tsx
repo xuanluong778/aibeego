@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LandingPageCountdownBlock } from '@marketingspa/shared';
+import { isCountdownLaunchStyle } from '@marketingspa/shared';
 import {
   useCanvasElementFreeDrag,
   type LandingPageCanvasElementKey,
@@ -11,6 +12,7 @@ import {
   FreeTransformChrome,
   type FreeResizeHandle,
 } from './landing-page-free-drag';
+import './landing-page-countdown.css';
 
 type Parts = { days: number; hours: number; minutes: number; seconds: number; expired: boolean };
 
@@ -154,25 +156,38 @@ function wrapCell(
 /**
  * Isolated countdown ticker — interval state lives here so parent LP does not re-render.
  */
+export type CountdownPreviewParts = {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+};
+
 export function LandingPageCountdownLive({
   block,
   primary,
   blockId,
   canvas,
+  previewParts,
 }: {
   block: LandingPageCountdownBlock;
   primary: string;
   blockId?: string;
   canvas?: LandingPageCanvasHandlers | null;
+  previewParts?: CountdownPreviewParts;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
+    if (previewParts) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(id);
-  }, []);
+  }, [previewParts]);
 
-  const parts = calcParts(block.endsAt, nowMs);
+  const live = calcParts(block.endsAt, nowMs);
+  const parts: Parts = previewParts
+    ? { ...previewParts, expired: false }
+    : live;
   const style = block.styleVariant || 'boxes';
   const cellBlockId = blockId || block.id;
 
@@ -255,6 +270,17 @@ export function LandingPageCountdownLive({
     );
   }
 
+  if (isCountdownLaunchStyle(style)) {
+    return (
+      <LaunchClock
+        styleId={style}
+        cells={cells}
+        cellBlockId={cellBlockId}
+        canvas={canvas}
+      />
+    );
+  }
+
   return (
     <div
       className="mx-auto grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3"
@@ -285,6 +311,208 @@ export function LandingPageCountdownLive({
           </>,
         ),
       )}
+    </div>
+  );
+}
+
+function pad2(n: number) {
+  return String(Math.max(0, n)).padStart(2, '0');
+}
+
+function haloOffset(value: number, max: number) {
+  const c = 2 * Math.PI * 42;
+  const pct = Math.max(0, Math.min(1, value / Math.max(1, max)));
+  return c * (1 - pct);
+}
+
+function LaunchClock({
+  styleId,
+  cells,
+  cellBlockId,
+  canvas,
+}: {
+  styleId: string;
+  cells: Array<{ label: string; value: number; show: boolean }>;
+  cellBlockId: string;
+  canvas?: LandingPageCanvasHandlers | null;
+}) {
+  const maxFor = (label: string) => {
+    if (label === 'Ngày') return 30;
+    if (label === 'Giờ') return 24;
+    return 60;
+  };
+
+  const digit = (value: number) => <span className="lp-cd-digit">{pad2(value)}</span>;
+  const labelEl = (label: string) => <div className="lp-cd-unit-label">{label}</div>;
+
+  const unit = (
+    cell: { label: string; value: number },
+    className: string,
+    inner: ReactNode,
+  ) =>
+    wrapCell(cellBlockId, canvas, cell.label, className, undefined, inner);
+
+  if (styleId === 'silver-minimal') {
+    return (
+      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+        <div className="lp-cd-bar">
+          {cells.map((c) =>
+            unit(
+              c,
+              'lp-cd-bar-cell',
+              <>
+                {digit(c.value)}
+                {labelEl(c.label)}
+              </>,
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (styleId === 'opal-ribbon') {
+    return (
+      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+        <div className="lp-cd-capsule">
+          {cells.map((c) =>
+            unit(
+              c,
+              'lp-cd-cap-cell',
+              <>
+                {digit(c.value)}
+                {labelEl(c.label)}
+              </>,
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (styleId === 'cobalt-orbit') {
+    return (
+      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+        <div className="lp-cd-units">
+          {cells.map((c, i) => (
+            <span key={c.label} className="inline-flex items-end">
+              {unit(
+                c,
+                'lp-cd-orbit',
+                <>
+                  {digit(c.value)}
+                  {labelEl(c.label)}
+                </>,
+              )}
+              {i < cells.length - 1 ? <span className="lp-cd-dot">·</span> : null}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+      <div className="lp-cd-units">
+        {cells.map((c) => {
+          if (styleId === 'amethyst-flip') {
+            return unit(
+              c,
+              '',
+              <>
+                <div className="lp-cd-flip">{digit(c.value)}</div>
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          if (styleId === 'champagne-editorial') {
+            return unit(
+              c,
+              'lp-cd-champ',
+              <>
+                {digit(c.value)}
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          if (styleId === 'cyan-grid') {
+            return unit(
+              c,
+              '',
+              <>
+                <div className="lp-cd-oct">
+                  <div className="lp-cd-oct-inner">{digit(c.value)}</div>
+                </div>
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          if (styleId === 'emerald-halo') {
+            const circ = 2 * Math.PI * 42;
+            return unit(
+              c,
+              '',
+              <>
+                <div className="lp-cd-halo">
+                  <svg viewBox="0 0 100 100" aria-hidden>
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      fill="none"
+                      stroke="rgba(156,244,201,.18)"
+                      strokeWidth="5"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="42"
+                      fill="none"
+                      stroke="#9cf4c9"
+                      strokeWidth="5"
+                      strokeLinecap="round"
+                      strokeDasharray={circ}
+                      strokeDashoffset={haloOffset(c.value, maxFor(c.label))}
+                      transform="rotate(-90 50 50)"
+                    />
+                  </svg>
+                  {digit(c.value)}
+                </div>
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          if (styleId === 'copper-ember') {
+            return unit(
+              c,
+              '',
+              <>
+                <div className="lp-cd-ember">{digit(c.value)}</div>
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          if (styleId === 'rose-glass') {
+            return unit(
+              c,
+              '',
+              <>
+                <div className="lp-cd-glass">{digit(c.value)}</div>
+                {labelEl(c.label)}
+              </>,
+            );
+          }
+          return unit(
+            c,
+            '',
+            <>
+              <div className="lp-cd-led">{digit(c.value)}</div>
+              {labelEl(c.label)}
+            </>,
+          );
+        })}
+      </div>
     </div>
   );
 }

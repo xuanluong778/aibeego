@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import type { LandingPageBlockType } from '@marketingspa/shared';
+import type { LandingPageBlockType, LandingPageCountdownLaunchStyle } from '@marketingspa/shared';
+import { LandingPageCountdownLibrary } from './landing-page-countdown-library';
 import {
   type LandingPageTitlePreset,
   type LandingPageParagraphPreset,
@@ -25,6 +26,7 @@ export function LandingPageElementLibraryModal({
   onBox,
   onForm,
   onBlock,
+  onCountdown,
   onMedia,
 }: {
   picker: ElementLibraryPicker | null;
@@ -36,18 +38,22 @@ export function LandingPageElementLibraryModal({
   onBox: (p: LandingPageBoxPreset) => void;
   onForm: (p: LandingPageFormPreset) => void;
   onBlock: (type: LandingPageBlockType) => void;
+  onCountdown?: (id: LandingPageCountdownLaunchStyle) => void;
   onMedia: () => void;
 }) {
+  const countdownLibrary = picker?.kind === 'block' && picker.type === 'Countdown';
   const label =
     picker?.kind === 'text'
       ? 'Văn bản'
-      : picker?.kind === 'block'
-        ? picker.type
-        : picker?.kind === 'social'
-          ? 'Social Media'
-          : picker?.kind === 'icon'
-            ? 'Biểu tượng'
-            : 'Đồ họa';
+      : countdownLibrary
+        ? 'Bộ hẹn giờ'
+        : picker?.kind === 'block'
+          ? picker.type
+          : picker?.kind === 'social'
+            ? 'Social Media'
+            : picker?.kind === 'icon'
+              ? 'Biểu tượng'
+              : 'Đồ họa';
   const textLibrary = picker?.kind === 'text';
   const openStamp = useRef(0);
   useEffect(() => {
@@ -63,7 +69,7 @@ export function LandingPageElementLibraryModal({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[230] bg-black/60" />
         <Dialog.Content
-          data-lp-element-library-modal={picker?.kind}
+          data-lp-element-library-modal={countdownLibrary ? 'countdown' : picker?.kind}
           className={`fixed left-1/2 top-1/2 z-[231] flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden text-zinc-900 shadow-2xl ${textLibrary ? 'lp-text-library-modal' : 'h-[85vh] w-[min(1200px,94vw)] rounded-xl bg-white'}`}
           onPointerDownOutside={(event) => {
             const age = Date.now() - (openStamp.current || 0);
@@ -79,7 +85,9 @@ export function LandingPageElementLibraryModal({
               textLibrary ? 'sr-only' : 'flex items-center justify-between border-b px-5 py-3'
             }
           >
-            <Dialog.Title className="font-semibold">Thư viện {label}</Dialog.Title>
+            <Dialog.Title className={`font-semibold ${countdownLibrary ? 'text-[#F97316]' : ''}`}>
+              Thư viện {label}
+            </Dialog.Title>
             {!textLibrary ? (
               <Dialog.Close aria-label="Đóng thư viện" className="h-10 w-10">
                 ×
@@ -124,7 +132,11 @@ export function LandingPageElementLibraryModal({
               onOpenMediaLibrary={onMedia}
             />
           ) : null}
-          {picker?.kind === 'block' ? (
+          {countdownLibrary ? (
+            <LandingPageCountdownLibrary
+              onSelect={(id) => (onCountdown ? onCountdown(id) : onBlock('Countdown'))}
+            />
+          ) : picker?.kind === 'block' ? (
             <div className="overflow-auto p-8">
               <button
                 data-lp-element-block-template={picker.type}

@@ -35,6 +35,7 @@ import type {
 import {
   filterPublishableSpeakers,
   filterPublishableTestimonials,
+  isCountdownLaunchStyle,
   normalizeLandingPageThemeTokens,
   resolveLandingPageLayout,
   resolveSectionEyebrow,
@@ -42,6 +43,7 @@ import {
 } from '@marketingspa/shared';
 import { itemBoxDomProps, itemBoxHideAttrs } from './landing-page-item-box';
 import { LandingPageCountdownLive } from './landing-page-countdown';
+import { LandingPageCountdownLaunch } from './landing-page-countdown-launch';
 import { LandingPageHtmlDocument } from './landing-page-html-document';
 import { isolateHtmlDocument } from './landing-page-html-isolate';
 import {
@@ -3985,6 +3987,17 @@ function BlockView({
       }
     case 'Countdown': {
       const cd = block as LandingPageCountdownBlock;
+      if (isCountdownLaunchStyle(cd.styleVariant)) {
+        return (
+          <LandingPageCountdownLaunch
+            block={cd}
+            primary={primary}
+            canvas={canvas}
+            onLeadSubmit={onLeadSubmit}
+            onFormStart={onFormStart}
+          />
+        );
+      }
       return (
         <section
           className={`${spacingClass(cd.spacing)} px-4 sm:px-6`}

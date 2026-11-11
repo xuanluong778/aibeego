@@ -116,6 +116,7 @@ export type LandingPageAddComponentsPanelProps = {
   onOpenSectionLibrary?: () => void;
   onOpenButtonLibrary?: () => void;
   onOpenFormLibrary?: () => void;
+  onOpenCountdownLibrary?: () => void;
   onInsertTitlePreset?: (preset: LandingPageTitlePreset) => void;
   onInsertParagraphPreset?: (preset: LandingPageParagraphPreset) => void;
   onInsertListPreset?: (preset: LandingPageListPreset) => void;
@@ -148,6 +149,7 @@ export function LandingPageAddComponentsPanel({
   onOpenSectionLibrary,
   onOpenButtonLibrary,
   onOpenFormLibrary,
+  onOpenCountdownLibrary,
   onInsertTitlePreset,
   onInsertParagraphPreset,
   onInsertListPreset,
@@ -244,6 +246,10 @@ export function LandingPageAddComponentsPanel({
         onOpenFormLibrary?.();
         return;
       case 'block':
+        if (card.blockType === 'Countdown' && onOpenCountdownLibrary) {
+          onOpenCountdownLibrary();
+          return;
+        }
         if (card.blockType) onAddBlock(card.blockType);
         return;
       default:
