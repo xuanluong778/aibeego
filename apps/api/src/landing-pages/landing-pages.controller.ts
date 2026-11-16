@@ -454,6 +454,18 @@ export class LandingPagesController {
     return this.service.listMedia(user, id, { scope, q });
   }
 
+  @Get(':id/publication-options')
+  @RequirePermissions('lead.write')
+  publicationOptions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.publicationOptions(user, id);
+  }
+
+  @Get(':id/subdomain-availability')
+  @RequirePermissions('lead.write')
+  subdomainAvailability(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('label') label: string) {
+    return this.service.subdomainAvailability(user, id, label);
+  }
+
   @Post(':id/publish')
   @RequirePermissions('lead.write')
   publish(

@@ -204,6 +204,15 @@ export class AutosaveLandingPageDto {
 
 export class PublishLandingPageDto {
   @IsOptional()
+  @IsIn(['path', 'subdomain'])
+  publicationTarget?: 'path' | 'subdomain';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(63)
+  subdomainSlug?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   note?: string;

@@ -78,7 +78,7 @@ export class LandingPagesPublicController {
     @Req() req?: Request,
   ) {
     // Internal SSR uses a binding-specific key. Browser requests are scoped by Host.
-    const org = slug.startsWith('lp-domain-') ? organizationId : await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
+    const org = await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
     return this.service.getPublicBySlug(slug, org);
   }
 

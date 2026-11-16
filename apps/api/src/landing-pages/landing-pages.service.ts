@@ -1,3 +1,4 @@
+import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
 import { domainMethods } from './landing-page-domain-manager';
 import {
   BadRequestException,
@@ -559,7 +560,7 @@ export class LandingPagesService implements OnModuleInit {
       archived,
       templates,
       recent,
-      defaultSubdomainHint: '{slug}.lp.aibeego.com',
+      defaultSubdomainHint: '{slug}.aibeego.com',
     };
   }
 
@@ -866,7 +867,12 @@ export class LandingPagesService implements OnModuleInit {
 
   async get(user: AuthUser, id: string) {
     const row = await this.assertPage(user.organizationId, id);
-    return this.serializePage(row);
+    const binding = await new LandingPagePlatformDomains(this.prisma).current(row.id);
+    return {
+      ...this.serializePage(row),
+      publicUrl: binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' ? 'https://' + binding.hostname + '/' : null,
+      platformSubdomain: binding?.label || null,
+    };
   }
 
   async update(user: AuthUser, id: string, dto: UpdateLandingPageDto) {
@@ -1080,6 +1086,15 @@ export class LandingPagesService implements OnModuleInit {
     });
   }
 
+  async publicationOptions(user: AuthUser, id: string) {
+    return new LandingPagePlatformDomains(this.prisma).options(user.organizationId, id);
+  }
+
+  async subdomainAvailability(user: AuthUser, id: string, label: string) {
+    this.rateLimit.assertWithinLimit('lp:subdomain-check:' + user.organizationId, 90, 60000, 'Bạn kiểm tra quá nhanh. Vui lòng thử lại sau.');
+    return new LandingPagePlatformDomains(this.prisma).availability(user.organizationId, id, label);
+  }
+
   async publish(user: AuthUser, id: string, dto: PublishLandingPageDto) {
     const gate = await this.assertPage(user.organizationId, id);
     if (gate.slug.startsWith(TEMPLATE_EDIT_SLUG_PREFIX)) {
@@ -1091,10 +1106,15 @@ export class LandingPagesService implements OnModuleInit {
         ? Math.floor(dto.clientRevision)
         : null;
 
+    if (dto.subdomainSlug !== undefined && dto.publicationTarget !== 'subdomain') {
+      throw new BadRequestException('Hãy chọn xuất bản bằng subdomain khi nhập tên miền.');
+    }
+    const platform = new LandingPagePlatformDomains(this.prisma);
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
-      const row = await tx.landingPage.findFirst({ where: { id: gate.id } });
+      const row = await tx.landingPage.findFirst({ where: { id: gate.id, organizationId: user.organizationId } });
       if (!row) throw new NotFoundException('Landing page not found');
+      this.assertMutable(row.status);
       const storedRevision = readLandingPageRevision(row.draftSpec);
       const allowed = publishRevisionAllowed(storedRevision, expected);
       if (allowed !== 'ok') {
@@ -1122,10 +1142,14 @@ export class LandingPagesService implements OnModuleInit {
         select: { version: true },
       });
       const nextVersion = (lastVersion?.version ?? 0) + 1;
+      let binding = await platform.current(row.id, tx);
+      if (dto.publicationTarget === 'subdomain') binding = await platform.claim(tx, user.organizationId, row.id, dto.subdomainSlug || '');
+      else if (dto.publicationTarget === 'path') { await platform.release(tx, user.organizationId, row.id); binding = null; }
       const saved = await tx.landingPage.update({
         where: { id: row.id },
         data: {
           status: LandingPageStatus.PUBLISHED,
+          ...(binding ? { subdomainSlug: binding.label } : {}),
           publishedSpec: sanitized as unknown as Prisma.InputJsonValue,
           draftSpec: sanitized as unknown as Prisma.InputJsonValue,
           publishedAt: new Date(),
@@ -1147,10 +1171,19 @@ export class LandingPagesService implements OnModuleInit {
           createdById: user.id,
         },
       });
-      return saved;
+      return { saved, binding };
+    }).catch((error: any) => {
+      if (error.code === 'P2002' || (error.code === 'P2010' && error.meta?.code === '23505')) {
+        throw new ConflictException({ code: 'SUBDOMAIN_TAKEN', message: 'Tên này vừa được sử dụng. Hãy chọn subdomain khác.' });
+      }
+      throw error;
     });
 
-    return this.serializePage(updated);
+    return {
+      ...this.serializePage(updated.saved),
+      publicUrl: updated.binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' ? 'https://' + updated.binding.hostname + '/' : null,
+      platformSubdomain: updated.binding?.label || null,
+    };
   }
 
   async unpublish(user: AuthUser, id: string) {
@@ -2415,7 +2448,7 @@ export class LandingPagesService implements OnModuleInit {
 
   /** Public published page by org-scoped slug (default path /p/:slug). */
   async getPublicBySlug(slug: string, organizationId?: string) {
-    if (slug.startsWith('lp-domain-')) return domainMethods.getPublicByDomainKey.call(this, slug);
+    if (slug.startsWith('lp-domain-') || isPlatformDomainKey(slug)) return domainMethods.getPublicByDomainKey.call(this, slug);
     const row = await this.prisma.landingPage.findFirst({
       where: {
         slug,

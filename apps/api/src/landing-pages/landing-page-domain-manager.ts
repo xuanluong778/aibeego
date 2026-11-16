@@ -1,3 +1,4 @@
+import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Resolver } from 'node:dns/promises';
@@ -125,12 +126,14 @@ export class LandingPageDomainManager {
       this.db.$queryRaw`SELECT d.* FROM landing_page_domain_connections d JOIN landing_pages p ON p.id=d.landing_page_id WHERE p.organization_id=${org}`,
       edgeConfiguration()]);
     return {items:pages.map((p:any)=>this.describe(p,bindings.find((b:Binding)=>b.landing_page_id===p.id)||null,edge)),
-      architecture:{defaultSubdomain:'{subdomainSlug}.lp.aibeego.com',cnameTarget:edge.target,edgeAddresses:edge.addresses,platformReady:edge.ready,tlsMode:edge.tlsMode,
+      architecture:{defaultSubdomain:'{subdomainSlug}.aibeego.com',cnameTarget:edge.target,edgeAddresses:edge.addresses,platformReady:edge.ready,tlsMode:edge.tlsMode,
         message:edge.ready?null:'Quản trị viên cần cấu hình hostname/IP public cho máy chủ trước khi tên miền có thể hoạt động.'}};
   }
   async attach(org:string,id:string,input:string) {
     await this.page(org,id);const host=normalizeWebDomain(input);
     if(platformHosts().includes(host)||host===cnameTarget())throw new BadRequestException('Đây là tên miền hệ thống. Hãy dùng tên miền riêng của bạn.');
+    const prior=await this.binding(id);
+    if(host.endsWith('.aibeego.com')&&prior?.hostname!==host)throw new BadRequestException('Chọn subdomain aibeego.com trong hộp thoại Xuất bản.');
     const edge=await edgeConfiguration();
     return this.db.$transaction(async(tx:any)=>{
       // Serialize changes to this page and preserve idempotency for repeated saves.
@@ -156,6 +159,11 @@ export class LandingPageDomainManager {
     const error=dns.error||(!tls&&verified?'DNS đã xác minh. HTTPS chưa sẵn sàng; kiểm tra edge/chứng chỉ và xuất bản trang.':null);
     try {
       await this.db.$transaction(async(tx:any)=>{
+        const locked=await tx.$queryRaw`SELECT id FROM landing_pages WHERE id=${id} AND organization_id=${org} FOR UPDATE`;
+        if(!locked.length)throw new NotFoundException('Không tìm thấy landing page trong tổ chức của bạn');
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${b.hostname}))`;
+        const platform=await tx.$queryRaw`SELECT landing_page_id FROM landing_page_platform_domains WHERE hostname=${b.hostname}`;
+        if(platform.length)throw new ConflictException('Tên miền đã được dùng cho trang khác.');
         const current=await tx.$queryRaw`SELECT binding_id FROM landing_page_domain_connections WHERE landing_page_id=${id} FOR UPDATE`;
         if(current[0]?.binding_id!==b.binding_id)throw new ConflictException('Tên miền vừa thay đổi. Hãy tải lại và kiểm tra domain mới.');
         await tx.$executeRaw`UPDATE landing_page_domain_connections SET ownership_verified_at=${dns.ownership?new Date():null},verified_at=${verified?new Date():null},tls_status=${tls?'READY':'PENDING'},tls_checked_at=NOW(),last_checked_at=NOW(),last_error=${error},updated_at=NOW() WHERE binding_id=${b.binding_id}`;
@@ -185,6 +193,7 @@ export class LandingPageDomainManager {
   }
   async resolveHost(input:string) {
     const host=requestHostname(input);if(!host||platformHosts().includes(host))return null;
+    const platform=await new LandingPagePlatformDomains(this.db).resolveHost(host);if(platform)return platform;
     const rows=await this.db.$queryRaw`SELECT d.hostname,d.binding_id,p.id,p.slug,p.organization_id FROM landing_page_domain_connections d JOIN landing_pages p ON p.id=d.landing_page_id WHERE d.hostname=${host} AND d.verified_at IS NOT NULL AND p.status='PUBLISHED' AND p.published_spec IS NOT NULL LIMIT 1`;
     const r=rows[0];return r?{pageId:r.id,slug:r.slug,organizationId:r.organization_id,hostname:r.hostname,publicKey:'lp-domain-'+r.binding_id}:null;
   }
@@ -202,11 +211,11 @@ export const domainMethods = {
   async verifyDomain(this:any,user:any,id:string){this.rateLimit?.assertWithinLimit('lp:domain-check:'+user.organizationId,30,60000,'Bạn kiểm tra quá nhanh. Vui lòng thử lại sau.');return new LandingPageDomainManager(this.prisma).verify(user.organizationId,id)},
   async removeDomain(this:any,user:any,id:string){return new LandingPageDomainManager(this.prisma).detach(user.organizationId,id)},
   async resolveDomainHost(this:any,host:string){return new LandingPageDomainManager(this.prisma).resolveHost(host)},
-  async getPublicByDomainKey(this:any,key:string){const r=await new LandingPageDomainManager(this.prisma).resolveKey(key);if(!r)throw new NotFoundException('Tên miền chưa xác minh hoặc trang chưa xuất bản');const page=await this.getPublicBySlug(r.slug,r.organizationId);return {...page,seo:{...page.seo,canonical:'https://'+r.hostname+'/'}}},
-  async domainOrganization(this:any,host:string,slug:string,requested?:string){const h=requestHostname(host);if(platformHosts().includes(h))return requested;const r=await new LandingPageDomainManager(this.prisma).resolveHost(h);if(!r||r.slug!==slug)throw new ForbiddenException('Tên miền không được gắn với landing page này');return r.organizationId},
+  async getPublicByDomainKey(this:any,key:string){const r=key.startsWith('lp-platform-')?await new LandingPagePlatformDomains(this.prisma).resolveKey(key):await new LandingPageDomainManager(this.prisma).resolveKey(key);if(!r)throw new NotFoundException('Tên miền chưa xác minh hoặc trang chưa xuất bản');const page=await this.getPublicBySlug(r.slug,r.organizationId);return {...page,seo:{...page.seo,canonical:'https://'+r.hostname+'/'}}},
+  async domainOrganization(this:any,host:string,slug:string,requested?:string){const h=requestHostname(host);if(platformHosts().includes(h))return requested;const r=await new LandingPageDomainManager(this.prisma).resolveHost(h);if(!r||(r.slug!==slug&&r.publicKey!==slug))throw new ForbiddenException('Tên miền không được gắn với landing page này');return r.organizationId},
 };
 export function installDomainRuntime(Service:any) {
   Object.assign(Service.prototype,domainMethods);
   const original=Service.prototype.getPublicBySlug;
-  Service.prototype.getPublicBySlug=function(slug:string,org?:string){return slug.startsWith('lp-domain-')?domainMethods.getPublicByDomainKey.call(this,slug):original.call(this,slug,org)};
+  Service.prototype.getPublicBySlug=function(slug:string,org?:string){return (slug.startsWith('lp-domain-')||isPlatformDomainKey(slug))?domainMethods.getPublicByDomainKey.call(this,slug):original.call(this,slug,org)};
 }
