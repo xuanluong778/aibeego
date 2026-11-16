@@ -49,6 +49,7 @@ type PageRow = {
   theme: string;
   updatedAt: string;
   publicPath: string;
+  publicUrl?: string | null;
   ogImage?: string | null;
   visits?: number | null;
   leads?: number | null;
@@ -445,7 +446,9 @@ function LandingPagesListInner() {
                           {displayName}
                         </Link>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-white/50">
-                          <span className="font-mono truncate max-w-[200px]">/{p.slug}</span>
+                          <span className="font-mono truncate max-w-[200px]" title={p.publicUrl || p.publicPath}>
+                            {p.publicUrl ? p.publicUrl.replace(/^https:\/\//, '').replace(/\/$/, '') : `/${p.slug}`}
+                          </span>
                           {p.theme ? (
                             <>
                               <span>·</span>
@@ -554,7 +557,7 @@ function LandingPagesListInner() {
                             {p.status === 'PUBLISHED' ? (
                               <DropdownMenuItem asChild>
                                 <a
-                                  href={p.publicPath}
+                                  href={p.publicUrl || p.publicPath}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/90 hover:bg-white/10 hover:text-white cursor-pointer"

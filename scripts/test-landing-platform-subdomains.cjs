@@ -57,6 +57,17 @@ async function main(){
    await publish(b,second,'other-creative');const binding=await domains.resolveHost('creative-lab.aibeego.com');assert.equal(binding.pageId,first.id);assert.equal(binding.organizationId,a.id);
    const payload=await service.getPublicBySlug(binding.publicKey);assert.equal(payload.id,first.id);assert.equal(payload.seo.canonical,'https://creative-lab.aibeego.com/');assert.equal((await domains.resolveHost('other-creative.aibeego.com')).pageId,second.id);
   });
+  await test('Page list returns each tenant chosen public URL, with path fallback and no foreign bindings',async()=>{
+   const listA=await service.listPages(a.id,{}),listB=await service.listPages(b.id,{});
+   assert.equal(listA.items.find(p=>p.id===first.id).publicUrl,'https://creative-lab.aibeego.com/');
+   assert.equal(listB.items.find(p=>p.id===second.id).publicUrl,'https://other-creative.aibeego.com/');
+   assert.equal(listA.items.some(p=>p.id===second.id||p.publicUrl==='https://other-creative.aibeego.com/'),false);
+   const pathOnly=listA.items.find(p=>p.slug==='lp-platform-friendly-page');assert.equal(pathOnly.publicUrl,null);assert.equal(pathOnly.publicPath,'/p/lp-platform-friendly-page');
+   assert.deepEqual(await service.listPages(randomUUID(),{}),{items:[],total:0});
+   delete process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED;
+   assert.equal((await service.listPages(a.id,{})).items.find(p=>p.id===first.id).publicUrl,null);
+   process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED='true';
+  });
   await test('Host scoping ignores a forged organizationId and rejects another binding key',async()=>{
    assert.equal(await service.domainOrganization('creative-lab.aibeego.com','shared-slug',b.id),a.id);
    const foreign=await domains.resolveHost('other-creative.aibeego.com');await assert.rejects(service.domainOrganization('creative-lab.aibeego.com',foreign.publicKey,b.id));

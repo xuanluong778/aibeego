@@ -4,4 +4,6 @@ Web được build standalone bằng Next.js 15.5.21, một worker, heap 1536 MB
 
 Dockerfile ở đây dùng context đã chuẩn bị, không phải root repo: API context gồm `dist/landing-pages`; Web context gồm `standalone`, `static`, `public`. Không đưa env, token, DB dump hay private key vào context. Khi chạy QA bằng image snapshot, đặt label `com.docker.compose.project` sang project QA riêng vì image snapshot có thể thừa hưởng labels từ Compose production.
 
-Image đang chạy: `marketingaz-api:platform-subdomains-20261116`, `marketingaz-web:platform-subdomains-20261116`. Compose production `/opt/marketingaz/docker-compose.vps.yml` đã cập nhật image, source checkout và entrypoint Web; API bật feature flag. Bản runtime trước deploy giữ ở tag `platform-before-20261116` để rollback, không prune các tag này khi chưa duyệt.
+Image đang chạy: `marketingaz-api:platform-public-links-20261116`, `marketingaz-web:platform-public-links-20261116`. Bản sửa liên kết danh sách giữ `publicPath`, bổ sung `publicUrl` và ưu tiên subdomain đã chọn ở menu Xem trang công khai. API kế thừa `platform-subdomains-20261116` và thay duy nhất service Landing Page; Web full build lại. Xem `docs/reports/PLATFORM_SUBDOMAIN_PUBLIC_LINK_FIX_20261116.md`.
+
+Compose production `/opt/marketingaz/docker-compose.vps.yml` đã cập nhật image, source checkout và entrypoint Web; API bật feature flag. Bản trước giữ ở tag `platform-subdomains-20261116`, runtime trước lần deploy ban đầu giữ ở `platform-before-20261116` để rollback, không prune các tag này khi chưa duyệt.

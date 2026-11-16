@@ -31,5 +31,6 @@ NODE_OPTIONS=--max-old-space-size=384 pnpm exec tsc -p scripts/platform-subdomai
 node scripts/test-landing-platform-subdomains.cjs | tee .platform-subdomain-qa/api-tests.log
 node scripts/test-landing-platform-nginx.cjs | tee .platform-subdomain-qa/nginx-tests.log
 node scripts/test-landing-platform-publish-ui.cjs | tee .platform-subdomain-qa/ui-tests.log
+node scripts/test-landing-platform-list-ui.cjs | tee .platform-subdomain-qa/list-ui-tests.log
 python3 scripts/platform-subdomain-qa/production-snapshot.py .platform-subdomain-qa/production-after.json --compare .platform-subdomain-qa/production-before.json
 git diff --check

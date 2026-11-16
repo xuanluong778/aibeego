@@ -735,7 +735,28 @@ export class LandingPagesService implements OnModuleInit {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     });
-    return { items: items.map((r) => this.serializePage(r)), total: items.length };
+    // Resolve only bindings belonging to this tenant's returned pages, in one query.
+    const bindings = process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' && items.length
+      ? await this.prisma.$queryRaw<Array<{ landing_page_id: string; hostname: string; label: string }>>(Prisma.sql`
+          SELECT d.landing_page_id, d.hostname, d.label
+          FROM landing_page_platform_domains d
+          JOIN landing_pages p ON p.id = d.landing_page_id
+          WHERE p.organization_id = ${organizationId}
+            AND d.landing_page_id IN (${Prisma.join(items.map((page) => page.id))})
+        `)
+      : [];
+    const byPage = new Map(bindings.map((binding) => [binding.landing_page_id, binding]));
+    return {
+      items: items.map((row) => {
+        const binding = byPage.get(row.id);
+        return {
+          ...this.serializePage(row),
+          publicUrl: binding ? 'https://' + binding.hostname + '/' : null,
+          platformSubdomain: binding?.label || null,
+        };
+      }),
+      total: items.length,
+    };
   }
 
   /** New page from an HTML upload becomes editable sections. The template row is not changed. */
