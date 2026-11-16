@@ -1,0 +1,47 @@
+/* A real grid replaces the legacy 50% float + 134% zoom combination. Never clip form fields to hide overflow. */
+[data-lp-registration-row] {
+  width: min(1200px, calc(100% - var(--lp-registration-row-gutter, 48px)));
+  max-width: 100%;
+  margin-inline: auto;
+  clear: both;
+  container-type: inline-size;
+}
+[data-lp-registration-grid] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 28px;
+  min-width: 0;
+}
+[data-lp-registration-grid] > [data-lp-block-slot] {
+  min-width: 0;
+  max-width: 100%;
+}
+[data-lp-registration-grid] > [data-lp-block-slot] > [data-lp-block-id] {
+  float: none !important;
+  clear: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  zoom: 1 !important;
+  box-sizing: border-box !important;
+}
+[data-lp-registration-grid] [data-lp-container-inner],
+[data-lp-registration-grid] .container,
+[data-lp-registration-grid] [data-lp-form-card],
+[data-lp-registration-grid] form {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+[data-lp-registration-grid] form :is(input, select, textarea, button) {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@container (max-width: 780px) {
+  [data-lp-registration-grid] { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  [data-lp-registration-grid] > [data-lp-block-slot] section:not(.lp-cd-launch) {
+    padding-block: 1.5rem !important;
+  }
+}

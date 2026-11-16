@@ -8,14 +8,11 @@ import { authStorage } from '@/lib/auth-storage';
 import { useCurrentUser } from '@/hooks/use-auth';
 import { useT } from '@/i18n/i18n-provider';
 import { Button } from '@/components/ui/button';
-import { TemplateHoverPreview } from '@/components/landing-pages/template-hover-preview';
+import { TemplateLiveCardPreview, peekTemplateCardSpec } from '@/components/landing-pages/template-live-card-preview';
 import { TemplateFullscreenPreview } from '@/components/landing-pages/template-fullscreen-preview';
 import type { TemplateViewport } from '@/components/landing-pages/template-viewport-switcher';
 import type { LandingPageSpec } from '@marketingspa/shared';
-import {
-  LANDING_PAGE_CATEGORIES,
-  LANDING_PAGE_TEMPLATE_CATALOG_VERSION,
-} from '@marketingspa/shared';
+import { LANDING_PAGE_CATEGORIES } from '@marketingspa/shared';
 
 type TemplateBadge = 'new' | 'popular' | 'high_conversion';
 
@@ -99,23 +96,6 @@ const GOAL_LABEL: Record<string, string> = {
   contact: 'Contact',
 };
 
-function withCatalogCacheBust(path: string) {
-  const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}v=${encodeURIComponent(LANDING_PAGE_TEMPLATE_CATALOG_VERSION)}`;
-}
-
-function imagePaths(slug: string, thumb?: string | null, long?: string | null, managed = false) {
-  const fallbackThumb = `/landing-pages/templates/${slug}-thumb.webp`;
-  const fallbackLong = `/landing-pages/templates/${slug}-long.webp`;
-  // Uploaded packs own their media. Falling back to catalog screenshots shows an older design.
-  const thumbnail = thumb || (managed ? '' : fallbackThumb);
-  const preview = long || (managed ? thumbnail : fallbackLong);
-  return {
-    thumbnail: thumbnail ? withCatalogCacheBust(thumbnail) : '',
-    previewLongImage: preview ? withCatalogCacheBust(preview) : '',
-  };
-}
-
 function parseBadges(t: Template): TemplateBadge[] {
   if (t.badges?.length) return t.badges;
   const fromTags = (t.tags || [])
@@ -197,8 +177,9 @@ export default function LandingPagesTemplatesPage() {
   const openPreview = useCallback(async (slug: string) => {
     setPreviewSlug(slug);
     setViewport('desktop');
-    setPreviewSpec(null);
-    setPreviewLoading(true);
+    const cached = peekTemplateCardSpec(slug);
+    setPreviewSpec(cached);
+    setPreviewLoading(!cached);
     try {
       const row = await apiClient<{ definition: LandingPageSpec; slug: string }>(
         `/landing-pages/templates/${encodeURIComponent(slug)}`,
@@ -440,7 +421,7 @@ export default function LandingPagesTemplatesPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
-              <div className="aspect-[16/10] animate-pulse bg-white/10" />
+              <div style={{ height: 'clamp(340px,28vw,420px)' }} className="animate-pulse bg-white/10" />
               <div className="space-y-2 p-4">
                 <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
                 <div className="h-3 w-full animate-pulse rounded bg-white/5" />
@@ -451,28 +432,20 @@ export default function LandingPagesTemplatesPage() {
       ) : (
         <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pageItems.map((tpl) => {
-            const imgs = imagePaths(tpl.slug, tpl.thumbnailUrl, tpl.previewLongImage, tpl.tags.includes('pack:managed'));
             const badges = parseBadges(tpl);
-            const family = tpl.designFamily || '';
-            const goal = tpl.conversionGoal || '';
             return (
               <article
                 key={tpl.id}
+                data-lp-template-card={tpl.slug}
                 className="group flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.05]"
               >
                 <div className="relative overflow-hidden">
-                  {imgs.thumbnail ? (
-                    <TemplateHoverPreview
-                      thumbnail={imgs.thumbnail}
-                      previewLongImage={imgs.previewLongImage}
-                      alt={tpl.name}
-                      enableHoverScroll={hoverOk}
-                    />
-                  ) : (
-                    <div className="flex aspect-[16/10] items-end overflow-hidden bg-gradient-to-br from-emerald-900 via-slate-900 to-amber-900 p-3">
-                      <p className="line-clamp-2 text-sm font-semibold text-white">{tpl.name}</p>
-                    </div>
-                  )}
+                  <TemplateLiveCardPreview
+                    slug={tpl.slug}
+                    name={tpl.name}
+                    category={tpl.category}
+                    enableHoverScroll={hoverOk}
+                  />
                   <div className="absolute left-2 top-2 flex flex-wrap gap-1">
                     {badges.map((b) => (
                       <span
@@ -485,15 +458,7 @@ export default function LandingPagesTemplatesPage() {
                   </div>
                 </div>
                 <div className="flex flex-1 flex-col p-2.5">
-                  <div className="truncate text-[10px] font-semibold uppercase tracking-wide opacity-50">
-                    {tpl.category}
-                    {family ? ` · ${FAMILY_LABEL[family] || family}` : ''}
-                    {goal ? ` · ${GOAL_LABEL[goal] || goal}` : ''}
-                  </div>
                   <h3 className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug">{tpl.name}</h3>
-                  <p className="mt-1 line-clamp-2 min-h-[2rem] flex-1 text-xs leading-relaxed opacity-65">
-                    {tpl.description}
-                  </p>
                   <div className="mt-2 grid grid-cols-2 gap-2" data-lp-template-actions>
                     <Button size="sm" variant="outline" className="w-full" onClick={() => void openPreview(tpl.slug)}>
                       Xem trước
@@ -509,24 +474,17 @@ export default function LandingPagesTemplatesPage() {
                     </Button>
                   </div>
                   {isAdmin ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-2 w-full border-amber-400/50 text-amber-100"
-                      disabled={using}
-                      data-lp-edit-template-source
-                      title="Sửa trực tiếp mẫu gốc. Người dùng sẽ thấy thay đổi sau khi bạn xuất bản mẫu."
-                      onClick={() => void editTemplateSource(tpl.slug)}
-                    >
-                      Sửa mẫu gốc
-                    </Button>
-                  ) : null}
-                  {isAdmin ? (
                     <details className="relative mt-2" data-lp-template-more>
                       <summary className="cursor-pointer list-none text-center text-xs text-white/70 [&::-webkit-details-marker]:hidden">
                         Khác
                       </summary>
                       <div className="absolute bottom-7 right-0 z-20 flex w-44 flex-col gap-1 rounded-md border border-white/15 bg-zinc-950 p-1 shadow-lg">
+                        <Button size="sm" variant="ghost" className="w-full justify-start" disabled={using}
+                          data-lp-edit-template-source
+                          title="Sửa trực tiếp mẫu gốc. Người dùng sẽ thấy thay đổi sau khi bạn xuất bản mẫu."
+                          onClick={() => void editTemplateSource(tpl.slug)}>
+                          Sửa mẫu gốc
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"

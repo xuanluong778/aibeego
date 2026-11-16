@@ -33,6 +33,9 @@ import {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
+  GenerateTemplateContentDto,
+  ImportTemplateUrlImageDto,
+  ValidateTemplateContentImagesDto,
   SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
@@ -121,6 +124,30 @@ export class LandingPagesController {
   @RequirePermissions('lead.write')
   suggestBrief(@CurrentUser() user: AuthUser, @Body() dto: SuggestLandingPageBriefDto) {
     return this.service.suggestAiBrief(user, dto);
+  }
+
+  @Post(':id/ai-template-content')
+  @RequirePermissions('lead.write')
+  templateContent(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: GenerateTemplateContentDto) {
+    return this.service.generateTemplateContent(user, id, dto);
+  }
+
+  @Post(':id/ai-template-content/validate-images')
+  @RequirePermissions('lead.write')
+  validateTemplateImages(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ValidateTemplateContentImagesDto) {
+    return this.service.validateTemplateContentImages(user, id, dto.imageIds);
+  }
+
+  @Post(':id/ai-template-content/read-url')
+  @RequirePermissions('lead.write')
+  readTemplateUrl(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CrawlLandingPageUrlDto) {
+    return this.service.readTemplateContentUrl(user, id, dto);
+  }
+
+  @Post(':id/ai-template-content/import-url-image')
+  @RequirePermissions('lead.write')
+  importTemplateUrlImage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ImportTemplateUrlImageDto) {
+    return this.service.importTemplateUrlImage(user, id, dto);
   }
 
   @Post('crawl-url')
@@ -488,4 +515,10 @@ export class LandingPagesController {
   verifyDomain(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.verifyDomain(user, id);
   }
+  @Delete(':id/domain')
+  @RequirePermissions('lead.write')
+  removeDomain(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removeDomain(user, id);
+  }
+
 }

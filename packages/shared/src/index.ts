@@ -158,3 +158,6 @@ export * from './landing-page-section-rows';
 export * from './landing-page-motion';
 export * from './landing-page-countdown-presets';
 export * from './landing-page-commercial-content';
+export * from './landing-page-template-content';
+export * from './landing-page-template-url';
+export * from './landing-page-template-editorial';

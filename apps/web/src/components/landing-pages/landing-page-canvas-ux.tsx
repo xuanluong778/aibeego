@@ -2228,6 +2228,7 @@ function HeadingBoxResizeChrome({
 
 export function InlineEditable({
   as: Tag = 'div',
+  href,
   blockId,
   field,
   value,
@@ -2240,6 +2241,8 @@ export function InlineEditable({
   blockStyle,
 }: {
   as?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'div' | 'span' | 'a';
+  /** Whole-button links own their label's free layout; navigation is disabled while editing. */
+  href?: string;
   blockId: string;
   /** Top-level or nested path keys (itemTitle:id, planName:id, fieldLabel:id, …). */
   field: string;
@@ -2450,6 +2453,7 @@ export function InlineEditable({
     const hideAttrs = textBoxHideAttrs(textStyle?.box);
     const node = (
       <Comp
+        href={Tag === 'a' ? href : undefined}
         className={className}
         style={mergeFieldStyle()}
         data-lp-element-id={`${blockId}::${element}`}

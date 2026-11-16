@@ -1,4 +1,5 @@
 'use client';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
 
 import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
 import type {
@@ -198,7 +199,7 @@ export function AgencyPortfolioBlock({
   );
   const head = (eyebrow: string, center = false) => (
     <div className={'section-head' + (center ? ' center' : '')}>
-      <span className="eyebrow">{eyebrow}</span>
+      <span className="eyebrow">{block.eyebrow || eyebrow}</span>
       {'headline' in block
         ? text(
             'headline',
@@ -457,7 +458,9 @@ export function AgencyPortfolioBlock({
         'pricing',
         <div className="container">
           {head('CÁCH HỢP TÁC', true)}
-          <div className="pricing-grid" data-lp-free-surface="1">
+          <div className="pricing-grid" data-lp-free-surface="1"
+            style={block.plans.filter(plan => !spec.meta?.elementHidden?.[`${block.id}::item:${plan.id}`]).length === 1
+              ? { gridTemplateColumns: 'minmax(0, 1fr)', maxWidth: '36rem', marginInline: 'auto' } : undefined}>
             {block.plans.map((p, i) => (
               <ItemReorderChrome
                 blockId={block.id}
@@ -480,9 +483,10 @@ export function AgencyPortfolioBlock({
                   >
                     <span className="overline">{p.period}</span>
                     {text(`planName:${p.id}`, p.name, 'h3')}
+                    <LandingPagePriceComparison originalPrice={p.originalPrice} price={p.price} />
                     {text(`planPrice:${p.id}`, p.price, 'p', 'price-intro')}
                     <ul>
-                      {p.features.map((f, n) => (
+                      {p.features.filter(Boolean).map((f, n) => (
                         <li key={n}>
                           <Icon name="check" />
                           <span>{f}</span>

@@ -1,0 +1,35 @@
+/* Shared native controls: readable on phones without iOS focus zoom. */
+/* Public pages fill the real device; fixed device widths belong to editor previews. */
+[data-lp-renderer][data-lp-mode="public"][data-lp-viewport],
+[data-lp-public-root] [data-lp-renderer][data-lp-viewport] {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+@media (max-width: 767px) {
+  [data-lp-canvas-root] form[data-lp-form-surface="card"] { padding-inline: 1rem !important; }
+  [data-lp-canvas-root] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 44px;
+    font-size: 16px !important;
+    box-sizing: border-box;
+  }
+  [data-lp-canvas-root] :is(button[type="submit"], .header-cta, .price-btn, .btn),
+  [data-lp-canvas-root] :is([data-lp-hero-cta], [data-lp-cta-band], [data-lp-pricing-card]) > a {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+}
+[data-lp-viewport="mobile"] [data-lp-canvas-root] form[data-lp-form-surface="card"] { padding-inline: 1rem !important; }
+[data-lp-viewport="mobile"] [data-lp-canvas-root] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  font-size: 16px !important;
+  box-sizing: border-box;
+}
+[data-lp-viewport="mobile"] [data-lp-canvas-root] :is(button[type="submit"], .header-cta, .price-btn, .btn),
+[data-lp-viewport="mobile"] [data-lp-canvas-root] :is([data-lp-hero-cta], [data-lp-cta-band], [data-lp-pricing-card]) > a {
+  min-height: 44px;
+  box-sizing: border-box;
+}

@@ -257,7 +257,22 @@ function slugifyFileName(input: string): string {
   return slug || 'html-template';
 }
 
+/** Client-side preview entrypoints lose their renderer when scripts are isolated.
+ * They must not replace native JSON blocks or be accepted as standalone pages. */
+function isClientOnlyPreviewShell(html: string): boolean {
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] || html;
+  const inert = body
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  if (!/\bid\s*=\s*["'](?:app|root|__next)["']/i.test(inert)) return false;
+  if (/<(?:img|video|audio|svg|canvas|iframe|input|textarea|select|button)\b/i.test(inert)) return false;
+  return !inert.replace(/<[^>]*>/g, '').replace(/&(?:nbsp|#160|#xA0);/gi, '').trim();
+}
+
 export function templateSpecFromHtml(html: string, name: string, assetNames: string[] = []): Record<string, unknown> {
+  if (isClientOnlyPreviewShell(html)) {
+    throw new TemplatePackError('HTML xem thử chỉ có khung JavaScript, chưa có nội dung trang. Hãy upload gói manifest.json + template.json trong thư mục packs.');
+  }
   const isolatedScriptCount = (html.match(/<script\b/gi) || []).length;
   const notes = describeHtmlImportLimits(html);
   const safe = sanitizeTemplateHtml(html);
@@ -329,7 +344,10 @@ export function parseTemplatePack(buf: Buffer): ParsedTemplatePack {
   const files = readZip(buf);
   const manifestBuf = files.get('manifest.json');
   const templateBuf = files.get('template.json');
-  const html = readHtmlEntry(files);
+  const sourceHtml = readHtmlEntry(files);
+  // Preserve authored HTML precedence, but ignore an empty JS preview when the
+  // same pack has native JSON. Invalid JSON still fails below; no silent fallback.
+  const html = templateBuf && sourceHtml && isClientOnlyPreviewShell(sourceHtml) ? null : sourceHtml;
   if (!manifestBuf && !html) {
     throw new TemplatePackError('ZIP cần manifest.json và template.json, hoặc file index.html');
   }

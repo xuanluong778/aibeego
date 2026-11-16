@@ -1,0 +1,511 @@
+.lp-template-ai-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0f172a99;
+  z-index: 300;
+}
+.lp-template-ai {
+  position: fixed;
+  inset: 2vh 1.5vw;
+  z-index: 301;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  color: #172033;
+  border: 1px solid #d6dbe4;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px #0004;
+  font-family: Arial, sans-serif;
+}
+.lp-template-ai button {
+  cursor: pointer;
+}
+.lp-template-ai button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.lp-template-ai button:focus-visible,
+.lp-template-ai input:focus-visible,
+.lp-template-ai textarea:focus-visible,
+.lp-template-ai select:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+.lp-template-ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  background: #182438;
+  color: #fff;
+}
+.lp-template-ai-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.lp-template-ai-header button {
+  padding: 6px;
+}
+.lp-template-ai-description {
+  padding: 10px 22px;
+  color: #526074;
+  font-size: 13px;
+  border-bottom: 1px solid #e0e4eb;
+}
+.lp-template-ai-body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) 390px;
+  flex: 1;
+  min-height: 0;
+}
+.lp-template-ai-structure {
+  overflow: auto;
+  padding: 18px 10px;
+  border-right: 1px solid #e0e4eb;
+}
+.lp-template-ai h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.lp-template-ai-structure h3 {
+  padding: 0 8px 16px;
+}
+.lp-template-ai-structure button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 10px;
+  text-align: left;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.lp-template-ai-structure button[aria-current='true'] {
+  background: #fff0e4;
+  color: #b84b00;
+  box-shadow: inset 4px 0 #f97316;
+}
+.lp-template-ai-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #eab308;
+  flex-shrink: 0;
+}
+.lp-template-ai-canvas {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #edf0f5;
+  padding: 14px;
+}
+.lp-template-ai-devices {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.lp-template-ai-devices button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #d6dbe4;
+  color: #526074;
+}
+.lp-template-ai-devices button[aria-pressed='true'] {
+  color: #d55400;
+  background: #fff0e4;
+  border-color: #fbba8d;
+}
+.lp-template-ai-preview-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  border-radius: 10px;
+  border: 1px solid #d6dbe4;
+  background: #e1e5eb;
+  overscroll-behavior: contain;
+}
+.lp-template-ai-preview-page {
+  margin: 0 auto;
+  max-width: none;
+  min-height: 100%;
+  background: #fff;
+}
+.lp-template-ai-preview-note {
+  font-size: 12px;
+  color: #526074;
+  padding-top: 10px;
+}
+.lp-template-ai-panel {
+  overflow: auto;
+  min-width: 0;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-left: 1px solid #d6dbe4;
+}
+.lp-template-ai-panel h2 {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.lp-template-ai-tabs {
+  display: flex;
+  border-bottom: 1px solid #d6dbe4;
+}
+.lp-template-ai-tabs button {
+  flex: 1;
+  padding: 12px 2px;
+  font-size: 14px;
+  color: #526074;
+  border-bottom: 3px solid transparent;
+}
+.lp-template-ai-tabs button[aria-pressed='true'] {
+  border-color: #f97316;
+  color: #d55400;
+  font-weight: 700;
+}
+.lp-template-ai-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lp-template-ai-form label {
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+}
+.lp-template-ai input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.lp-template-ai textarea,
+.lp-template-ai select {
+  display: block;
+  width: 100%;
+  background: #fff;
+  color: #172033;
+  border: 1px solid #cbd1da;
+  border-radius: 7px;
+  padding: 9px 10px;
+  margin-top: 6px;
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+}
+.lp-template-ai textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.lp-template-ai input[type='checkbox'],
+.lp-template-ai input[type='radio'] {
+  accent-color: #f97316;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.lp-template-ai fieldset {
+  border: 1px solid #d6dbe4;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.lp-template-ai legend {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+.lp-template-ai fieldset p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #526074;
+  margin: 8px 0;
+}
+.lp-template-ai-upload {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #d6dbe4;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.lp-template-ai-upload input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.lp-template-ai-images {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.lp-template-ai-images > div {
+  min-width: 0;
+  border: 1px solid #e0e4eb;
+  border-radius: 6px;
+  padding: 4px;
+}
+.lp-template-ai-images img {
+  height: 68px;
+  width: 100%;
+  object-fit: contain;
+}
+.lp-template-ai-primary {
+  display: flex !important;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px !important;
+  margin-top: 4px;
+}
+.lp-template-ai-form details summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+.lp-template-ai-form details label {
+  margin-top: 14px;
+}
+.lp-template-ai-primary-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #f97316 !important;
+  color: #fff !important;
+  border: 1px solid #ea650c !important;
+  font-weight: 700;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+.lp-template-ai-product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e0e4eb;
+  border-radius: 9px;
+  padding: 10px;
+  font-size: 14px;
+}
+.lp-template-ai-product img {
+  width: 48px;
+  height: 52px;
+  object-fit: contain;
+  background: #f6f7f9;
+  border-radius: 6px;
+}
+.lp-template-ai-product strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.lp-template-ai-product button {
+  color: #d55400;
+  font-size: 12px;
+}
+.lp-template-ai-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.lp-template-ai-select h3 {
+  width: 100%;
+}
+.lp-template-ai-select button {
+  font-size: 12px;
+  color: #c14f00;
+  text-decoration: underline;
+}
+.lp-template-ai-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lp-template-ai-group {
+  border: 1px solid #d6dbe4;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lp-template-ai-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+}
+.lp-template-ai-group-heading button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 14px;
+}
+.lp-template-ai-group-heading strong {
+  flex: 1;
+}
+.lp-template-ai-badge {
+  color: #854d0e;
+  background: #fff0bd;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.lp-template-ai-group-content {
+  padding: 0 12px 12px;
+}
+.lp-template-ai-rewrite {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #c14f00;
+}
+.lp-template-ai-slot {
+  padding-top: 12px;
+  border-top: 1px solid #edf0f5;
+  margin-top: 10px;
+}
+.lp-template-ai-slot-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.lp-template-ai-slot textarea {
+  font-size: 13px;
+  background: #f8f9fb;
+}
+.lp-template-ai-proposed-image {
+  height: 100px;
+  max-width: 100%;
+  object-fit: contain;
+  margin: 8px auto;
+}
+.lp-template-ai-slot small {
+  display: block;
+  font-size: 11px;
+  color: #526074;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.lp-template-ai-missing,
+.lp-template-ai-warning {
+  font-size: 12px;
+  line-height: 1.5;
+  background: #fff7df;
+  color: #854d0e;
+  padding: 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.lp-template-ai-warning button {
+  display: block;
+  color: #a84400;
+  text-decoration: underline;
+  margin-top: 6px;
+}
+.lp-template-ai-error {
+  font-size: 13px;
+  background: #fff0f0;
+  color: #b42318;
+  padding: 10px;
+  border-radius: 7px;
+}
+.lp-template-ai-footer {
+  display: flex;
+  gap: 10px;
+  position: sticky;
+  bottom: -22px;
+  background: #fff;
+  padding: 14px 0 8px;
+  margin-top: auto;
+  border-top: 1px solid #e0e4eb;
+}
+.lp-template-ai-footer > button:first-child {
+  padding: 10px 20px;
+  border: 1px solid #cbd1da;
+  border-radius: 8px;
+}
+.lp-template-ai-footer .lp-template-ai-primary-button {
+  flex: 1;
+  font-size: 13px;
+}
+@media (max-width: 1100px) {
+  .lp-template-ai-body {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+  .lp-template-ai-structure {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  .lp-template-ai {
+    inset: 0;
+    border-radius: 0;
+  }
+  .lp-template-ai-header {
+    padding: 12px;
+  }
+  .lp-template-ai-header h2 {
+    font-size: 15px;
+  }
+  .lp-template-ai-description {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  .lp-template-ai-body {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .lp-template-ai-canvas {
+    min-height: 300px;
+    height: 40vh;
+    flex-shrink: 0;
+    padding: 8px;
+  }
+  .lp-template-ai-panel {
+    overflow: visible;
+    padding: 16px;
+    border-left: 0;
+  }
+  .lp-template-ai-panel h2 {
+    font-size: 21px;
+  }
+  .lp-template-ai-preview-note {
+    font-size: 10px;
+  }
+  .lp-template-ai-footer {
+    bottom: 0;
+  }
+}
+
+.lp-template-ai .lp-template-ai-header h2 {
+  color: #fff !important;
+}
+.lp-template-ai .lp-template-ai-panel h2,
+.lp-template-ai h3 {
+  color: #172033 !important;
+}
+.lp-template-ai-url { min-width: 0; }
+.lp-template-ai-url-result { overflow-wrap: anywhere; font-size: 12px; }
+.lp-template-ai-url-result details > p { max-height: 220px; overflow: auto; }
+.lp-template-ai-url-image { display: grid; gap: 6px; margin: 12px 0; }
+.lp-template-ai-url-image span { overflow-wrap: anywhere; }

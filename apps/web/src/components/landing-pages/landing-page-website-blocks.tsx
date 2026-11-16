@@ -1,4 +1,5 @@
 'use client';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
 import { useState, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
 import {
@@ -221,9 +222,10 @@ export function WebsiteBriefBlock({
                     data-highlighted={plan.highlighted ? '1' : undefined}
                   >
                     {text('planName:' + plan.id, plan.name, 'h3')}
+                    <LandingPagePriceComparison originalPrice={plan.originalPrice} price={plan.price} />
                     {text('planPrice:' + plan.id, plan.price)}
                     <ul>
-                      {plan.features.map((f, n) => (
+                      {plan.features.filter(Boolean).map((f, n) => (
                         <li key={n}>{f}</li>
                       ))}
                     </ul>

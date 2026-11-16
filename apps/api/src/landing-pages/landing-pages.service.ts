@@ -1,6 +1,9 @@
+import { domainMethods } from './landing-page-domain-manager';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -38,6 +41,16 @@ import {
   selectLandingPageTemplate,
   mergeLandingPageAiBrief,
   normalizeLandingPageBriefSuggestInput,
+  normalizeTemplateContentBrief,
+  collectTemplateContentSlots,
+  planTemplateContent,
+  protectedTemplateSlotIds,
+  extractTemplateUrlSource,
+  templateUrlBrief,
+  buildEditorialContext,
+  type TemplateUrlSource,
+  type TemplateContentBrief,
+  type TemplateContentResult,
   protectLandingPageAiUserContent,
   type LandingPageDoctorReport,
   type LandingPageUrlSummary,
@@ -82,6 +95,8 @@ import type {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
+  GenerateTemplateContentDto,
+  ImportTemplateUrlImageDto,
   SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
@@ -138,11 +153,13 @@ export class LandingPagesService implements OnModuleInit {
   private readonly generateIdem = new Map<string, IdemEntry<unknown>>();
   /** Retain provider output even when saving conflicts with a concurrent edit. */
   private readonly generateContentIdem = new Map<string, IdemEntry<Awaited<ReturnType<LandingPageAiService['generate']>>>>();
+  private readonly templateContentIdem = new Map<string, IdemEntry<TemplateContentResult>>();
+  private readonly templateUrlSources = new Map<string, { expiresAt: number; source: TemplateUrlSource }>();
   private readonly doctorApplyIdem = new Map<string, IdemEntry<unknown>>();
   /** Org-scoped crawl cache: key = orgId:urlHash → summary + expiry */
   private readonly urlCrawlCache = new Map<
     string,
-    { expiresAt: number; summary: LandingPageUrlSummary }
+    { expiresAt: number; summary: LandingPageUrlSummary; content?: Omit<TemplateUrlSource, 'sourceId'> }
   >();
   private static readonly URL_CRAWL_TTL_MS = 10 * 60 * 1000;
 
@@ -181,7 +198,7 @@ export class LandingPagesService implements OnModuleInit {
       if (existing.promise) return existing.promise;
     }
     const entry: IdemEntry<T> = { expiresAt: Date.now() + IDEMPOTENCY_TTL_MS };
-    const promise = (this.redis && /^(?:lp:generate:|lp:create:|lp:brief-suggest:)/.test(cacheKey)
+    const promise = (this.redis && /^(?:lp:generate:|lp:create:|lp:brief-suggest:|lp:template-content:)/.test(cacheKey)
       ? this.withSharedAiIdempotency(cacheKey, factory)
       : factory())
       .then((value) => {
@@ -981,7 +998,7 @@ export class LandingPagesService implements OnModuleInit {
           seoTitle: sanitized.seo.title?.slice(0, 200),
           seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
           seoCanonical: sanitized.seo.canonical ?? undefined,
-          ogImage: sanitized.seo.ogImage ?? undefined,
+          ogImage: sanitized.seo.ogImage ?? null,
           robotsIndex: sanitized.seo.robotsIndex,
           theme: THEME_MAP[sanitized.theme] ?? fresh.theme,
         },
@@ -1205,100 +1222,12 @@ export class LandingPagesService implements OnModuleInit {
     return { success: true, deletedCount: res.count };
   }
 
-  async listDomains(organizationId: string) {
-    const items = await this.prisma.landingPage.findMany({
-      where: {
-        organizationId,
-        OR: [
-          { customDomain: { not: null } },
-          { subdomainSlug: { not: null } },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        subdomainSlug: true,
-        customDomain: true,
-        customDomainStatus: true,
-        customDomainError: true,
-        customDomainVerifiedAt: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const target = landingPageCnameTarget();
-    return {
-      items,
-      architecture: {
-        defaultSubdomain: '{subdomainSlug}.lp.aibeego.com',
-        customDomain: `CNAME → ${target}`,
-        statuses: ['PENDING', 'VERIFYING', 'ACTIVE', 'FAILED'],
-      },
-    };
-  }
-
-  async upsertDomain(user: AuthUser, id: string, dto: UpsertCustomDomainDto) {
-    const row = await this.assertPage(user.organizationId, id);
-    const domain = normalizeLandingCustomDomain(dto.customDomain);
-    if (!isValidLandingCustomDomain(domain)) {
-      throw new BadRequestException('Domain không hợp lệ');
-    }
-    if (
-      domain.includes('localhost') ||
-      domain.endsWith('.local') ||
-      /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(domain)
-    ) {
-      throw new BadRequestException('Domain nội bộ bị chặn (SSRF)');
-    }
-    const clash = await this.prisma.landingPage.findFirst({
-      where: { customDomain: domain, NOT: { id: row.id } },
-      select: { id: true },
-    });
-    if (clash) throw new BadRequestException('Domain đã được dùng');
-
-    const updated = await this.prisma.landingPage.update({
-      where: { id: row.id },
-      data: {
-        customDomain: domain,
-        customDomainStatus: LandingPageDomainStatus.PENDING,
-        customDomainError: null,
-        customDomainVerifiedAt: null,
-      },
-    });
-    return this.serializePage(updated);
-  }
-
-  async verifyDomain(user: AuthUser, id: string) {
-    const row = await this.assertPage(user.organizationId, id);
-    if (!row.customDomain) throw new BadRequestException('Chưa gắn custom domain');
-
-    await this.prisma.landingPage.update({
-      where: { id: row.id },
-      data: { customDomainStatus: LandingPageDomainStatus.VERIFYING, customDomainError: null },
-    });
-
-    const result = await verifyLandingPageCname(row.customDomain);
-    const updated = await this.prisma.landingPage.update({
-      where: { id: row.id },
-      data: result.ok
-        ? {
-            customDomainStatus: LandingPageDomainStatus.ACTIVE,
-            customDomainError: null,
-            customDomainVerifiedAt: new Date(),
-          }
-        : {
-            customDomainStatus: LandingPageDomainStatus.FAILED,
-            customDomainError: (result.error || 'DNS verify failed').slice(0, 500),
-            customDomainVerifiedAt: null,
-          },
-    });
-    return {
-      page: this.serializePage(updated),
-      dns: result,
-      sslNote: 'SSL provisioning is architecture-ready (edge terminates TLS when ACTIVE).',
-    };
-  }
+  async listDomains(organizationId: string) { return domainMethods.listDomains.call(this, organizationId); }
+  async upsertDomain(user: AuthUser, id: string, dto: UpsertCustomDomainDto) { return domainMethods.upsertDomain.call(this, user, id, dto); }
+  async verifyDomain(user: AuthUser, id: string) { return domainMethods.verifyDomain.call(this, user, id); }
+  async removeDomain(user: AuthUser, id: string) { return domainMethods.removeDomain.call(this, user, id); }
+  async resolveDomainHost(host: string) { return domainMethods.resolveDomainHost.call(this, host); }
+  async domainOrganization(host: string, slug: string, requested?: string) { return domainMethods.domainOrganization.call(this, host, slug, requested); }
 
   private sanitizeTrackingConfig(input: Record<string, unknown>) {
     const str = (v: unknown, max: number) =>
@@ -1633,25 +1562,25 @@ export class LandingPagesService implements OnModuleInit {
    * SSRF-safe public URL crawl → structured summary for Create-from-URL preview.
    * Soft-safe: never throws SSRF internals to client as stack; crawl errors are typed.
    */
-  async crawlPublicUrl(user: AuthUser, dto: CrawlLandingPageUrlDto) {
+  async crawlPublicUrl(user: AuthUser, dto: CrawlLandingPageUrlDto, templateMode = false) {
     const url = (dto.url || '').trim();
-    this.rateLimit.assertWithinLimit(
+    await this.assertTemplateContentLimit(
       `lp:crawl:u:${user.organizationId}:${user.id}`,
       10,
       60_000,
       'Quá nhiều lần phân tích URL — thử lại sau',
     );
-    this.rateLimit.assertWithinLimit(
+    await this.assertTemplateContentLimit(
       `lp:crawl:o:${user.organizationId}`,
       40,
       60_000,
       'Tổ chức đang phân tích URL quá nhiều',
     );
 
-    const cacheKey = `${user.organizationId}:${hashInlineAiFieldContent(url.toLowerCase())}`;
+    const cacheKey = `${user.organizationId}:${templateMode ? 'template:' : ''}${hashInlineAiFieldContent(url)}`;
     const cached = this.urlCrawlCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return { summary: cached.summary, cached: true };
+      return { summary: cached.summary, content: cached.content, cached: true };
     }
 
     try {
@@ -1669,9 +1598,11 @@ export class LandingPagesService implements OnModuleInit {
         text: fetched.text,
         html: fetched.html,
       });
+      const content = templateMode ? extractTemplateUrlSource(fetched.html || '', url, fetched.finalUrl) : undefined;
       this.urlCrawlCache.set(cacheKey, {
         expiresAt: Date.now() + LandingPagesService.URL_CRAWL_TTL_MS,
         summary,
+        content,
       });
       // Purge stale cache entries opportunistically
       if (this.urlCrawlCache.size > 200) {
@@ -1679,8 +1610,9 @@ export class LandingPagesService implements OnModuleInit {
         for (const [k, v] of this.urlCrawlCache) {
           if (v.expiresAt < now) this.urlCrawlCache.delete(k);
         }
+        while (this.urlCrawlCache.size > 200) this.urlCrawlCache.delete(this.urlCrawlCache.keys().next().value!);
       }
-      return { summary, cached: false };
+      return { summary, content, cached: false };
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err
@@ -1693,6 +1625,70 @@ export class LandingPagesService implements OnModuleInit {
           : code,
         message,
       });
+    }
+  }
+
+  async readTemplateContentUrl(user: AuthUser, pageId: string, dto: CrawlLandingPageUrlDto) {
+    await this.templateContentPage(user, pageId);
+    const crawled = await this.crawlPublicUrl(user, dto, true);
+    if (!crawled.content) throw new BadRequestException('Không đọc được nội dung chính. Hãy nhập thủ công.');
+    const source = { ...crawled.content, sourceId: randomUUID() };
+    const key = `${user.organizationId}:${user.id}:${pageId}:${source.sourceId}`;
+    if (this.redis) {
+      this.assertTemplateRedisReady();
+      await this.redis.set(`lp:template-source:${key}`, JSON.stringify(source), 'PX', IDEMPOTENCY_TTL_MS);
+    } else {
+      const now = Date.now();
+      for (const [id, receipt] of this.templateUrlSources) if (receipt.expiresAt <= now) this.templateUrlSources.delete(id);
+      this.templateUrlSources.set(key, { source, expiresAt: now + IDEMPOTENCY_TTL_MS });
+      while (this.templateUrlSources.size > 100) this.templateUrlSources.delete(this.templateUrlSources.keys().next().value!);
+    }
+    return { source, brief: templateUrlBrief(source) };
+  }
+
+  private assertTemplateRedisReady() {
+    if (this.redis && this.redis.status !== 'ready') throw new ServiceUnavailableException('Hệ thống đang kết nối lại. Vui lòng thử lại sau.');
+  }
+
+  /** Shared atomic quota across API replicas; local mode remains available without Redis. */
+  private async assertTemplateContentLimit(key: string, limit: number, windowMs: number, message?: string) {
+    if (!this.redis) return this.rateLimit.assertWithinLimit(key, limit, windowMs, message);
+    this.assertTemplateRedisReady();
+    const count = Number(await this.redis.eval(
+      "local n=redis.call('incr',KEYS[1]); if n==1 then redis.call('pexpire',KEYS[1],ARGV[1]) end; return n",
+      1, `lp:quota:${key}`, windowMs,
+    ));
+    if (count > limit) throw new HttpException(message || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+
+  private async templateUrlSource(user: AuthUser, pageId: string, sourceId: string) {
+    const key = `${user.organizationId}:${user.id}:${pageId}:${sourceId}`;
+    if (this.redis) {
+      this.assertTemplateRedisReady();
+      const raw = await this.redis.get(`lp:template-source:${key}`);
+      if (raw) return JSON.parse(raw) as TemplateUrlSource;
+    }
+    const receipt = this.templateUrlSources.get(key);
+    if (this.redis || !receipt || receipt.expiresAt <= Date.now()) {
+      this.templateUrlSources.delete(key);
+      throw new BadRequestException({ code: 'URL_SOURCE_EXPIRED', message: 'Nội dung URL đã hết hạn hoặc không thuộc phiên này. Đọc lại URL hoặc chuyển sang nhập thủ công.' });
+    }
+    return receipt.source;
+  }
+
+  async importTemplateUrlImage(user: AuthUser, pageId: string, dto: ImportTemplateUrlImageDto) {
+    await this.templateContentPage(user, pageId);
+    const source = await this.templateUrlSource(user, pageId, dto.sourceId);
+    if (!source.images.some(image => image.url === dto.imageUrl)) throw new BadRequestException('Ảnh không thuộc trang nguồn đã đọc.');
+    await this.assertTemplateContentLimit(`lp:url-image:${user.organizationId}:${user.id}`, 10, 60_000, 'Nhập ảnh quá nhanh. Vui lòng thử lại sau một phút.');
+    try {
+      const { fetchPublicImageSafe } = await import('@marketingspa/shared/dist/ssrf-fetch');
+      const file = await fetchPublicImageSafe(dto.imageUrl);
+      const upload = await this.uploadPublicImage(user, pageId, file);
+      const library = await this.listMedia(user, pageId, { scope: 'org' });
+      return { image: library.items.find(image => image.url === upload.url), sourceUrl: source.sourceUrl, originalImageUrl: dto.imageUrl };
+    } catch (error) {
+      throw new BadRequestException({ code: 'URL_IMAGE_FAILED', message: 'Không nhập được ảnh công khai này. Bạn có thể tải ảnh lên thư viện theo cách thông thường.' });
     }
   }
 
@@ -2108,6 +2104,54 @@ export class LandingPagesService implements OnModuleInit {
     });
   }
 
+  private async templateContentPage(user: AuthUser, pageId: string) {
+    const page = await this.assertPage(user.organizationId, pageId);
+    this.assertMutable(page.status);
+    if (!page.templateId) throw new BadRequestException('Chọn một mẫu trước khi tạo nội dung.');
+    const template = await this.prisma.landingPageTemplate.findFirst({ where: {
+      id: page.templateId,
+      OR: [{ organizationId: user.organizationId }, { organizationId: null, isSystem: true }],
+    } });
+    if (!template) throw new NotFoundException('Template không tồn tại hoặc bạn không có quyền truy cập.');
+    return { page, template };
+  }
+
+  async validateTemplateContentImages(user: AuthUser, pageId: string, imageIds: string[]) {
+    await this.templateContentPage(user, pageId);
+    if (!Array.isArray(imageIds) || imageIds.length > 30 || imageIds.some(id => typeof id !== 'string' || id.length > 300)) throw new BadRequestException('Danh sách ảnh không hợp lệ.');
+    const library = await this.listMedia(user, pageId, { scope: 'org' });
+    const images = imageIds.map(id => library.items.find(image => image.id === id));
+    if (images.some(image => !image)) throw new BadRequestException('Ảnh không còn tồn tại hoặc không thuộc thư viện của bạn. Vui lòng chọn lại.');
+    return { images: images.map(image => ({ id: image!.id, url: image!.url, name: image!.name })) };
+  }
+
+  async generateTemplateContent(user: AuthUser, pageId: string, dto: GenerateTemplateContentDto) {
+    const { template } = await this.templateContentPage(user, pageId);
+    const urlSource = dto.sourceId ? await this.templateUrlSource(user, pageId, dto.sourceId) : undefined;
+    let brief: TemplateContentBrief;
+    try { brief = normalizeTemplateContentBrief({ ...dto.brief, sourceText: urlSource?.text } as unknown as TemplateContentBrief, !!urlSource); }
+    catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'Thông tin sản phẩm không hợp lệ.'); }
+    if(urlSource){brief.sourceContext=buildEditorialContext(urlSource); if(!brief.curriculum)brief.curriculum=templateUrlBrief(urlSource).curriculum;}
+    const { images } = await this.validateTemplateContentImages(user, pageId, brief.imageIds);
+    const snapshot = sanitizeLandingPageSpec(dto.snapshot);
+    if (!validateLandingPageSpec(snapshot).ok || snapshot.meta?.htmlSource) throw new BadRequestException('Mẫu này chưa hỗ trợ tạo nội dung theo vị trí.');
+    const allSlots = collectTemplateContentSlots(snapshot, !!brief.originalPrice);
+    if (brief.originalPrice && brief.pricingTargetId && !allSlots.some(slot => slot.id === brief.pricingTargetId && slot.blockType === 'Pricing' && slot.field === 'price'))
+      throw new BadRequestException('Box nhận giá đã thay đổi hoặc không còn hiển thị. Hãy chọn lại box báo giá.');
+    const slots = dto.blockId ? allSlots.filter(slot => slot.blockId === dto.blockId) : allSlots;
+    if (!slots.length || slots.length > 400) throw new BadRequestException('Không tìm thấy vị trí nội dung phù hợp trong mẫu.');
+    const key = this.normalizeIdemKey(dto.idempotencyKey);
+    if (!key) throw new BadRequestException('Thiếu mã yêu cầu.');
+    const requestHash = hashInlineAiFieldContent(JSON.stringify({ brief, snapshot, blockId: dto.blockId || '' }));
+    return this.withIdempotency(this.templateContentIdem, `lp:template-content:${user.organizationId}:${user.id}:${pageId}:${key}:${requestHash}`, async () => {
+      await this.assertTemplateContentLimit(`lp:template-content:${user.organizationId}:${user.id}`, 8, 60_000, 'Bạn đang tạo nội dung quá nhanh. Vui lòng thử lại sau một phút.');
+      await this.assertTemplateContentLimit(`lp:template-content:org:${user.organizationId}`, 24, 60_000, 'Tổ chức đang tạo nội dung quá nhanh. Vui lòng thử lại sau một phút.');
+      const generated = await this.ai.generateTemplateContent(slots, brief, planTemplateContent(allSlots, brief));
+      const original = this.creationTemplateSpec(template, template.publishedDefinition ?? template.definition);
+        return { ...generated, ...(urlSource ? { urlSource: { sourceUrl: urlSource.sourceUrl, finalUrl: urlSource.finalUrl, readAt: urlSource.readAt } } : {}), slots, images, protectedSlotIds: protectedTemplateSlotIds(snapshot, original, !!brief.originalPrice).filter(id => slots.some(slot => slot.id === id)) };
+    });
+  }
+
   async generateAi(user: AuthUser, dto: GenerateLandingPageAiDto) {
     const idemKey = this.normalizeIdemKey(dto.idempotencyKey);
     const cacheKey = idemKey ? `lp:generate:${user.organizationId}:${idemKey}:${dto.landingPageId || 'none'}` : null;
@@ -2371,6 +2415,7 @@ export class LandingPagesService implements OnModuleInit {
 
   /** Public published page by org-scoped slug (default path /p/:slug). */
   async getPublicBySlug(slug: string, organizationId?: string) {
+    if (slug.startsWith('lp-domain-')) return domainMethods.getPublicByDomainKey.call(this, slug);
     const row = await this.prisma.landingPage.findFirst({
       where: {
         slug,

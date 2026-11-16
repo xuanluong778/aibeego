@@ -9,6 +9,8 @@ services:
       MESSAGING_LIVE_SEND: "false"
       ADS_ACTIONS_LIVE: "false"
       ADS_ACTIONS_PROVIDER_WRITE: "false"
+      LANDING_PAGE_CNAME_TARGET: "aibeego.com"
+      LANDING_PAGE_EDGE_IPS: "116.118.45.72"
     volumes:
       - ./apps/api/uploads:/app/uploads
 

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import {
   PublicLandingPageClient,
   type PublicLandingPayload,
@@ -12,7 +13,9 @@ async function fetchPublic(slug: string): Promise<PublicLandingPayload | null> {
   try {
     const res = await fetch(
       `${landingPagePublicApiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}`,
-      { next: { revalidate: 60, tags: [`lp-public-${slug}`] } },
+      slug.startsWith('lp-domain-')
+        ? { cache: 'no-store' }
+        : { next: { revalidate: 60, tags: [`lp-public-${slug}`] } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicLandingPayload;
@@ -34,7 +37,16 @@ export async function generateMetadata({
   const title = data.seo.title || data.name;
   const description = data.seo.description || '';
   const indexable = data.seo.robotsIndex !== false;
+  // Relative library assets must resolve on the public origin, not Next's internal :3000.
+  const requestHeaders = await headers();
+  const host = (requestHeaders.get('x-forwarded-host') || requestHeaders.get('host') || '').split(',')[0]!.trim();
+  const protocol = requestHeaders.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https' ? 'https' : 'http';
+  let metadataBase: URL | undefined;
+  if (/^[a-z0-9.[\]:-]+$/i.test(host)) {
+    try { metadataBase = new URL(`${protocol}://${host}`); } catch { /* Keep framework fallback for malformed hosts. */ }
+  }
   return {
+    metadataBase,
     title,
     description,
     alternates: data.seo.canonical ? { canonical: data.seo.canonical } : undefined,

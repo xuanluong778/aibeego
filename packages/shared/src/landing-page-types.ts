@@ -181,6 +181,8 @@ export type LandingPageThemeTokens = {
 };
 
 export type LandingPageBlockBase = {
+  /** Editable section label; does not change the section's visual variant or layout. */
+  eyebrow?: string;
   /** Native element inserted in a section flow; absent on legacy page blocks. */
   sectionPlacement?: import('./landing-page-section-elements').LandingPageSectionPlacement;
   id: string;
@@ -256,6 +258,8 @@ export type LandingPagePricingPlan = {
   id: string;
   name: string;
   price: string;
+  /** Explicit compare-at price; rendered only when larger than the current numeric price. */
+  originalPrice?: string;
   period?: string;
   features: string[];
   ctaLabel?: string;
@@ -391,6 +395,12 @@ export type LandingPageCountdownBlock = LandingPageBlockBase & {
   subheadline?: string;
   /** Brand / eyebrow above the headline (launch templates). */
   kicker?: string;
+  originalPrice?: string;
+  price?: string;
+  /** Offer-only mode never invents an expiry timestamp. */
+  clockMode?: 'timer' | 'offer';
+  ctaLabel?: string;
+  ctaUrl?: string;
   /** ISO-8601 end datetime (preferred). */
   endsAt: string;
   /** IANA timezone label for display (e.g. Asia/Ho_Chi_Minh). */
@@ -458,6 +468,7 @@ export type LandingPageSpec = {
     aiGenerationId?: string;
     aiTemplateSlug?: string;
     aiSource?: 'ai' | 'fallback';
+    contentSource?: { sourceUrl: string; finalUrl: string; readAt: string };
     /** Visual layout variant — independent of theme colors. */
     layout?: import('./landing-page-ui').LandingPageLayout;
     /** Optional category hint for layout resolution on older pages. */

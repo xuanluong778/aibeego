@@ -1,5 +1,11 @@
 'use client';
+import { isRegistrationPair } from './landing-page-registration-layout';
+import './landing-page-registration-layout.css';
+import './landing-page-mobile.css';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
+import { useLpPublicRenderMeta } from './landing-page-canvas-ux';
 import './landing-page-text-contrast.css';
+import { useLandingPageActionReadability } from './landing-page-action-readability';
 import { readableSurfaceColors } from './landing-page-readable-colors';
 import { installLpMotion, LP_MOTION_CSS } from './landing-page-motion-runtime';
 import {LandingPageRenderOverlapGuard} from './landing-page-render-overlap-guard';
@@ -86,6 +92,10 @@ function buildElementHiddenCss(spec: LandingPageSpec): string | null {
       );
       // Preview/public blocks without an outer shell (e.g. countdown launch section).
       rules.push(`[data-lp-element-id="${elementId}"]{display:none!important}`);
+      if (/^(?:item|plan):/.test(key.slice(sep + 2))) {
+        const itemId = escCssAttr(key.slice(sep + 2).replace(/^(?:item|plan):/, ''));
+        rules.push(`[data-lp-native-cell-parent="${blockId}"][data-lp-native-item-cell="${itemId}"]{display:none!important}`);
+      }
       // Orange text-box wrap (data-lp-free-id) — hiding only the inner <p> left a ghost.
       rules.push(
         `[data-lp-block-id="${blockId}"] [data-lp-free-id="${elementId}"]{display:none!important}`,
@@ -185,6 +195,7 @@ import {
 import { LP_SECTION_BG_MOTION_CSS } from './landing-page-section-bg-motion';
 import {
   LP_RESPONSIVE_FOUNDATION_CSS,
+  LP_CONVERSION_TYPOGRAPHY_CSS,
   ensureLandingPageCatalogFonts,
 } from './landing-page-responsive-foundation';
 import { LP_PREMIUM_FOUNDATION_CSS } from './landing-page-premium-foundation';
@@ -436,7 +447,8 @@ function spacingClass(spacing?: string) {
   }
 }
 
-function sectionEyebrowFor(blockType: LandingPageBlock['type'], category?: string) {
+function sectionEyebrowFor(blockType: LandingPageBlock['type'], category?: string, copy?: string) {
+  if(copy) return copy;
   return resolveSectionEyebrow(category === 'agency' ? 'agency' : undefined, blockType);
 }
 
@@ -616,20 +628,6 @@ function HeroVisual({
             ...lpImgStyle(imageStyle),
           }}
         />
-        {!catalogPreview ? (
-          <div
-            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-xs font-semibold shadow"
-            style={{ color: 'var(--lp-secondary)' }}
-          >
-            <span
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white"
-              style={{ background: primary, color: 'var(--lp-on-primary, #fff)' }}
-            >
-              ▶
-            </span>
-            Xem giới thiệu
-          </div>
-        ) : null}
       </div>
     );
   }
@@ -853,6 +851,7 @@ function LeadFormCard({
       aria-busy={standard ? pending : undefined}
       id="lead-form"
       data-lp-form-block="1"
+      data-lp-form-surface={plain ? 'plain' : 'card'}
       data-lp-form-hit="1"
       data-lp-transformable="1"
       className={`${standard ? 'agency-form-card'+(success?' agency-is-success':'') : 'space-y-3'} ${compact ? 'w-full max-w-full' : 'mx-auto w-full max-w-full sm:max-w-lg'}`}
@@ -1234,44 +1233,22 @@ function HeroBlock({
     ) : null;
 
   const cta = showCanvasInlineField(block.ctaLabel, canvas, block.id, 'ctaLabel') ? (
-    canvas ? (
       <InlineEditable
-        as={readSectionLibraryContext(block) ? 'a' : 'span'}
+        as={!canvas || readSectionLibraryContext(block) ? 'a' : 'span'}
+        href={block.ctaUrl || '#lead-form'}
         blockId={block.id}
         field="ctaLabel"
         value={block.ctaLabel || ''}
         handlers={canvas}
         blockStyle={(block.style || {}) as Record<string, unknown>}
         textRole="button"
-        className="inline-flex min-h-[48px] items-center gap-2 px-7 py-3.5 text-sm font-extrabold shadow-lg md:text-base"
+        className="inline-flex min-h-[48px] items-center gap-2 px-7 py-3.5 text-sm font-extrabold shadow-lg transition hover:brightness-105 md:text-base after:content-['→']"
         style={{
           background: primary,
           color: 'var(--lp-on-primary, #fff)',
           borderRadius: 'var(--lp-button-radius, calc(var(--lp-radius) - 2px))',
         }}
       />
-    ) : (
-      <a
-        href={block.ctaUrl || '#lead-form'}
-        className="inline-flex min-h-[48px] items-center gap-2 px-7 py-3.5 text-sm font-extrabold shadow-lg transition hover:brightness-105 md:text-base"
-        style={{
-          background: primary,
-          color: 'var(--lp-on-primary, #fff)',
-          borderRadius: 'var(--lp-button-radius, calc(var(--lp-radius) - 2px))',
-        }}
-      >
-        <InlineEditable
-          as="span"
-          blockId={block.id}
-          field="ctaLabel"
-          value={block.ctaLabel || ''}
-          handlers={null}
-          blockStyle={(block.style || {}) as Record<string, unknown>}
-          textRole="button"
-        />
-        <span aria-hidden>→</span>
-      </a>
-    )
   ) : null;
 
   const wrapVisual = (node: ReactNode) => (
@@ -1857,7 +1834,7 @@ function ListCards({
           <SectionHead
             headline={block.headline}
             subheadline={block.subheadline}
-            eyebrow={sectionEyebrowFor(block.type, category)}
+            eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
             align="left"
             blockId={block.id}
             canvas={canvas}
@@ -2016,7 +1993,7 @@ function ListCards({
           <SectionHead
             headline={block.headline}
             subheadline={block.subheadline}
-            eyebrow={sectionEyebrowFor(block.type, category)}
+            eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
             blockId={block.id}
             canvas={canvas}
             blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -2106,7 +2083,7 @@ function ListCards({
           <SectionHead
             headline={block.headline}
             subheadline={block.subheadline}
-            eyebrow={sectionEyebrowFor(block.type, category)}
+            eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
             blockId={block.id}
             canvas={canvas}
             blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -2192,7 +2169,7 @@ function ListCards({
         <SectionHead
           headline={block.headline}
           subheadline={block.subheadline}
-          eyebrow={sectionEyebrowFor(block.type, category)}
+          eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
           blockId={block.id}
           canvas={canvas}
           blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -2465,6 +2442,7 @@ function BlockView({
   canvas?: LandingPageCanvasHandlers | null;
   goldStandard?: string;
 }) {
+  const renderMeta = useLpPublicRenderMeta();
   if (!block.enabled) return null;
   const conversionZone =
     goldStandard && block.type === 'CTA'
@@ -2609,7 +2587,7 @@ function BlockView({
             <SectionHead
               headline={list.headline}
               subheadline={list.subheadline}
-              eyebrow={sectionEyebrowFor(block.type, category)}
+              eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
               blockId={block.id}
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -2961,7 +2939,7 @@ function BlockView({
         <div className={ctaVariant === 'minimal' ? 'max-w-xl' : 'max-w-xl text-white'}>
           {category === 'agency' && ctaVariant !== 'minimal' ? (
             <div data-lp-section-eyebrow="1" className="!text-white/90 before:!bg-white/70">
-              {sectionEyebrowFor('CTA', category) || 'Tiếp theo'}
+              {sectionEyebrowFor('CTA', category, block.eyebrow) || 'Tiếp theo'}
             </div>
           ) : null}
           {showCanvasInlineField(block.headline, canvas, block.id, 'headline') ? (
@@ -3003,36 +2981,18 @@ function BlockView({
       );
       const ctaAction =
         showCanvasInlineField(block.ctaLabel, canvas, block.id, 'ctaLabel') ? (
-          canvas ? (
             <InlineEditable
-              as={readSectionLibraryContext(block) ? 'a' : 'span'}
+              as={!canvas || readSectionLibraryContext(block) ? 'a' : 'span'}
+              href={block.ctaUrl || '#lead-form'}
               blockId={block.id}
               field="ctaLabel"
               value={block.ctaLabel || ''}
               handlers={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
               textRole="button"
-              className="inline-flex min-h-[48px] items-center gap-2 bg-white px-7 py-3.5 text-sm font-extrabold shadow-md"
+              className="inline-flex min-h-[48px] items-center gap-2 bg-white px-7 py-3.5 text-sm font-extrabold shadow-md after:content-['→']"
               style={{ color: primary, borderRadius: 'calc(var(--lp-radius) - 2px)' }}
             />
-          ) : (
-            <a
-              href={block.ctaUrl || '#lead-form'}
-              className="inline-flex min-h-[48px] items-center gap-2 bg-white px-7 py-3.5 text-sm font-extrabold shadow-md"
-              style={{ color: primary, borderRadius: 'calc(var(--lp-radius) - 2px)' }}
-            >
-              <InlineEditable
-                as="span"
-                blockId={block.id}
-                field="ctaLabel"
-                value={block.ctaLabel || ''}
-                handlers={null}
-                blockStyle={(block.style || {}) as Record<string, unknown>}
-                textRole="button"
-              />
-              <span aria-hidden>→</span>
-            </a>
-          )
         ) : null;
 
       if (ctaVariant === 'split') {
@@ -3229,14 +3189,16 @@ function BlockView({
         />
       );
     case 'Pricing': {
+      const visiblePlanCount = block.plans.filter(plan => !renderMeta?.elementHidden?.[`${block.id}::item:${plan.id}`]).length;
       const pVariant = canonicalBlockVariant('Pricing', block.variant);
       const pricingAttr = pVariant === 'default' ? 'cards' : pVariant;
 
       if (pVariant === 'comparison') {
         const featureUnion: string[] = [];
         for (const plan of block.plans) {
+          if (renderMeta?.elementHidden?.[`${block.id}::item:${plan.id}`]) continue;
           for (const f of plan.features) {
-            if (!featureUnion.includes(f)) featureUnion.push(f);
+            if (f.trim() && !featureUnion.includes(f)) featureUnion.push(f);
           }
         }
         return (
@@ -3252,7 +3214,7 @@ function BlockView({
               <SectionHead
                 headline={block.headline}
                 subheadline={block.subheadline}
-                eyebrow={sectionEyebrowFor(block.type, category)}
+                eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
                 blockId={block.id}
                 canvas={canvas}
                 blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -3266,6 +3228,7 @@ function BlockView({
                         <th
                           key={plan.id}
                           scope="col"
+                          data-lp-native-cell-parent={block.id} data-lp-native-item-cell={plan.id}
                           data-lp-featured={plan.highlighted ? '1' : undefined}
                         >
                           <ItemReorderChrome
@@ -3287,6 +3250,7 @@ function BlockView({
                                   className="font-bold"
                                 />
                               </div>
+                              <LandingPagePriceComparison originalPrice={plan.originalPrice} price={plan.price} />
                               <div className="mt-1 text-base font-extrabold">
                                 <InlineEditable
                                   as="span"
@@ -3313,7 +3277,7 @@ function BlockView({
                       <tr key={feature}>
                         <th scope="row">{feature}</th>
                         {block.plans.map((plan) => (
-                          <td key={plan.id} className="text-center">
+                          <td key={plan.id} className="text-center" data-lp-native-cell-parent={block.id} data-lp-native-item-cell={plan.id}>
                             {plan.features.includes(feature) ? '✓' : '—'}
                           </td>
                         ))}
@@ -3323,7 +3287,7 @@ function BlockView({
                       <tr>
                         <td> </td>
                         {block.plans.map((plan) => (
-                          <td key={plan.id} className="text-center">
+                          <td key={plan.id} className="text-center" data-lp-native-cell-parent={block.id} data-lp-native-item-cell={plan.id}>
                             {plan.ctaLabel ? (
                               canvas ? (
                                 <InlineEditable
@@ -3389,7 +3353,7 @@ function BlockView({
               <SectionHead
                 headline={block.headline}
                 subheadline={block.subheadline}
-                eyebrow={sectionEyebrowFor(block.type, category)}
+                eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
                 blockId={block.id}
                 canvas={canvas}
                 blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -3410,6 +3374,7 @@ function BlockView({
                           className="text-lg font-bold break-words"
                         />
                       </div>
+                      <LandingPagePriceComparison originalPrice={plan.originalPrice} price={plan.price} />
                       <div className="mt-2 break-words text-2xl font-extrabold">
                         <InlineEditable
                           as="span"
@@ -3426,7 +3391,7 @@ function BlockView({
                         ) : null}
                       </div>
                       <ul className="mt-3 space-y-1.5 text-sm" style={{ color: 'var(--lp-muted)' }}>
-                        {plan.features.map((f) => (
+                        {plan.features.filter(Boolean).map((f) => (
                           <li key={f} className="flex gap-2">
                             <span className="shrink-0">•</span>
                             <span className="min-w-0 break-words">{f}</span>
@@ -3467,7 +3432,7 @@ function BlockView({
                     </div>
                   );
                   if (!canvas) {
-                    return <div key={plan.id}>{planBody}</div>;
+                    return <div key={plan.id} data-lp-native-cell-parent={block.id} data-lp-native-item-cell={plan.id}>{planBody}</div>;
                   }
                   return (
                     <ItemReorderChrome
@@ -3500,12 +3465,13 @@ function BlockView({
             <SectionHead
               headline={block.headline}
               subheadline={block.subheadline}
-              eyebrow={sectionEyebrowFor(block.type, category)}
+              eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
               blockId={block.id}
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
             />
-            <div className={`relative grid gap-5 ${itemCountGridClass(block.plans.length)}`} data-lp-free-surface="1" data-lp-pricing-grid="1" data-lp-item-count={block.plans.length}>
+            <div className={`relative grid gap-5 ${itemCountGridClass(visiblePlanCount)}`} data-lp-free-surface="1" data-lp-pricing-grid="1" data-lp-item-count={visiblePlanCount}
+              style={visiblePlanCount === 1 ? { maxWidth: '32rem', marginInline: 'auto', gridTemplateColumns: 'minmax(0, 1fr)' } : undefined}>
               {block.plans.map((plan, planIndex) => {
                 const planCard = (
                   <div
@@ -3529,6 +3495,7 @@ function BlockView({
                         className="text-lg font-bold break-words"
                       />
                   </div>
+                  <LandingPagePriceComparison originalPrice={plan.originalPrice} price={plan.price} />
                   <div className="mt-3 break-words text-3xl font-extrabold">
                     <InlineEditable
                         as="span"
@@ -3545,7 +3512,7 @@ function BlockView({
                     ) : null}
                   </div>
                   <ul className="mt-5 flex-1 space-y-2 text-sm opacity-90">
-                    {plan.features.map((f) => (
+                    {plan.features.filter(Boolean).map((f) => (
                       <li key={f} className="flex gap-2">
                         <span className="shrink-0">✓</span>
                         <span className="min-w-0 break-words">{f}</span>
@@ -3594,7 +3561,7 @@ function BlockView({
                   </div>
                 );
                 if (!canvas) {
-                  return <div key={plan.id}>{planCard}</div>;
+                  return <div key={plan.id} data-lp-native-cell-parent={block.id} data-lp-native-item-cell={plan.id}>{planCard}</div>;
                 }
                 return (
                   <ItemReorderChrome
@@ -3632,7 +3599,7 @@ function BlockView({
           <div className="mx-auto max-w-6xl" data-lp-container-inner="1">
             <SectionHead
               headline={block.headline}
-              eyebrow={sectionEyebrowFor(block.type, category)}
+              eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
               blockId={block.id}
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -3803,7 +3770,7 @@ function BlockView({
           <div className={`mx-auto ${accordion ? 'max-w-3xl' : 'max-w-6xl'}`}>
             <SectionHead
               headline={block.headline}
-              eyebrow={sectionEyebrowFor(block.type, category)}
+              eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
               blockId={block.id}
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -3894,7 +3861,7 @@ function BlockView({
           <div className="mx-auto max-w-5xl" data-lp-container-inner="1">
             <SectionHead
               headline={block.headline}
-              eyebrow={sectionEyebrowFor(block.type, category)}
+              eyebrow={sectionEyebrowFor(block.type, category, block.eyebrow)}
               blockId={block.id}
               canvas={canvas}
               blockStyle={(block.style || {}) as Record<string, unknown>}
@@ -4084,7 +4051,7 @@ function BlockView({
               canvas={canvas}
               blockStyle={(cd.style || {}) as Record<string, unknown>}
             />
-            {cd.timezone ? (
+            {cd.timezone && cd.clockMode !== 'offer' ? (
               <p className="mb-4 text-center text-[11px]" style={{ color: 'var(--lp-canvas-muted, var(--lp-muted))' }}>Timezone: {cd.timezone}</p>
             ) : null}
             <LandingPageCountdownLive block={cd} primary={primary} blockId={cd.id} canvas={canvas} />
@@ -4139,6 +4106,7 @@ export function LandingPageRenderer({
   onHtmlBindPatch?: (patch: import('./landing-page-html-nodes').HtmlPatchFn | null) => void;
 }) {
   const motionRoot = useRef<HTMLDivElement>(null);
+  useLandingPageActionReadability(motionRoot, spec);
   const motionPlayed = useRef(new Set<string>());
   const motionEditing = Boolean(interactive || canvas);
   const motionHtmlImport = Boolean(spec.meta?.htmlSource || spec.meta?.htmlSections?.length);
@@ -4171,7 +4139,7 @@ export function LandingPageRenderer({
     const el = document.createElement('style');
     el.id = 'lp-responsive-foundation-css';
     el.setAttribute('data-lp-responsive-foundation-css', '1');
-    el.textContent = scopeLegacyLandingPageCss(LP_RESPONSIVE_FOUNDATION_CSS);
+    el.textContent = scopeLegacyLandingPageCss(LP_RESPONSIVE_FOUNDATION_CSS) + LP_CONVERSION_TYPOGRAPHY_CSS;
     document.head.appendChild(el);
   }, []);
   useEffect(() => {
@@ -4251,8 +4219,8 @@ export function LandingPageRenderer({
   const goalAttr = conversionGoalEmphasis(spec.meta?.conversionGoal);
   const designFamilyAttr =
     typeof spec.meta?.designFamily === 'string' ? spec.meta.designFamily : undefined;
-  const hero = spec.blocks.find((b) => b.type === 'Hero' && b.enabled) as LandingPageTextBlock | undefined;
-  const leadForm = spec.blocks.find((b) => b.type === 'LeadForm' && b.enabled) as
+  const hero = spec.blocks.find((b) => b.type === 'Hero' && b.enabled && !b.hidden) as LandingPageTextBlock | undefined;
+  const leadForm = spec.blocks.find((b) => b.type === 'LeadForm' && b.enabled && !b.hidden) as
     | LandingPageLeadFormBlock
     | undefined;
   const heroVariant = hero ? resolveBlockVariant('Hero', hero.variant) : 'default';
@@ -4267,8 +4235,8 @@ export function LandingPageRenderer({
       resolveHeroComposition(hero.variant, layout, true) === 'floating-card',
   );
   const canvasBlocks = hero
-    ? [hero, ...spec.blocks.filter((b) => b.type !== 'Hero')]
-    : spec.blocks;
+    ? [hero, ...spec.blocks.filter((b) => b.type !== 'Hero' && !b.hidden)]
+    : spec.blocks.filter(b => !b.hidden);
   const canvasFreeReserve = computeCanvasFreeReserveHeight(canvasBlocks, viewport);
 
   /** Public/Preview: resolve absolute free-position without canvas handlers. */
@@ -4484,7 +4452,7 @@ export function LandingPageRenderer({
     [htmlDocument],
   );
   const useHtmlSections = sectionById.size > 0 && Boolean(isolatedPage);
-  const visibleBlocks = useHtmlSections || !htmlDocument ? spec.blocks.filter(b => !b.sectionPlacement) : [];
+  const visibleBlocks = useHtmlSections || !htmlDocument ? spec.blocks.filter(b => !b.sectionPlacement && !b.hidden) : [];
 
   return (
     <div
@@ -4492,6 +4460,7 @@ export function LandingPageRenderer({
       ref={motionRoot}
       data-lp-style-scope={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
       data-lp-renderer={blankStarter ? 'blank-starter-v1' : agencyStandard ? 'agency-portfolio-v2' : restaurantPilot ? 'restaurant-menu-v2' : servicePilot ? 'local-service-v2' : websitePilot ? 'website-brief-v2' : 'legacy'}
+      data-lp-content-typography={spec.meta?.contentSource || Object.values(spec.meta?.fieldSources || {}).includes('ai') ? 'conversion' : undefined}
       data-agency-direction={agencyPortfolioDirection(spec)}
       data-industry-direction={industryDirection(spec)}
       data-lp-layout={layout}
@@ -4606,7 +4575,8 @@ export function LandingPageRenderer({
               onFormStart={onFormStart}
             />
           ) : null}
-          {visibleBlocks.map((block) => {
+          {(() => {
+          const renderedBlocks = visibleBlocks.map((block) => {
             if (!block.enabled) return null;
             const sectionHtml = sectionById.get(block.id);
             if (sectionHtml && isolatedPage) {
@@ -4861,7 +4831,20 @@ export function LandingPageRenderer({
                 </SelectableShell>
               </div>
             );
-          })}
+          });
+          const rows: ReactNode[] = [];
+          for (let index = 0; index < visibleBlocks.length; index++) {
+            const block = visibleBlocks[index]!;
+            if (isRegistrationPair(block, visibleBlocks[index + 1])) {
+              rows.push(<div key={`registration:${block.id}`} data-lp-registration-row="1"
+                style={{ '--lp-registration-row-gutter': viewport === 'mobile' ? '32px' : '48px' } as CSSProperties}>
+                <div data-lp-registration-grid="1">{renderedBlocks[index]}{renderedBlocks[index + 1]}</div>
+              </div>);
+              index++;
+            } else rows.push(renderedBlocks[index]);
+          }
+          return rows;
+          })()}
           <LandingPageRenderOverlapGuard spec={spec}/>
           <LandingPageSectionElements spec={spec} canvas={canvasHandlers} renderNative={block=><MemoBlockView block={block} primary={primary} layout={layout} category={category} mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} goldStandard={goldStandard}/>} />
         </article>
