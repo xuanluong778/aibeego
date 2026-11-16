@@ -8,8 +8,12 @@ export function LandingPageCountdownLibrary({
   onSelect: (id: LandingPageCountdownLaunchStyle) => void;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-white p-5 sm:p-6" data-lp-countdown-library="1">
-      <p className="mb-4 text-sm text-zinc-600">
+    <div
+      className="min-h-0 flex-1 overflow-auto bg-[#07060b] p-5 sm:p-6"
+      style={{ fontFamily: 'LpCdSans, sans-serif' }}
+      data-lp-countdown-library="1"
+    >
+      <p className="mb-4 text-sm text-zinc-400">
         Chọn một bộ hẹn giờ — mẫu sẽ được chèn vào landing page và vẫn chỉnh sửa được.
       </p>
       <div
@@ -22,19 +26,19 @@ export function LandingPageCountdownLibrary({
             key={preset.id}
             type="button"
             data-lp-countdown-template={preset.id}
-            className="group overflow-hidden rounded-xl border border-zinc-200 bg-white text-left shadow-sm transition hover:border-sky-500 hover:shadow-md"
+            className="group overflow-hidden rounded-2xl border border-white/10 bg-[#120f18] text-left shadow-[0_16px_40px_rgba(0,0,0,.35)] transition hover:border-white/25 hover:shadow-[0_18px_48px_rgba(0,0,0,.5)]"
             onClick={() => onSelect(preset.id)}
           >
-            <span className="block aspect-[2/1] overflow-hidden bg-zinc-950">
+            <span className="block aspect-[2/1] overflow-hidden bg-black">
               <img
                 src={preset.thumb}
                 alt={preset.label}
-                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
               />
             </span>
             <span className="block px-4 py-3">
-              <strong className="block text-sm font-semibold text-zinc-900">{preset.label}</strong>
-              <span className="mt-0.5 block text-xs text-zinc-500">{preset.description}</span>
+              <strong className="block text-sm font-semibold tracking-tight text-zinc-50">{preset.label}</strong>
+              <span className="mt-0.5 block text-xs text-zinc-400">{preset.description}</span>
             </span>
           </button>
         ))}

@@ -1890,8 +1890,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           const parsed = parseLpSelectionKey(selKey);
           if (!parsed) continue;
           const norm = normalizeLpSelectionTarget(parsed);
-          if (isSectionLevelElement(norm.element)) sectionIds.push(norm.blockId);
-          else nested.push(norm);
+          // field:kicker still reports element 'section'. That is the word, not the block.
+          if (norm.field || !isSectionLevelElement(norm.element)) nested.push(norm);
+          else sectionIds.push(norm.blockId);
         }
         e.preventDefault();
         if (nested.length) {
@@ -2486,18 +2487,16 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     const current = specRef.current;
     const blocks = [...current.blocks];
     const insertAt = resolveInsertIndex(blocks, pos);
-    const asFree = shouldInsertAsFreeLayer(pos);
-    const freeLayout = asFree
-      ? resolveFreeLayerLayout(blocks, pos, { width: 920, height: 420 })
-      : undefined;
     const base = defaultBlock('Countdown') as LandingPageBlock;
     const patch = countdownLaunchInsertPatch(preset, (base.style || {}) as Record<string, unknown>);
+    // Full-width row, same proportions as the popup artwork.
+    // A free 920×420 box squashes the banner and stretches the type.
     const block = {
       ...base,
       ...patch,
-      ...(asFree && freeLayout
-        ? { positionMode: 'free' as const, freeLayout, spacing: 'none' as const }
-        : null),
+      positionMode: 'flow' as const,
+      spacing: 'lg' as const,
+      freeLayout: undefined,
     };
     blocks.splice(insertAt, 0, block);
     pushHistory(
@@ -3800,7 +3799,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         continue;
       }
       const fieldOrEl = t.field || t.element;
-      if (!fieldOrEl || isSectionLevelElement(t.element)) continue;
+      // A nested field (countdown kicker, form headline, …) stays a field even when
+      // elementFromField falls back to 'section'. Only a bare section selection is skipped.
+      if (!fieldOrEl || (!t.field && isSectionLevelElement(t.element))) continue;
       const key = elementStyleKey(t.blockId, fieldOrEl);
       nextMap[key] = true;
       editKeys.push(`${key}.hidden`);
@@ -3990,17 +3991,18 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       !(rec.body || '').trim();
     // Paragraph / title text layers and section-inserted elements are their own
     // blocks — hiding a field leaves a ghost box and the original copy.
-    if (
-      isSectionLevelElement(norm.element) ||
-      norm.element === 'form' ||
-      isFloatingTextLayerBlock(block) ||
-      buttonOnlyCta
-    ) {
+    if (isFloatingTextLayerBlock(block) || buttonOnlyCta || norm.element === 'form') {
       removeBlock(norm.blockId);
       return;
     }
-    hideCanvasElements([norm]);
-    deselectCanvas();
+    // Nested text such as the countdown kicker is stored with element 'section'
+    // because elementFromField does not know that field. Hide the text only.
+    if (norm.field || !isSectionLevelElement(norm.element)) {
+      hideCanvasElements([norm]);
+      deselectCanvas();
+      return;
+    }
+    removeBlock(norm.blockId);
   }
 
   function saveTextAsset(blockId: string, field: string) {
@@ -4285,12 +4287,12 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       const block = current.blocks.find((b) => b.id === target.blockId);
       if (!block) continue;
       const rec = block as unknown as Record<string, unknown>;
-      if (
-        isSectionLevelElement(target.element) ||
-        (block.sectionPlacement && isFloatingTextLayerBlock(block)) ||
-        (block.type === 'CTA' && !rec.headline && !rec.subheadline && !rec.body)
-      )
-        remove.add(block.id);
+      const wholeBlock =
+        isFloatingTextLayerBlock(block) ||
+        (block.type === 'CTA' && !rec.headline && !rec.subheadline && !rec.body) ||
+        (!target.field &&
+          (isSectionLevelElement(target.element) || target.element === 'form'));
+      if (wholeBlock) remove.add(block.id);
       else hidden[`${target.blockId}::${target.field || target.element}`] = true;
     }
     const keys = targets.map(targetKey);
@@ -5906,7 +5908,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         canvasActionRef.current.dupBlock(blockId, prefer);
       },
       onDuplicateItem: (blockId, itemId) => canvasActionRef.current.dupItem(blockId, itemId),
-      onDelete: (blockId) => canvasActionRef.current.removeBlock(blockId),
+      onDelete: (blockId) => {
+        const key = canvasSelectionRef.current.primaryId;
+        const parsed = key ? parseLpSelectionKey(key) : null;
+        if (parsed?.blockId === blockId && parsed.field) {
+          canvasActionRef.current.deleteToolbarTarget(parsed);
+          return;
+        }
+        canvasActionRef.current.removeBlock(blockId);
+      },
       onToggleFreePosition: (blockId) => toggleBlockFreePosition(blockId),
       onMove: (blockId, direction) => canvasActionRef.current.moveBlock(blockId, direction),
       onReorderBlock: (fromId, toId) => canvasActionRef.current.reorderBlockById(fromId, toId),

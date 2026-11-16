@@ -319,6 +319,51 @@ function pad2(n: number) {
   return String(Math.max(0, n)).padStart(2, '0');
 }
 
+const SEG_ON: Record<string, string> = {
+  '0': 'abcdef',
+  '1': 'bc',
+  '2': 'abged',
+  '3': 'abcdg',
+  '4': 'bcfg',
+  '5': 'acdfg',
+  '6': 'acdefg',
+  '7': 'abc',
+  '8': 'abcdefg',
+  '9': 'abcdfg',
+};
+
+function SevenSegDigit({ d }: { d: string }) {
+  const on = SEG_ON[d] || '';
+  const fill = (id: string) => (on.includes(id) ? 'var(--cd-digit, #d6f25c)' : 'rgba(214,242,92,.07)');
+  const bars: Array<[string, number, number, number, number]> = [
+    ['a', 8, 2, 20, 6],
+    ['f', 2, 9, 6, 18],
+    ['b', 28, 9, 6, 18],
+    ['g', 8, 28, 20, 6],
+    ['e', 2, 35, 6, 18],
+    ['c', 28, 35, 6, 18],
+    ['d', 8, 54, 20, 6],
+  ];
+  return (
+    <svg className="lp-cd-seg" viewBox="0 0 36 62" aria-hidden>
+      {bars.map(([id, x, y, w, h]) => (
+        <rect key={id} x={x} y={y} width={w} height={h} rx="1.6" fill={fill(id)} />
+      ))}
+    </svg>
+  );
+}
+
+function SevenSeg({ value }: { value: string }) {
+  return (
+    <span className="lp-cd-seg-row">
+      <span className="lp-cd-sr">{value}</span>
+      {value.split('').map((d, i) => (
+        <SevenSegDigit key={`${d}-${i}`} d={d} />
+      ))}
+    </span>
+  );
+}
+
 function haloOffset(value: number, max: number) {
   const c = 2 * Math.PI * 42;
   const pct = Math.max(0, Math.min(1, value / Math.max(1, max)));
@@ -342,15 +387,31 @@ function LaunchClock({
     return 60;
   };
 
-  const digit = (value: number) => <span className="lp-cd-digit">{pad2(value)}</span>;
-  const labelEl = (label: string) => <div className="lp-cd-unit-label">{label}</div>;
+  const digit = (value: number) => (
+    <span className="lp-cd-digit" style={{ flexShrink: 0, textTransform: 'none' }}>{pad2(value)}</span>
+  );
+  const labelEl = (label: string) => (
+    <div className="lp-cd-unit-label" style={{ textTransform: 'none', letterSpacing: '0.01em', wordBreak: 'normal' }}>{label}</div>
+  );
+  const lock = (size: string): React.CSSProperties => ({
+    width: size,
+    height: size,
+    minWidth: size,
+    minHeight: size,
+    maxWidth: size,
+    maxHeight: size,
+    flexShrink: 0,
+    aspectRatio: '1 / 1',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+  });
 
   const unit = (
     cell: { label: string; value: number },
     className: string,
     inner: ReactNode,
   ) =>
-    wrapCell(cellBlockId, canvas, cell.label, className, undefined, inner);
+    wrapCell(cellBlockId, canvas, cell.label, className, { flexShrink: 0, width: 'auto', height: 'auto' }, inner);
 
   if (styleId === 'silver-minimal') {
     return (
@@ -420,10 +481,10 @@ function LaunchClock({
             return unit(
               c,
               '',
-              <>
-                <div className="lp-cd-flip">{digit(c.value)}</div>
+              <div className="lp-cd-flip" style={{ flexShrink: 0, minWidth: '4.7rem' }}>
+                <div className="lp-cd-flip-face">{digit(c.value)}</div>
                 {labelEl(c.label)}
-              </>,
+              </div>,
             );
           }
           if (styleId === 'champagne-editorial') {
@@ -440,12 +501,12 @@ function LaunchClock({
             return unit(
               c,
               '',
-              <>
-                <div className="lp-cd-oct">
-                  <div className="lp-cd-oct-inner">{digit(c.value)}</div>
+              <div className="lp-cd-oct" style={lock('5.35rem')}>
+                <div className="lp-cd-oct-inner">
+                  {digit(c.value)}
+                  {labelEl(c.label)}
                 </div>
-                {labelEl(c.label)}
-              </>,
+              </div>,
             );
           }
           if (styleId === 'emerald-halo') {
@@ -454,7 +515,7 @@ function LaunchClock({
               c,
               '',
               <>
-                <div className="lp-cd-halo">
+                <div className="lp-cd-halo" style={lock('5.35rem')}>
                   <svg viewBox="0 0 100 100" aria-hidden>
                     <circle
                       cx="50"
@@ -487,27 +548,29 @@ function LaunchClock({
             return unit(
               c,
               '',
-              <>
-                <div className="lp-cd-ember">{digit(c.value)}</div>
+              <div className="lp-cd-ember" style={{ flexShrink: 0, minWidth: '4.55rem' }}>
+                {digit(c.value)}
                 {labelEl(c.label)}
-              </>,
+              </div>,
             );
           }
           if (styleId === 'rose-glass') {
             return unit(
               c,
               '',
-              <>
-                <div className="lp-cd-glass">{digit(c.value)}</div>
+              <div className="lp-cd-glass" style={{ flexShrink: 0, minWidth: '4.6rem' }}>
+                {digit(c.value)}
                 {labelEl(c.label)}
-              </>,
+              </div>,
             );
           }
           return unit(
             c,
             '',
             <>
-              <div className="lp-cd-led">{digit(c.value)}</div>
+              <div className="lp-cd-led" style={{ flexShrink: 0, minWidth: '4.7rem' }}>
+                <SevenSeg value={pad2(c.value)} />
+              </div>
               {labelEl(c.label)}
             </>,
           );

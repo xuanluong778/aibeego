@@ -70,7 +70,7 @@ export function LandingPageElementLibraryModal({
         <Dialog.Overlay className="fixed inset-0 z-[230] bg-black/60" />
         <Dialog.Content
           data-lp-element-library-modal={countdownLibrary ? 'countdown' : picker?.kind}
-          className={`fixed left-1/2 top-1/2 z-[231] flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden text-zinc-900 shadow-2xl ${textLibrary ? 'lp-text-library-modal' : 'h-[85vh] w-[min(1200px,94vw)] rounded-xl bg-white'}`}
+          className={`fixed left-1/2 top-1/2 z-[231] flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden shadow-2xl ${textLibrary ? 'lp-text-library-modal' : countdownLibrary ? 'h-[88vh] w-[min(1240px,96vw)] rounded-2xl border border-white/10 bg-[#07060b] text-zinc-100' : 'h-[85vh] w-[min(1200px,94vw)] rounded-xl bg-white text-zinc-900'}`}
           onPointerDownOutside={(event) => {
             const age = Date.now() - (openStamp.current || 0);
             if (age < 400) event.preventDefault();
@@ -82,14 +82,19 @@ export function LandingPageElementLibraryModal({
         >
           <div
             className={
-              textLibrary ? 'sr-only' : 'flex items-center justify-between border-b px-5 py-3'
+              textLibrary
+                ? 'sr-only'
+                : `flex items-center justify-between border-b px-5 py-3.5 ${countdownLibrary ? 'border-white/10' : ''}`
             }
           >
-            <Dialog.Title className={`font-semibold ${countdownLibrary ? 'text-[#F97316]' : ''}`}>
+            <Dialog.Title className={`font-semibold tracking-tight ${countdownLibrary ? 'text-zinc-50' : ''}`}>
               Thư viện {label}
             </Dialog.Title>
             {!textLibrary ? (
-              <Dialog.Close aria-label="Đóng thư viện" className="h-10 w-10">
+              <Dialog.Close
+                aria-label="Đóng thư viện"
+                className={`flex h-10 w-10 items-center justify-center rounded-lg text-2xl leading-none ${countdownLibrary ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : ''}`}
+              >
                 ×
               </Dialog.Close>
             ) : null}
