@@ -78,3 +78,6 @@ backups/github-sync/*.dump
 
 # Isolated platform-subdomain QA runtime
 .platform-subdomain-qa/
+
+# Isolated production release build
+**/.next-platform-release/

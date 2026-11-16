@@ -1,6 +1,6 @@
 # Subdomain AIbeego trong hộp thoại Publish
 
-Trạng thái: source và test nằm trong worktree riêng; **chưa sửa DNS, cấp wildcard SSL, migration hay deploy production**. Không cần IP public thứ hai cho phương án subdomain do AIbeego sở hữu này.
+Trạng thái 16/11/2026: **đã deploy production**, DNS wildcard đã đúng, wildcard SSL đã cấp và API/Web đã cập nhật. Không cần IP public thứ hai. Gia hạn wildcard còn thủ công vì chưa có API/ủy quyền cập nhật DNS tự động; không được coi certbot.timer là bằng chứng wildcard đã tự gia hạn.
 
 ## Người dùng
 

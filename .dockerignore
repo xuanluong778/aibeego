@@ -20,3 +20,6 @@ backups
 *.dump
 *.sql
 *.tsv
+
+# Isolated production release build
+**/.next-platform-release/
