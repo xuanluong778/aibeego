@@ -8,10 +8,7 @@ import { lookup as defaultDnsLookup } from 'dns/promises';
 import * as http from 'http';
 import * as https from 'https';
 import { isIP } from 'net';
-import {
-  AD_URL_ANALYZE_LIMITS,
-  detectUnsupportedCommerceHost,
-} from './ad-url-analyze';
+import { AD_URL_ANALYZE_LIMITS, detectUnsupportedCommerceHost } from './ad-url-analyze';
 
 export class SsrfValidationError extends Error {
   code: string;
@@ -69,7 +66,10 @@ function ipv6FirstHextet(ip: string): number | null {
  * Exported for security gate tests.
  */
 export function isPrivateOrReservedIp(ip: string): boolean {
-  const raw = ip.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  const raw = ip
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
   const v = isIP(raw);
   if (v === 4) {
     const n = ipv4ToInt(raw);
@@ -83,6 +83,7 @@ export function isPrivateOrReservedIp(ip: string): boolean {
       [ipv4ToInt('100.64.0.0'), ipv4ToInt('100.127.255.255')],
       [ipv4ToInt('192.0.0.0'), ipv4ToInt('192.0.0.255')],
       [ipv4ToInt('192.0.2.0'), ipv4ToInt('192.0.2.255')],
+      [ipv4ToInt('192.88.99.0'), ipv4ToInt('192.88.99.255')],
       [ipv4ToInt('198.18.0.0'), ipv4ToInt('198.19.255.255')],
       [ipv4ToInt('198.51.100.0'), ipv4ToInt('198.51.100.255')],
       [ipv4ToInt('203.0.113.0'), ipv4ToInt('203.0.113.255')],
@@ -96,6 +97,9 @@ export function isPrivateOrReservedIp(ip: string): boolean {
     if (mapped) return isPrivateOrReservedIp(mapped);
     const hextet = ipv6FirstHextet(raw);
     if (hextet === null) return true;
+    // Only global unicast; reject IPv4-compatible / NAT64 and transition ranges.
+    if ((hextet & 0xe000) !== 0x2000 || hextet === 0x2002 || hextet === 0x3fff) return true;
+    if (hextet === 0x2001 && parseInt(raw.split(':')[1] || '0', 16) < 0x200) return true;
     // fc00::/7 unique local
     if ((hextet & 0xfe00) === 0xfc00) return true;
     // fe80::/10 link-local
@@ -261,7 +265,12 @@ type PinnedResponse = {
 function fetchPinnedOnce(
   target: URL,
   pinnedIp: string,
-  opts: { timeoutMs: number; headers: Record<string, string>; signal?: AbortSignal },
+  opts: {
+    timeoutMs: number;
+    maxBytes: number;
+    headers: Record<string, string>;
+    signal?: AbortSignal;
+  },
 ): Promise<PinnedResponse> {
   const isHttps = target.protocol === 'https:';
   const lib = isHttps ? https : http;
@@ -298,9 +307,7 @@ function fetchPinnedOnce(
             family?: number,
           ) => void;
           const lookupOpts =
-            typeof options === 'object' && options !== null
-              ? (options as { all?: boolean })
-              : {};
+            typeof options === 'object' && options !== null ? (options as { all?: boolean }) : {};
           if (lookupOpts.all) {
             callback(null, [{ address: pinnedIp, family }]);
           } else {
@@ -311,8 +318,27 @@ function fetchPinnedOnce(
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
+        let bytes = 0;
+        if (Number(res.headers['content-length']) > opts.maxBytes) {
+          const error = new FetchPublicError('Nội dung quá lớn để tải.', 'TOO_LARGE');
+          reject(error);
+          res.destroy();
+          req.destroy(error);
+          return;
+        }
+        res.on('data', (c: Buffer) => {
+          bytes += c.length;
+          if (bytes > opts.maxBytes) {
+            const error = new FetchPublicError('Nội dung quá lớn để tải.', 'TOO_LARGE');
+            reject(error);
+            res.destroy();
+            req.destroy(error);
+            return;
+          }
+          chunks.push(c);
+        });
         res.on('end', () => {
+          opts.signal?.removeEventListener('abort', onAbort);
           resolve({
             status: res.statusCode || 0,
             headers: res.headers,
@@ -320,6 +346,7 @@ function fetchPinnedOnce(
           });
         });
         res.on('error', reject);
+        res.on('aborted', () => reject(new FetchPublicError('Kết nối bị ngắt.', 'FETCH_FAILED')));
       },
     );
 
@@ -379,7 +406,7 @@ export type PublicHtmlFetchResult = {
  * Fetch public HTML with redirect + size + timeout limits.
  * Re-validates each redirect target; connects only to previously validated public IPs.
  */
-export async function fetchPublicHtmlSafe(
+async function fetchPublicBufferSafe(
   rawUrl: string,
   opts?: {
     timeoutMs?: number;
@@ -390,37 +417,58 @@ export async function fetchPublicHtmlSafe(
     /** Include truncated HTML (scripts already stripped) for richer parsers. */
     includeHtml?: boolean;
   },
-): Promise<PublicHtmlFetchResult> {
+): Promise<{ finalUrl: string; response: PinnedResponse; contentType: string }> {
   const timeoutMs = opts?.timeoutMs ?? AD_URL_ANALYZE_LIMITS.fetchTimeoutMs;
   const maxBytes = opts?.maxBytes ?? AD_URL_ANALYZE_LIMITS.maxHtmlBytes;
   const maxRedirects = opts?.maxRedirects ?? AD_URL_ANALYZE_LIMITS.maxRedirects;
   const ssrfOpts = { skipCommerceHostBlock: opts?.skipCommerceHostBlock === true };
 
-  let asserted = await assertPublicHttpUrlDetailed(rawUrl, ssrfOpts);
+  const deadline = Date.now() + timeoutMs;
+  const bounded = async <T>(operation: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new FetchPublicError('Hết thời gian tải trang.', 'TIMEOUT')),
+            Math.max(1, deadline - Date.now()),
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  let asserted = await bounded(assertPublicHttpUrlDetailed(rawUrl, ssrfOpts));
   let redirects = 0;
 
   while (true) {
     // TOCTOU / DNS rebind: revalidate immediately before connect.
-    const resolvedIps = await revalidateResolvedIps(
-      asserted.url.hostname,
-      asserted.resolvedIps,
+    const resolvedIps = await bounded(
+      revalidateResolvedIps(asserted.url.hostname, asserted.resolvedIps),
     );
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new FetchPublicError('Hết thời gian tải trang.', 'TIMEOUT');
     const pinnedIp = pickPinnedIp(resolvedIps);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), remaining);
     let response: PinnedResponse;
     try {
       response = await fetchPinnedOnce(asserted.url, pinnedIp, {
-        timeoutMs,
+        timeoutMs: remaining,
+        maxBytes,
         signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; AIBeego-LandingPageCrawl/1.0)',
           Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+          'Accept-Encoding': 'identity',
         },
       });
     } catch (e) {
       clearTimeout(timer);
+      if (e instanceof FetchPublicError || e instanceof SsrfValidationError) throw e;
       if (
         e instanceof Error &&
         (e.name === 'AbortError' || e.message === 'AbortError' || controller.signal.aborted)
@@ -445,7 +493,7 @@ export async function fetchPublicHtmlSafe(
       }
       const next = new URL(loc, asserted.url);
       // Every redirect hop: full URL + DNS + IP validation again.
-      asserted = await assertPublicHttpUrlDetailed(next.toString(), ssrfOpts);
+      asserted = await bounded(assertPublicHttpUrlDetailed(next.toString(), ssrfOpts));
       continue;
     }
 
@@ -455,17 +503,11 @@ export async function fetchPublicHtmlSafe(
 
     const ctRaw = response.headers['content-type'];
     const contentType = (Array.isArray(ctRaw) ? ctRaw[0] : ctRaw || '').toLowerCase();
-    if (
-      contentType &&
-      !contentType.includes('text/html') &&
-      !contentType.includes('application/xhtml') &&
-      !contentType.includes('text/plain')
-    ) {
+    if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity')
       throw new FetchPublicError(
-        'URL không phải trang HTML công khai (ví dụ file/PDF/media).',
+        'Máy chủ trả định dạng nén không được hỗ trợ.',
         'UNSUPPORTED_CONTENT',
       );
-    }
 
     const clRaw = response.headers['content-length'];
     const cl = Array.isArray(clRaw) ? clRaw[0] : clRaw;
@@ -477,27 +519,75 @@ export async function fetchPublicHtmlSafe(
       throw new FetchPublicError('Trang quá lớn để phân tích.', 'TOO_LARGE');
     }
 
-    const html = response.body.toString('utf8');
-    const safeHtml = html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
-      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ');
-    const { title, text } = stripHtml(safeHtml);
-    if (text.length < 40) {
-      throw new FetchPublicError(
-        'Không trích xuất được đủ nội dung công khai từ trang (có thể bị chặn hoặc trang trống).',
-        'INSUFFICIENT_CONTENT',
-      );
-    }
-
-    return {
-      finalUrl: asserted.url.toString(),
-      title: title || asserted.url.hostname,
-      text: text.slice(0, AD_URL_ANALYZE_LIMITS.maxExtractChars),
-      contentType,
-      ...(opts?.includeHtml
-        ? { html: safeHtml.slice(0, Math.min(maxBytes, 800_000)) }
-        : {}),
-    };
+    return { finalUrl: asserted.url.toString(), response, contentType };
   }
+}
+
+export async function fetchPublicHtmlSafe(
+  rawUrl: string,
+  opts?: {
+    timeoutMs?: number;
+    maxBytes?: number;
+    maxRedirects?: number;
+    skipCommerceHostBlock?: boolean;
+    includeHtml?: boolean;
+  },
+): Promise<PublicHtmlFetchResult> {
+  const { finalUrl, response, contentType } = await fetchPublicBufferSafe(rawUrl, opts);
+  if (contentType && !/text\/html|application\/xhtml|text\/plain/.test(contentType))
+    throw new FetchPublicError('URL không phải trang HTML công khai.', 'UNSUPPORTED_CONTENT');
+  const html = response.body.toString('utf8');
+  const safeHtml = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ');
+  const { title, text } = stripHtml(safeHtml);
+  if (text.length < 40) {
+    throw new FetchPublicError(
+      'Không trích xuất được đủ nội dung công khai từ trang (có thể bị chặn hoặc trang trống).',
+      'INSUFFICIENT_CONTENT',
+    );
+  }
+
+  return {
+    finalUrl,
+    title: title || new URL(finalUrl).hostname,
+    text: text.slice(0, AD_URL_ANALYZE_LIMITS.maxExtractChars),
+    contentType,
+    ...(opts?.includeHtml
+      ? { html: safeHtml.slice(0, Math.min(opts.maxBytes ?? 1_000_000, 800_000)) }
+      : {}),
+  };
+}
+
+/** Images are downloaded only on explicit import, then stored by the normal media service. */
+export async function fetchPublicImageSafe(rawUrl: string) {
+  const { response } = await fetchPublicBufferSafe(rawUrl, {
+    timeoutMs: 12000,
+    maxBytes: 5_000_000,
+    maxRedirects: 3,
+    skipCommerceHostBlock: true,
+  });
+  const body = response.body;
+  const hex = body.subarray(0, 12).toString('hex');
+  const type = hex.startsWith('89504e470d0a1a0a')
+    ? ['image/png', 'png']
+    : hex.startsWith('ffd8ff')
+      ? ['image/jpeg', 'jpg']
+      : body.subarray(0, 6).toString() === 'GIF89a' || body.subarray(0, 6).toString() === 'GIF87a'
+        ? ['image/gif', 'gif']
+        : body.subarray(0, 4).toString() === 'RIFF' && body.subarray(8, 12).toString() === 'WEBP'
+          ? ['image/webp', 'webp']
+          : undefined;
+  if (!type)
+    throw new FetchPublicError(
+      'Chỉ nhập được ảnh JPG, PNG, GIF hoặc WebP hợp lệ.',
+      'UNSUPPORTED_CONTENT',
+    );
+  return {
+    buffer: body,
+    mimetype: type[0]!,
+    originalname: `anh-nguon.${type[1]}`,
+    size: body.length,
+  };
 }

@@ -1,0 +1,39 @@
+[data-lp-fixed-header-portal] {
+  position: fixed !important;
+  top: var(--lp-fixed-header-top, 0px) !important;
+  left: var(--lp-fixed-header-left, 0px) !important;
+  width: var(--lp-fixed-header-width, 100vw) !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  transform: scale(var(--lp-fixed-header-scale, 1)) !important;
+  transform-origin: top left;
+  z-index: 90;
+}
+[data-lp-fixed-header-portal] .lp-fixed-header-theme {
+  min-height: 0 !important;
+  overflow: visible !important;
+  background: transparent !important;
+}
+[data-lp-fixed-header-portal] header {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  margin: 0 !important;
+  background: var(--lp-fixed-header-background) !important;
+  z-index: 90;
+}
+[data-lp-fixed-header-block] [data-lp-block-id],
+[data-lp-fixed-header-block] [id] {
+  scroll-margin-top: calc(var(--lp-fixed-header-height, 0px) + 16px);
+}
+/* Mobile canvas rules intentionally clip content; the fixed navigation must be
+   able to paint its header and dropdown outside the copied theme scope. */
+[data-lp-fixed-header-portal][data-lp-renderer],
+[data-lp-fixed-header-portal][data-lp-renderer] .lp-fixed-header-theme[data-lp-canvas-root],
+[data-lp-fixed-header-portal][data-lp-renderer] [data-lp-block-slot],
+[data-lp-fixed-header-portal][data-lp-renderer] [data-lp-section-chrome] {
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}

@@ -1879,7 +1879,7 @@ model LandingPage {
   ogImage            String?                 @map("og_image") @db.VarChar(2000)
   robotsIndex        Boolean                 @default(true) @map("robots_index")
   subdomainSlug      String?                 @map("subdomain_slug")
-  customDomain       String?                 @map("custom_domain") @db.VarChar(255)
+  customDomain       String?                 @unique(map: "landing_pages_custom_domain_key") @map("custom_domain") @db.VarChar(255)
   customDomainStatus LandingPageDomainStatus? @map("custom_domain_status")
   customDomainError  String?                 @map("custom_domain_error") @db.VarChar(500)
   customDomainVerifiedAt DateTime?           @map("custom_domain_verified_at")
@@ -1897,6 +1897,7 @@ model LandingPage {
   versions     LandingPageVersion[]
   events       LandingPageEvent[]
   leads        Lead[]
+  domainConnection LandingPageDomainConnection?
 
   @@unique([organizationId, slug])
   @@index([organizationId, status, updatedAt])
@@ -1904,6 +1905,26 @@ model LandingPage {
   @@index([customDomain])
   @@index([previewExpiresAt])
   @@map("landing_pages")
+}
+
+/// Domain-specific ownership, DNS and TLS readiness. Verified hostname uniqueness
+/// is enforced by a partial unique index in the SQL migration.
+model LandingPageDomainConnection {
+  landingPageId String @id @map("landing_page_id")
+  bindingId String @unique @map("binding_id")
+  hostname String @db.VarChar(253)
+  verificationToken String @map("verification_token") @db.VarChar(64)
+  ownershipVerifiedAt DateTime? @map("ownership_verified_at") @db.Timestamptz(3)
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  tlsStatus String @default("PENDING") @map("tls_status") @db.VarChar(20)
+  tlsCheckedAt DateTime? @map("tls_checked_at") @db.Timestamptz(3)
+  lastCheckedAt DateTime? @map("last_checked_at") @db.Timestamptz(3)
+  lastError String? @map("last_error") @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  landingPage LandingPage @relation(fields:[landingPageId], references:[id], onDelete:Cascade)
+  @@index([hostname], map:"landing_domain_hostname_idx")
+  @@map("landing_page_domain_connections")
 }
 
 model LandingPageVersion {
@@ -5899,9 +5920,9 @@ model WorkAuditLog {
   actorId        String?  @map("actor_id")
   action         String   @db.VarChar(64)
   entityType     String   @map("entity_type") @db.VarChar(64)
-  entityId       String?
-  taskId         String?
-  projectId      String?
+  entityId       String?  @map("entity_id")
+  taskId         String?  @map("task_id")
+  projectId      String?  @map("project_id")
   summary        String?  @db.VarChar(500)
   metadata       Json?
   createdAt      DateTime @default(now()) @map("created_at")

@@ -1,5 +1,21 @@
 /* Launch countdown — 10 dark luxury skins matched to aibeego-10-mau. */
 
+/* Clock units are a single group, independent of page/card grid overrides. */
+.lp-countdown-boxes {
+  display: grid;
+  grid-template-columns: repeat(var(--lp-countdown-units, 4), minmax(0, 1fr));
+  gap: clamp(0.35rem, 2%, 0.75rem);
+  width: 100%;
+  container: lp-clock / inline-size;
+}
+.lp-countdown-boxes > * { min-width: 0; padding-inline: 0.25rem; }
+.lp-countdown-boxes [data-lp-countdown-value] {
+  font-size: clamp(1.125rem, 7cqi, 1.875rem);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .lp-cd-launch {
   --cd-sans: "Be Vietnam Pro", "Plus Jakarta Sans", "Segoe UI", sans-serif;
   text-rendering: optimizeLegibility;
@@ -841,4 +857,58 @@
   [data-lp-canvas-root] .lp-cd-launch h2.lp-cd-headline {
     max-width: none !important;
   }
+}
+
+/* Size against the section/clock itself, including a phone preview on a wide monitor. */
+.lp-cd-launch { container: lp-countdown-section / inline-size; }
+.lp-cd-clock { container: lp-clock / inline-size; width: 100%; min-width: 0; max-width: 100%; }
+[data-lp-canvas-root] [data-lp-section-chrome] > section.lp-cd-launch[data-lp-countdown-launch],
+[data-lp-canvas-root] section.lp-cd-launch[data-lp-countdown-launch] {
+  padding-inline: clamp(1rem, 4cqi, 2rem) !important;
+}
+@container lp-countdown-section (max-width: 800px) {
+  [data-lp-canvas-root] .lp-cd-launch .lp-cd-launch-inner {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 1.5rem !important;
+  }
+  [data-lp-canvas-root] .lp-cd-launch h2.lp-cd-headline {
+    font-size: clamp(1.65rem, 7cqi, 2.35rem) !important;
+    max-width: 100% !important;
+    overflow-wrap: anywhere;
+  }
+  [data-lp-canvas-root] .lp-cd-launch .lp-cd-form { padding: 1.25rem 1rem; min-width: 0; }
+}
+@container lp-clock (max-width: 560px) {
+  [data-lp-canvas-root] .lp-cd-clock :is(.lp-cd-units, .lp-cd-bar, .lp-cd-capsule) {
+    display: grid;
+    grid-template-columns: repeat(var(--lp-countdown-units, 4), minmax(0, 1fr));
+    gap: 0.4rem;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-lp-canvas-root] .lp-cd-clock :is(.lp-cd-units, .lp-cd-bar, .lp-cd-capsule) > * {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+  [data-lp-canvas-root] .lp-cd-clock :is(.lp-cd-flip, .lp-cd-oct, .lp-cd-halo, .lp-cd-ember, .lp-cd-glass, .lp-cd-led) {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    box-sizing: border-box;
+  }
+  [data-lp-canvas-root] .lp-cd-clock :is(.lp-cd-bar-cell, .lp-cd-cap-cell, .lp-cd-champ, .lp-cd-orbit) {
+    min-width: 0;
+    padding-inline: 0.2rem;
+  }
+  [data-lp-canvas-root] .lp-cd-clock .lp-cd-digit {
+    font-size: clamp(1.1rem, 6cqi, 1.85rem);
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+  [data-lp-canvas-root] .lp-cd-clock .lp-cd-dot { display: none; }
+  [data-lp-canvas-root] .lp-cd-clock .lp-cd-seg { width: min(1.3rem, 4cqi); height: auto; }
+  [data-lp-canvas-root] .lp-cd-clock .lp-cd-unit-label { font-size: 11px; white-space: nowrap; }
 }

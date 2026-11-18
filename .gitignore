@@ -33,7 +33,9 @@ Thumbs.db
 
 # Logs
 logs/
-backups/
+backups/*
+!backups/github-sync/
+!backups/github-sync/**
 *.log
 npm-debug.log*
 pnpm-debug.log*
@@ -61,9 +63,15 @@ apps/ai-service-placeholder/.venv/
 
 # Dev runtime logs / dumps
 tmp/
+.tmp/
 
 # Local file uploads (HRM documents, etc.)
 apps/api/uploads/
 
 # Local uploads (root)
 /uploads/
+
+# Full database dumps ở thư mục khác (không dùng github-sync)
+marketingspa-db-full-*.zip
+# Dump thô (chỉ giữ bản zip trong backups/github-sync/)
+backups/github-sync/*.dump

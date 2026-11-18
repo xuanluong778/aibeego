@@ -8,6 +8,7 @@ import {
   Save,
   Smartphone,
   SlidersHorizontal,
+  Sparkles,
   Tablet,
   Undo2,
   Upload,
@@ -49,6 +50,7 @@ type Props = {
   /** Public slug for post-publish affordance. */
   publicSlug?: string | null;
   onOpenPanel?: () => void;
+  onTemplateContent?: () => void;
 };
 
 function Tip({ label, children }: { label: string; children: ReactNode }) {
@@ -129,6 +131,7 @@ export function LandingPageBuilderToolbar({
   pageStatus = null,
   publicSlug = null,
   onOpenPanel,
+  onTemplateContent,
 }: Props) {
   const centerInCanvas = alignToCanvas && !hideBack && !previewOn && inspectorDocked;
   const isPublished = (pageStatus || '').toUpperCase() === 'PUBLISHED';
@@ -246,6 +249,11 @@ export function LandingPageBuilderToolbar({
         className="col-span-2 col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-0.5 sm:gap-1"
         data-lp-toolbar-actions
       >
+        {onTemplateContent && !previewOn ? (
+          <button type="button" onClick={onTemplateContent} aria-label="Tạo nội dung cho mẫu bằng AI" title="Tạo nội dung cho mẫu bằng AI" data-lp-template-content-button className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-orange-400 px-2 text-xs font-semibold text-orange-200 hover:bg-white/10">
+            <Sparkles className="h-4 w-4" /><span className="hidden xl:inline">Tạo nội dung cho mẫu bằng AI</span><span className="hidden sm:inline xl:hidden">Nội dung AI</span>
+          </button>
+        ) : null}
         {onOpenPanel && !previewOn ? (
           <IconBtn label="Mở bảng thuộc tính" onClick={onOpenPanel} testId="inspector" className="xl:hidden">
             <SlidersHorizontal className="h-4 w-4" />

@@ -1,4 +1,6 @@
 'use client';
+import { LandingPageFixedHeader } from './landing-page-fixed-header';
+import { readHeaderMenu, resolveHeaderLinks, followHeaderLink } from './landing-page-header-navigation';
 import { useState, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
 import {
@@ -85,6 +87,7 @@ export function LocalServiceBlock({
   switch (block.type) {
     case 'Header':
       return (
+        <LandingPageFixedHeader blockId={block.id} disabled={Boolean(canvas)} background={block.background}>
         <header
           id={block.id}
           className="local-header"
@@ -123,7 +126,15 @@ export function LocalServiceBlock({
                 }
               }}
             >
-              {(['Features', 'Benefits', 'Process', 'FAQ'] as const).map((type, i) =>
+              {readHeaderMenu(block.body, spec.blocks, block.id) !== null
+                ? resolveHeaderLinks(block.body, spec.blocks, block.id).map(({ label, href }, i) => (
+                    <span key={i}><a className="local-nav-link" href={href} onClick={(event) => {
+                      event.preventDefault();
+                      if (!canvas) followHeaderLink(event.currentTarget, href);
+                      setOpen(false);
+                    }}>{label}<span aria-hidden>→</span></a></span>
+                  ))
+                : (['Features', 'Benefits', 'Process', 'FAQ'] as const).map((type, i) =>
                 target(type) ? (
                   <span key={type}>
                     {link(
@@ -145,6 +156,7 @@ export function LocalServiceBlock({
             </div>
           </div>
         </header>
+        </LandingPageFixedHeader>
       );
     case 'Hero':
       return section(

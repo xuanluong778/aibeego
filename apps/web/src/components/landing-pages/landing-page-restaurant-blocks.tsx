@@ -1,4 +1,6 @@
 'use client';
+import { LandingPageFixedHeader } from './landing-page-fixed-header';
+import { readHeaderMenu, resolveHeaderLinks, followHeaderLink } from './landing-page-header-navigation';
 import { useState, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
 import {
@@ -110,6 +112,7 @@ export function RestaurantMenuBlock({
   switch (block.type) {
     case 'Header':
       return (
+        <LandingPageFixedHeader blockId={block.id} disabled={Boolean(canvas)} background={block.background}>
         <header
           id={block.id}
           className="dining-header"
@@ -147,7 +150,15 @@ export function RestaurantMenuBlock({
                 }
               }}
             >
-              {(['Product', 'Gallery', 'LeadForm'] as const).map((type, i) =>
+              {readHeaderMenu(block.body, spec.blocks, block.id) !== null
+                ? resolveHeaderLinks(block.body, spec.blocks, block.id).map(({ label, href }, i) => (
+                    <span key={i}><a className="dining-nav-link" href={href} onClick={(event) => {
+                      event.preventDefault();
+                      if (!canvas) followHeaderLink(event.currentTarget, href);
+                      setOpen(false);
+                    }}>{label}<span aria-hidden>→</span></a></span>
+                  ))
+                : (['Product', 'Gallery', 'LeadForm'] as const).map((type, i) =>
                 target(type) ? (
                   <span key={type}>
                     {link(
@@ -169,6 +180,7 @@ export function RestaurantMenuBlock({
             </span>
           </div>
         </header>
+        </LandingPageFixedHeader>
       );
     case 'Hero':
       return section(

@@ -1,0 +1,19 @@
+# Chưa triển khai. Chạy: docker compose -f docker-compose.yml --env-file .env up -d
+services:
+  caddy-edge:
+    image: caddy:2.8-alpine
+    container_name: lp-caddy-edge
+    restart: unless-stopped
+    network_mode: host # để Caddy bind trực tiếp EDGE_IP:80/443 và gọi API/Web ở 127.0.0.1
+    environment:
+      EDGE_IP: ${EDGE_IP:?đặt EDGE_IP trong .env}
+      ACME_EMAIL: ${ACME_EMAIL:?đặt ACME_EMAIL trong .env}
+      API_UPSTREAM: ${API_UPSTREAM:-127.0.0.1:4000}
+      WEB_UPSTREAM: ${WEB_UPSTREAM:-127.0.0.1:3000}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # chứa chứng chỉ đã cấp, KHÔNG xóa
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

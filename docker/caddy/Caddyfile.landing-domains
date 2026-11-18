@@ -1,0 +1,17 @@
+{
+    on_demand_tls {
+        ask http://api:4000/api/v1/landing-pages/public/domains/allow-certificate
+    }
+}
+
+# The main app has its own certificate; customer hostnames use the permission gate.
+{$LANDING_PAGE_APP_HOST:app.aibeego.com} {
+    reverse_proxy nginx:80
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    reverse_proxy nginx:80
+}

@@ -1,0 +1,26 @@
+/* A header logo is a bounded brand mark. Content-image height:auto/cover rules
+   otherwise override its utility classes and display the full intrinsic image. */
+[data-lp-renderer] header .lp-header-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  align-self: center;
+  width: fit-content;
+  height: 40px;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 160px !important;
+  max-height: 48px !important;
+}
+[data-lp-renderer] header .lp-header-logo [data-lp-content-image] {
+  display: block;
+  width: auto !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 100% !important;
+  max-height: 48px !important;
+  object-fit: contain !important;
+  object-position: center;
+}

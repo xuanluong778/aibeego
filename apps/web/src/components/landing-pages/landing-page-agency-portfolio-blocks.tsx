@@ -1,5 +1,9 @@
 'use client';
+import { LandingPageFixedHeader } from './landing-page-fixed-header';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
 
+import './landing-page-header-logo.css';
+import { resolveHeaderLinks, followHeaderLink } from './landing-page-header-navigation';
 import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
 import type {
   LandingPageBlock,
@@ -168,28 +172,26 @@ export function AgencyPortfolioBlock({
       <Icon name="arrow" />
     </a>
   );
-  const navTypes: LandingPageBlock['type'][] = ['Features', 'Gallery', 'Process', 'Pricing', 'FAQ'];
-  const navLabels = block.type === 'Header' ? (block.body || '').split('|') : [];
+  const navLinks = resolveHeaderLinks(block.type === 'Header' ? block.body : '', spec.blocks, block.id);
   const nav = (mobile = false) => (
     <nav
       className={mobile ? 'container mobile-nav open' : 'desktop-nav'}
       aria-label={mobile ? 'Menu di động' : 'Điều hướng chính'}
     >
-      {navLabels.map((label, i) => {
-        const id = targetFor(navTypes[i]!);
-        return id ? (
+      {navLinks.map(({label, href}, i) => {
+        return (
           <a
             key={i}
-            href={'#' + id}
+            href={href}
             onClick={(e) => {
               e.preventDefault();
-              if (!canvas) scroll('#' + id);
+              if (!canvas) followHeaderLink(e.currentTarget, href);
               setMenuOpen(false);
             }}
           >
             {label}
           </a>
-        ) : null;
+        );
       })}
       {mobile && block.type === 'Header'
         ? link(block.ctaLabel || '', block.ctaUrl || '#lead-form', 'nav-contact')
@@ -198,7 +200,7 @@ export function AgencyPortfolioBlock({
   );
   const head = (eyebrow: string, center = false) => (
     <div className={'section-head' + (center ? ' center' : '')}>
-      <span className="eyebrow">{eyebrow}</span>
+      <span className="eyebrow">{block.eyebrow || eyebrow}</span>
       {'headline' in block
         ? text(
             'headline',
@@ -225,6 +227,7 @@ export function AgencyPortfolioBlock({
       field={field.startsWith('itemImage:') ? field : undefined}
       handlers={canvas}
       kind="image"
+      className={block.type === 'Header' && field === 'image' ? 'lp-header-logo' : undefined}
       blockStyle={block.style as Record<string, unknown>}
     >
       <LpContentImage
@@ -250,6 +253,7 @@ export function AgencyPortfolioBlock({
   switch (block.type) {
     case 'Header':
       return (
+        <LandingPageFixedHeader blockId={block.id} disabled={Boolean(canvas)} background={block.background}>
         <header
           ref={headerRef}
           onKeyDown={(e) => {
@@ -292,6 +296,7 @@ export function AgencyPortfolioBlock({
             {menuOpen ? nav(true) : null}
           </div>
         </header>
+        </LandingPageFixedHeader>
       );
     case 'Hero':
       return section(
@@ -457,7 +462,9 @@ export function AgencyPortfolioBlock({
         'pricing',
         <div className="container">
           {head('CÁCH HỢP TÁC', true)}
-          <div className="pricing-grid" data-lp-free-surface="1">
+          <div className="pricing-grid" data-lp-free-surface="1"
+            style={block.plans.filter(plan => !spec.meta?.elementHidden?.[`${block.id}::item:${plan.id}`]).length === 1
+              ? { gridTemplateColumns: 'minmax(0, 1fr)', maxWidth: '36rem', marginInline: 'auto' } : undefined}>
             {block.plans.map((p, i) => (
               <ItemReorderChrome
                 blockId={block.id}
@@ -480,9 +487,10 @@ export function AgencyPortfolioBlock({
                   >
                     <span className="overline">{p.period}</span>
                     {text(`planName:${p.id}`, p.name, 'h3')}
+                    <LandingPagePriceComparison originalPrice={p.originalPrice} price={p.price} />
                     {text(`planPrice:${p.id}`, p.price, 'p', 'price-intro')}
                     <ul>
-                      {p.features.map((f, n) => (
+                      {p.features.filter(Boolean).map((f, n) => (
                         <li key={n}>
                           <Icon name="check" />
                           <span>{f}</span>

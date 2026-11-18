@@ -1,7 +1,80 @@
+import { LP_NATIVE_CATALOG_POLISH_CSS } from './landing-page-native-catalog-polish';
+
 /**
  * Responsive + typography foundation for LandingPageRenderer.
  * Attribute-based viewport sim (preview/shot) — does NOT rely on browser @media alone.
  */
+
+export const LP_CONVERSION_TYPOGRAPHY_CSS = `
+/* Inline editing wraps headings in spans. Give labels, headings and copy separate rows in both modes. */
+[data-lp-content-typography="conversion"] [data-lp-section-head] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+[data-lp-content-typography="conversion"] [data-lp-section-head] > * {
+  position: relative;
+  max-width: 100%;
+  margin-block: 0 !important;
+}
+[data-lp-content-typography="conversion"] [data-lp-section-head] > [data-lp-section-eyebrow] {
+  align-self: center;
+}
+[data-lp-content-typography="conversion"] [data-lp-section-head][data-lp-align="left"] > [data-lp-section-eyebrow] { align-self: flex-start; }
+[data-lp-content-typography="conversion"] [data-lp-section-head][data-lp-align="right"] > [data-lp-section-eyebrow] { align-self: flex-end; }
+[data-lp-content-typography="conversion"] [data-lp-section-head] > [data-lp-inline-wrap] {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+[data-lp-content-typography="conversion"] [data-lp-section-head] :is(h2,[data-lp-field-anchor="headline"]) { animation: none !important; }
+[data-lp-content-typography="conversion"] [data-lp-section-head] > p { align-self: center; }
+[data-lp-content-typography="conversion"] :is(a,button,input,select,textarea) { scroll-margin-block: 90px; }
+[data-lp-content-typography="conversion"] input,
+[data-lp-content-typography="conversion"] textarea,
+[data-lp-content-typography="conversion"] select { font-size: 16px; }
+[data-lp-content-typography="conversion"] [data-lp-pricing-card] ul:empty { display:none; }
+[data-lp-content-typography="conversion"] [data-lp-pricing-grid][data-lp-item-count="1"] { grid-template-columns: minmax(0,1fr) !important; max-width:32rem; margin-inline:auto; }
+[data-lp-content-typography="conversion"] [data-lp-hero-copy] h1 { --lp-fs-hero: var(--lp-copy-h1); }
+[data-lp-content-typography="conversion"][data-lp-viewport="mobile"] [data-lp-block-id] > section:not(.lp-cd-launch) { padding-block: 32px !important; }
+[data-lp-content-typography="conversion"][data-lp-viewport="mobile"] [data-lp-hero-visual] { max-height: 260px; }
+[data-lp-content-typography="conversion"][data-lp-viewport="mobile"] [data-lp-hero-visual] img { max-height: 260px; height: auto !important; aspect-ratio: 4 / 3; object-fit: contain !important; }
+[data-lp-content-typography="conversion"][data-lp-viewport="mobile"] :is(a[href="#lead-form"],button[type="submit"]) { min-height: 48px; }
+/* Consistent hierarchy for generated copy. Explicit typography and accepted user sizes win. */
+[data-lp-content-typography="conversion"] {
+  --lp-copy-h1: clamp(2rem, 4vw, 3.25rem);
+  --lp-copy-h2: clamp(1.5rem, 2.7vw, 2.25rem);
+  --lp-copy-h3: clamp(1.125rem, 1.6vw, 1.375rem);
+}
+[data-lp-content-typography="conversion"][data-lp-viewport="mobile"] {
+  --lp-copy-h1: 2rem;
+  --lp-copy-h2: 1.5rem;
+  --lp-copy-h3: 1.125rem;
+}
+[data-lp-content-typography="conversion"][data-lp-viewport="tablet"] {
+  --lp-copy-h1: 2.625rem;
+  --lp-copy-h2: 1.875rem;
+  --lp-copy-h3: 1.25rem;
+}
+[data-lp-content-typography="conversion"] :is(h1,h2,h3):not([style*="font-size"]):not([data-lp-size-accepted="1"]):not([data-lp-size-accepted="1"] *) {
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  letter-spacing: -0.025em;
+}
+[data-lp-content-typography="conversion"] h1:not([style*="font-size"]):not([data-lp-size-accepted="1"]):not([data-lp-size-accepted="1"] *) {
+  font-size: var(--lp-copy-h1) !important;
+  line-height: 1.16 !important;
+}
+[data-lp-content-typography="conversion"] h2:not([style*="font-size"]):not([data-lp-size-accepted="1"]):not([data-lp-size-accepted="1"] *) {
+  font-size: var(--lp-copy-h2) !important;
+  line-height: 1.25 !important;
+}
+[data-lp-content-typography="conversion"] h3:not([style*="font-size"]):not([data-lp-size-accepted="1"]):not([data-lp-size-accepted="1"] *) {
+  font-size: var(--lp-copy-h3) !important;
+  line-height: 1.4 !important;
+}
+` + LP_NATIVE_CATALOG_POLISH_CSS;
 
 export const LP_RESPONSIVE_FOUNDATION_CSS = `
 /* —— Container & content width —— */
@@ -237,7 +310,6 @@ export const LP_RESPONSIVE_FOUNDATION_CSS = `
 [data-lp-viewport="mobile"] form#lead-form {
   width: 100% !important;
   max-width: 100% !important;
-  padding-inline: 0 !important;
 }
 [data-lp-viewport="mobile"] [data-lp-pricing-card],
 [data-lp-viewport="mobile"] [data-lp-card-item] {

@@ -1,0 +1,30 @@
+# Optional public edge. Use only on the public server after configuring DNS,
+# LANDING_PAGE_APP_HOST and releasing ports 80/443 for this edge.
+services:
+  api:
+    environment:
+      LANDING_PAGE_CNAME_TARGET: ${LANDING_PAGE_CNAME_TARGET:-aibeego.com}
+      LANDING_PAGE_EDGE_IPS: ${LANDING_PAGE_EDGE_IPS:-}
+      LANDING_PAGE_TLS_MODE: on-demand
+      LANDING_PAGE_PLATFORM_HOSTS: ${LANDING_PAGE_APP_HOST:-app.aibeego.com}
+  nginx:
+    volumes:
+      - ./docker/nginx/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+  domain-edge:
+    image: caddy:2@sha256:4e2425f6009577e7c651010f16679c28f7d12df3e7b1914f941a7a3370746b3c
+    profiles: [landing-domains]
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      LANDING_PAGE_APP_HOST: ${LANDING_PAGE_APP_HOST:-app.aibeego.com}
+    volumes:
+      - ./docker/caddy/Caddyfile.landing-domains:/etc/caddy/Caddyfile:ro
+      - landing_domain_caddy_data:/data
+      - landing_domain_caddy_config:/config
+    depends_on: [api, nginx]
+volumes:
+  landing_domain_caddy_data:
+  landing_domain_caddy_config:

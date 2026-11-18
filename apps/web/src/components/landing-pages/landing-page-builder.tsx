@@ -133,7 +133,11 @@ import { LandingPageGroupSelection, CanvasMultiInspector } from './landing-page-
 import { targetKey, canvasMoveLimits, readCanvasElementLayer, targetIsLocked, targetIsHidden, targetField, findCanvasTargetNode, selectionBox, boxIdentity, collectBoxTargets, readCanvasGroups, writeCanvasGroups, groupForSelection, canGroupTargets, applyCanvasMoves, selectionRect, type CanvasMove } from './landing-page-canvas-groups';
 import { LandingPageImageField } from './landing-page-image-field';
 import { LandingPageBuilderToolbar } from './landing-page-builder-toolbar';
+import { LandingPageTemplateContentDialog } from './landing-page-template-content-dialog';
+import { applyTemplateContent } from '@marketingspa/shared';
+import { useCurrentUser, hasPermission } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
+import { LandingPageHeaderMenuInspector } from './landing-page-header-menu-inspector';
 import {
   LandingPageMediaModal,
   type LpMediaItem,
@@ -238,6 +242,7 @@ const LP_THIN_SCROLL =
 
 type PagePayload = {
   id: string;
+  templateId?: string | null;
   name: string;
   slug: string;
   status: string;
@@ -496,6 +501,8 @@ function defaultBlock(type: LandingPageBlockType): LandingPageBlock {
 }
 
 export function LandingPageBuilder({ pageId }: { pageId: string }) {
+  const templateContentUser = useCurrentUser();
+  const [templateContentOpen, setTemplateContentOpen] = useState(false);
   const [page, setPage] = useState<PagePayload | null>(null);
   const [spec, setSpec] = useState<LandingPageSpec>(createEmptyLandingPageSpec());
   const [canvasSelection, setCanvasSelection] = useState<{
@@ -6475,8 +6482,28 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           onSave={() => { flushCanvasEdit(); void persist(specRef.current, page.name, { manual: true }); }}
           onPublish={() => void publish()}
           onViewLive={() => void viewLive()}
+          onTemplateContent={page.templateId && page.status !== 'ARCHIVED' && !spec.meta?.htmlSource && hasPermission(templateContentUser.data, 'lead.write')
+            ? () => { flushCanvasEdit(); setTemplateContentOpen(true); }
+            : undefined}
         />
       ) : null}
+
+      {templateContentOpen ? <LandingPageTemplateContentDialog
+        pageId={pageId}
+        currentSpec={spec}
+        onClose={() => setTemplateContentOpen(false)}
+        onApply={(snapshot, proposals, selectedIds, images, confirmed, urlSource) => {
+          if (saveConflict || pendingLocalDraft) throw new Error('Giải quyết xung đột bản nháp trước khi áp dụng nội dung.');
+          const outcome = applyTemplateContent(specRef.current, snapshot, proposals, selectedIds, images, confirmed);
+          if (outcome.conflicts.length) return { applied: [], conflicts: outcome.conflicts };
+          if (outcome.applied.length) {
+            if (urlSource) outcome.spec.meta = { ...outcome.spec.meta, contentSource: urlSource };
+            pushHistory(outcome.spec);
+            setSaveMsg(`Đã áp dụng ${outcome.applied.length} vị trí. Có thể hoàn tác bằng Ctrl+Z.`);
+          }
+          return outcome;
+        }}
+      /> : null}
 
       {!fullscreenPreview && (spec.meta?.htmlImportNotes?.length || spec.meta?.isolatedScriptCount) ? (
         <div
@@ -7597,6 +7624,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 />
               ) : null}
 
+              {selected.type === 'Header' ? (
+                <LandingPageHeaderMenuInspector
+                  block={selected}
+                  blocks={spec.blocks}
+                  rendererVersion={spec.meta?.rendererVersion}
+                  onChange={(body) => updateBlock(selected.id, { body })}
+                />
+              ) : null}
+
               {ctx.kind === 'section' ? (
                 <LandingPageSectionSettingsPanel
                   embedded
@@ -7621,6 +7657,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
 
               {(() => {
                 const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+                if (selected.type === 'Header' && field === 'body') return null;
                 if ((ctx.kind === 'text' || ctx.kind === 'button') && field) {
                   const textStyle =
                     (

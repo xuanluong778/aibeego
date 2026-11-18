@@ -1,4 +1,5 @@
 import { lookupCname, normalizeSenderDomain, isValidSenderDomain } from '../email-marketing/email-domain-dns.util';
+import { normalizeWebDomain } from './landing-page-domain-manager';
 
 /** Default CNAME target for Ai Bee Go landing pages. Override via LANDING_PAGE_CNAME_TARGET. */
 export function landingPageCnameTarget(): string {
@@ -7,7 +8,7 @@ export function landingPageCnameTarget(): string {
 }
 
 export function normalizeLandingCustomDomain(input: string): string {
-  return normalizeSenderDomain(input);
+  return normalizeWebDomain(input);
 }
 
 export function isValidLandingCustomDomain(domain: string): boolean {

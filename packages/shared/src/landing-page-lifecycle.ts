@@ -625,6 +625,15 @@ export function sanitizeLandingPageSpec(
       ? {
           meta: {
             fieldSources,
+            ...(metaIn.contentSource && typeof metaIn.contentSource === 'object' &&
+              ['sourceUrl', 'finalUrl'].every(key => {
+                const value = (metaIn.contentSource as Record<string, unknown>)[key];
+                try { const u = new URL(String(value)); return typeof value === 'string' && value.length <= 2000 && ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password; } catch { return false; }
+              }) ? { contentSource: {
+                sourceUrl: String((metaIn.contentSource as Record<string, unknown>).sourceUrl),
+                finalUrl: String((metaIn.contentSource as Record<string, unknown>).finalUrl),
+                readAt: String((metaIn.contentSource as Record<string, unknown>).readAt || '').slice(0, 40),
+              } } : {}),
             profileAppliedAt:
               typeof metaIn.profileAppliedAt === 'string' ? metaIn.profileAppliedAt : null,
             lastAiAt: typeof metaIn.lastAiAt === 'string' ? metaIn.lastAiAt : null,
@@ -920,6 +929,7 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
   );
   const sectionPlacement = sanitizeSectionPlacement(b.sectionPlacement);
   const base = {
+    ...(typeof b.eyebrow === 'string' && b.eyebrow.trim() ? { eyebrow: clampText(b.eyebrow, 80, mode) } : {}),
     ...(sectionPlacement ? { sectionPlacement } : {}),
     id,
     enabled,
@@ -988,6 +998,11 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
       headline: clampText(b.headline ?? '', 200, mode),
       subheadline: clampText(b.subheadline ?? '', 400, mode),
       kicker: clampText(b.kicker ?? '', 80, mode) || undefined,
+      ...(typeof b.originalPrice === 'string' ? { originalPrice: clampText(b.originalPrice, 80, mode) } : {}),
+      ...(typeof b.price === 'string' ? { price: clampText(b.price, 80, mode) } : {}),
+      ...(b.clockMode === 'offer' || b.clockMode === 'timer' ? { clockMode: b.clockMode } : {}),
+      ...(typeof b.ctaLabel === 'string' ? { ctaLabel: clampText(b.ctaLabel, 60, mode) } : {}),
+      ...(b.ctaUrl ? { ctaUrl: draftUrl(b.ctaUrl) || '#lead-form' } : {}),
       endsAt,
       timezone: clampText(b.timezone ?? 'Asia/Ho_Chi_Minh', 64, mode) || 'Asia/Ho_Chi_Minh',
       showDays: b.showDays !== false,
@@ -1036,6 +1051,7 @@ function sanitizeBlock(input: unknown, mode: LandingPageSanitizeMode = 'persist'
           id: clampText(plan.id ?? uid('plan'), 64, 'persist'),
           name: clampText(plan.name ?? 'Gói', 80, mode),
           price: clampText(plan.price ?? '', 80, mode),
+          ...(typeof plan.originalPrice === 'string' ? { originalPrice: clampText(plan.originalPrice, 80, mode) } : {}),
           period: clampText(plan.period ?? '', 40, mode),
           features,
           ctaLabel: clampText(plan.ctaLabel ?? 'Chọn gói', 60, mode),

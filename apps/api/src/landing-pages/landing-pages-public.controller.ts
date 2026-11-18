@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Header, Param, Post, Query, Req } from '@nestjs/common';
-import type { Request } from 'express';
+import { Body, Controller, Get, Header, Param, Post, Query, Req, Res, ForbiddenException } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { LandingPagesService } from './landing-pages.service';
 import { LandingPageTemplatePackService } from './landing-page-template-pack.service';
 import {
@@ -22,6 +22,25 @@ export class LandingPagesPublicController {
       if (first) return first.slice(0, 64);
     }
     return (req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 64);
+  }
+
+  /** Used only by the ingress/edge permission check; no draft or ownership token is exposed. */
+  @Get('domains/resolve')
+  @Header('Cache-Control', 'no-store')
+  async resolveDomain(@Query('host') host: string, @Res({ passthrough: true }) res: Response) {
+    const row = await this.service.resolveDomainHost(host);
+    if (!row) throw new ForbiddenException('Tên miền chưa xác minh hoặc trang chưa xuất bản');
+    res.setHeader('X-LP-Public-Key', row.publicKey);
+    res.setHeader('X-LP-Page-Id', row.pageId);
+    return { pageId: row.pageId, publicKey: row.publicKey };
+  }
+
+  @Get('domains/allow-certificate')
+  @Header('Cache-Control', 'no-store')
+  async allowCertificate(@Query('domain') domain: string) {
+    const row = await this.service.resolveDomainHost(domain);
+    if (!row) throw new ForbiddenException('Tên miền chưa đủ điều kiện cấp chứng chỉ');
+    return { allowed: true };
   }
 
   /** Published HTML source is public. Draft HTML requires the asset key. */
@@ -53,30 +72,35 @@ export class LandingPagesPublicController {
   }
 
   @Get(':slug')
-  getBySlug(
+  async getBySlug(
     @Param('slug') slug: string,
     @Query('organizationId') organizationId?: string,
+    @Req() req?: Request,
   ) {
-    return this.service.getPublicBySlug(slug, organizationId);
+    // Internal SSR uses a binding-specific key. Browser requests are scoped by Host.
+    const org = slug.startsWith('lp-domain-') ? organizationId : await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
+    return this.service.getPublicBySlug(slug, org);
   }
 
   @Post(':slug/lead')
-  submitLead(
+  async submitLead(
     @Param('slug') slug: string,
     @Body() dto: SubmitLandingPageLeadDto,
     @Req() req: Request,
     @Query('organizationId') organizationId?: string,
   ) {
-    return this.service.submitPublicLead(slug, dto, this.clientIp(req), organizationId);
+    const org = await this.service.domainOrganization(req.headers.host || '', slug, organizationId);
+    return this.service.submitPublicLead(slug, dto, this.clientIp(req), org);
   }
 
   @Post(':slug/events')
-  trackEvent(
+  async trackEvent(
     @Param('slug') slug: string,
     @Body() dto: TrackLandingPageEventDto,
     @Req() req: Request,
     @Query('organizationId') organizationId?: string,
   ) {
-    return this.service.trackPublicEvent(slug, dto, this.clientIp(req), organizationId);
+    const org = await this.service.domainOrganization(req.headers.host || '', slug, organizationId);
+    return this.service.trackPublicEvent(slug, dto, this.clientIp(req), org);
   }
 }

@@ -10,6 +10,7 @@ import {
   buildStoredZip,
   isPlatformAdmin,
   parseTemplatePack,
+  parseHtmlDocument,
   stripSensitiveKeys,
 } from '../apps/api/src/landing-pages/template-pack.ts';
 
@@ -155,6 +156,25 @@ assert.doesNotMatch(
 );
 assert.ok((htmlZip.template.blocks as Array<{ type: string }>).some((b) => b.type === 'Hero'));
 assert.ok((htmlZip.template.blocks as Array<{ type: string }>).some((b) => b.type === 'LeadForm'));
+
+// A JS gallery entrypoint must not erase the editable native JSON spec.
+const emptyPreview = '<!doctype html><html><body><div id="app"></div><script src="renderer.js"></script></body></html>';
+const nativeWithPreview = parseTemplatePack(pack({
+  'manifest.json': JSON.stringify(manifest),
+  'template.json': JSON.stringify(template),
+  'index.html': emptyPreview,
+}));
+assert.equal(nativeWithPreview.html, null);
+assert.deepEqual(nativeWithPreview.template.blocks, template.blocks);
+expectThrow(() => parseHtmlDocument('index.html', Buffer.from(emptyPreview)), 'JavaScript');
+expectThrow(() => parseTemplatePack(pack({ 'index.html': emptyPreview })), 'JavaScript');
+expectThrow(() => parseTemplatePack(pack({
+  'manifest.json': JSON.stringify(manifest), 'template.json': 'invalid', 'index.html': emptyPreview,
+})), 'JSON');
+const authoredHtml = '<html><body><h1>Trang tĩnh đã biên tập</h1><p>Nội dung phải được giữ.</p></body></html>';
+assert.ok(parseTemplatePack(pack({
+  'manifest.json': JSON.stringify(manifest), 'template.json': JSON.stringify(template), 'source.html': authoredHtml,
+})).html);
 
 assert.equal(isPlatformAdmin({ role: 'SUPER_ADMIN' }), true);
 assert.equal(isPlatformAdmin({ role: 'OWNER', platformRole: 'SUPER_ADMIN' }), true);

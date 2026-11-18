@@ -87,9 +87,8 @@ export class OpenAiService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    let res: Response;
     try {
-      res = await fetch(`${this.getBaseUrl()}/chat/completions`, {
+      const res = await fetch(`${this.getBaseUrl()}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -103,28 +102,28 @@ export class OpenAiService {
         }),
         signal: controller.signal,
       });
+      // Keep the deadline active while reading the body as well as waiting for headers.
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const err = (await res.json()) as { error?: { message?: string } };
+          detail = err.error?.message ?? '';
+        } catch {
+          detail = await res.text().catch(() => '');
+        }
+        if (controller.signal.aborted) throw new Error('OPENAI_BODY_ABORTED');
+        throw new Error(`OpenAI ${res.status}${detail ? `: ${detail}` : ''}`);
+      }
+      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      return (data.choices?.[0]?.message?.content ?? '').trim();
     } catch (err) {
-      clearTimeout(timer);
-      if ((err as Error).name === 'AbortError') {
+      if (controller.signal.aborted || (err as Error).name === 'AbortError') {
         throw new Error(`OpenAI timeout after ${timeoutMs}ms`);
       }
       throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      let detail = '';
-      try {
-        const err = (await res.json()) as { error?: { message?: string } };
-        detail = err.error?.message ?? '';
-      } catch {
-        detail = await res.text().catch(() => '');
-      }
-      throw new Error(`OpenAI ${res.status}${detail ? `: ${detail}` : ''}`);
-    }
-
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return (data.choices?.[0]?.message?.content ?? '').trim();
   }
 
   async chatCompletionWithTools(

@@ -13,6 +13,8 @@ import {
   type FreeResizeHandle,
 } from './landing-page-free-drag';
 import './landing-page-countdown.css';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
+import { InlineEditable } from './landing-page-canvas-ux';
 
 type Parts = { days: number; hours: number; minutes: number; seconds: number; expired: boolean };
 
@@ -69,6 +71,7 @@ function CountdownCellChrome({
   return (
     <div
       ref={bindShellRef}
+      data-lp-countdown-unit={label}
       data-lp-element-id={`${blockId}::${element}`}
       data-lp-element-kind="box"
       data-lp-element-selected={selected ? '1' : '0'}
@@ -141,13 +144,13 @@ function wrapCell(
 ) {
   if (!canvas) {
     return (
-      <div className={className} style={style} data-lp-motion-key={`countdown:${label.toLowerCase()}`} data-lp-motion-field={`countdownCell:${label}`}>
+      <div key={label} data-lp-countdown-unit={label} className={className} style={style} data-lp-motion-key={`countdown:${label.toLowerCase()}`} data-lp-motion-field={`countdownCell:${label}`}>
         {children}
       </div>
     );
   }
   return (
-    <CountdownCellChrome blockId={blockId} label={label} handlers={canvas} className={className} style={style}>
+    <CountdownCellChrome key={label} blockId={blockId} label={label} handlers={canvas} className={className} style={style}>
       {children}
     </CountdownCellChrome>
   );
@@ -163,7 +166,7 @@ export type CountdownPreviewParts = {
   seconds: number;
 };
 
-export function LandingPageCountdownLive({
+function LandingPageCountdownClock({
   block,
   primary,
   blockId,
@@ -176,15 +179,17 @@ export function LandingPageCountdownLive({
   canvas?: LandingPageCanvasHandlers | null;
   previewParts?: CountdownPreviewParts;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Server and first client render must agree; begin ticking only after hydration.
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
     if (previewParts) return;
+    setNowMs(Date.now());
     const id = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [previewParts]);
 
-  const live = calcParts(block.endsAt, nowMs);
+  const live: Parts = nowMs === null ? { days: 0, hours: 0, minutes: 0, seconds: 0, expired: false } : calcParts(block.endsAt, nowMs);
   const parts: Parts = previewParts
     ? { ...previewParts, expired: false }
     : live;
@@ -223,6 +228,7 @@ export function LandingPageCountdownLive({
     { label: 'Phút', value: parts.minutes, show: block.showMinutes !== false },
     { label: 'Giây', value: parts.seconds, show: block.showSeconds !== false },
   ].filter((c) => c.show);
+  if (!cells.length) return null;
 
   if (style === 'inline') {
     return (
@@ -283,7 +289,9 @@ export function LandingPageCountdownLive({
 
   return (
     <div
-      className="mx-auto grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3"
+      className="lp-countdown-boxes mx-auto max-w-xl"
+      data-lp-countdown-clock="boxes"
+      style={{ '--lp-countdown-units': cells.length } as React.CSSProperties}
       aria-live="polite"
     >
       {cells.map((c) =>
@@ -300,6 +308,7 @@ export function LandingPageCountdownLive({
           },
           <>
             <div
+              data-lp-countdown-value="1"
               className="text-2xl font-extrabold tabular-nums sm:text-3xl"
               style={{ color: primary }}
             >
@@ -313,6 +322,38 @@ export function LandingPageCountdownLive({
       )}
     </div>
   );
+}
+
+export function LandingPageCountdownLive(props: Parameters<typeof LandingPageCountdownClock>[0]) {
+  const { block, canvas, primary } = props;
+  const isExpired = () => block.clockMode !== 'offer' && Number.isFinite(Date.parse(block.endsAt)) && Date.parse(block.endsAt) <= Date.now();
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    setExpired(isExpired());
+    if (!block.price || block.clockMode === 'offer') return;
+    const timer = window.setInterval(() => setExpired(isExpired()), 1000);
+    return () => window.clearInterval(timer);
+  }, [block.endsAt, block.clockMode, block.price]);
+  return <>
+    {block.price && !expired && <div data-lp-countdown-offer style={{ marginBlock: '1.25rem', textAlign: 'center', containerType: 'inline-size', width: '100%', minWidth: 0 }}>
+      <LandingPagePriceComparison originalPrice={block.originalPrice} price={block.price} center />
+      <InlineEditable as="div" blockId={block.id} field="price" value={block.price} handlers={canvas}
+        blockStyle={(block.style || {}) as Record<string, unknown>} textRole="pricing"
+        className="lp-countdown-price"
+        style={{ fontSize: 'clamp(1.25rem, 9cqi, 3rem)', fontWeight: 900, lineHeight: 1.2, marginBottom: '1rem', overflowWrap: 'normal', wordBreak: 'normal', whiteSpace: 'nowrap' }} />
+      <a href={block.ctaUrl || '#lead-form'} onClick={event => {
+        if (canvas) { event.preventDefault(); return; }
+        if (!block.ctaUrl || block.ctaUrl === '#lead-form') {
+          const root = event.currentTarget.closest('[data-lp-canvas-root]') || document;
+          const form = root.querySelector('form');
+          if (form) { event.preventDefault(); form.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+      }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 48, padding: '0.8rem 1.5rem', borderRadius: '0.75rem', background: primary, color: '#fff', fontWeight: 800, textDecoration: 'none', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+        {block.ctaLabel || 'Đăng ký ngay'}
+      </a>
+    </div>}
+    {block.clockMode !== 'offer' && <LandingPageCountdownClock {...props} />}
+  </>;
 }
 
 function pad2(n: number) {
@@ -411,11 +452,11 @@ function LaunchClock({
     className: string,
     inner: ReactNode,
   ) =>
-    wrapCell(cellBlockId, canvas, cell.label, className, { flexShrink: 0, width: 'auto', height: 'auto' }, inner);
+    wrapCell(cellBlockId, canvas, cell.label, className, undefined, inner);
 
   if (styleId === 'silver-minimal') {
     return (
-      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+      <div className="lp-cd-clock" data-clock={styleId} style={{ '--lp-countdown-units': cells.length } as React.CSSProperties} aria-live="polite">
         <div className="lp-cd-bar">
           {cells.map((c) =>
             unit(
@@ -434,7 +475,7 @@ function LaunchClock({
 
   if (styleId === 'opal-ribbon') {
     return (
-      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+      <div className="lp-cd-clock" data-clock={styleId} style={{ '--lp-countdown-units': cells.length } as React.CSSProperties} aria-live="polite">
         <div className="lp-cd-capsule">
           {cells.map((c) =>
             unit(
@@ -453,7 +494,7 @@ function LaunchClock({
 
   if (styleId === 'cobalt-orbit') {
     return (
-      <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+      <div className="lp-cd-clock" data-clock={styleId} style={{ '--lp-countdown-units': cells.length } as React.CSSProperties} aria-live="polite">
         <div className="lp-cd-units">
           {cells.map((c, i) => (
             <span key={c.label} className="inline-flex items-end">
@@ -474,7 +515,7 @@ function LaunchClock({
   }
 
   return (
-    <div className="lp-cd-clock" data-clock={styleId} aria-live="polite">
+    <div className="lp-cd-clock" data-clock={styleId} style={{ '--lp-countdown-units': cells.length } as React.CSSProperties} aria-live="polite">
       <div className="lp-cd-units">
         {cells.map((c) => {
           if (styleId === 'amethyst-flip') {

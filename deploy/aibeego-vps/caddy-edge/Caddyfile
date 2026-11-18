@@ -1,0 +1,81 @@
+# Caddy "edge" cho tên miền riêng của landing page (HOST MODE, chạy trên IP edge riêng).
+# Chưa được triển khai. Xem PLAN.md để biết trình tự, kiểm tra và cách hoàn tác.
+#
+# Biến môi trường (đặt trong .env cạnh docker-compose.yml):
+#   EDGE_IP      IP công khai RIÊNG cho edge (KHÁC 116.118.45.72 của nginx/FastPanel)
+#   ACME_EMAIL   email nhận thông báo Let's Encrypt
+#   API_UPSTREAM mặc định 127.0.0.1:4000
+#   WEB_UPSTREAM mặc định 127.0.0.1:3000
+
+{
+	admin off
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		# Chỉ cấp chứng chỉ khi API xác nhận: TXT đã xác minh + DNS trỏ đúng + trang đã xuất bản.
+		ask http://{$API_UPSTREAM:127.0.0.1:4000}/api/v1/landing-pages/public/domains/allow-certificate
+	}
+}
+
+# Hỏi API xem Host này có thuộc landing page đã xác minh không.
+# Xóa header do client gửi trước để không ai giả mạo được khóa trang.
+(lp_auth) {
+	request_header -X-Lp-Public-Key
+	request_header -X-Lp-Page-Id
+	forward_auth {$API_UPSTREAM:127.0.0.1:4000} {
+		uri /api/v1/landing-pages/public/domains/resolve?host={http.request.host}
+		copy_headers X-Lp-Public-Key X-Lp-Page-Id
+	}
+}
+
+# HTTP: chuyển sang HTTPS (thử thách ACME HTTP-01 được Caddy xử lý trước khối này).
+http:// {
+	bind {$EDGE_IP}
+	redir https://{host}{uri} permanent
+}
+
+https:// {
+	bind {$EDGE_IP}
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	header -Server
+
+	# Tài nguyên tĩnh dùng chung, không cần xác thực host (giống nginx.local.conf).
+	@static path_regexp static ^/(_next/static/|landing-page-assets/|landing-pages/templates/|brand/|favicon)
+	handle @static {
+		reverse_proxy {$WEB_UPSTREAM:127.0.0.1:3000} {
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle /robots.txt {
+		header Content-Type text/plain
+		respond "User-agent: *\nAllow: /\nDisallow: /api/\n" 200
+	}
+
+	handle /uploads/* {
+		import lp_auth
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:4000}
+	}
+
+	handle /api/v1/landing-pages/public/* {
+		import lp_auth
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:4000}
+	}
+
+	# Trang chủ của tên miền khách -> /p/<khóa công khai>. Header X-LP-Page-Id để app kiểm tra HTTPS.
+	handle / {
+		import lp_auth
+		header X-LP-Page-Id "{http.request.header.X-Lp-Page-Id}"
+		header Cache-Control "private, no-store"
+		rewrite * /p/{http.request.header.X-Lp-Public-Key}
+		reverse_proxy {$WEB_UPSTREAM:127.0.0.1:3000} {
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}

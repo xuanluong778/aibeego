@@ -1,4 +1,5 @@
 'use client';
+import { LandingPagePriceComparison } from './landing-page-price-comparison';
 
 import { type CSSProperties, type ReactNode } from 'react';
 import {
@@ -33,6 +34,7 @@ import './landing-page-section-library-v2.css';
 
 type Entry = {
   id: string;
+  originalPrice?: string;
   title?: string;
   description?: string;
   imageUrl?: string;
@@ -410,6 +412,7 @@ export function LandingPageSectionLibraryBlockV2({
                 className={`sl2-price ${plan.highlighted ? 'sl2-featured' : ''}`}
               >
                 {text(`planName:${plan.id}`, plan.name, 'h3', 'sl2-card-title', 'card-title')}
+                <LandingPagePriceComparison originalPrice={plan.originalPrice} price={plan.price} />
                 <div className="sl2-price-amount">
                   {text(`planPrice:${plan.id}`, plan.price, 'span', 'sl2-price-value', 'pricing')}
                   {plan.price !== 'Liên hệ' && plan.period ? (
@@ -418,7 +421,7 @@ export function LandingPageSectionLibraryBlockV2({
                 </div>
                 {button(plan.ctaLabel, plan.ctaUrl, `planCta:${plan.id}`, !plan.highlighted)}
                 <ul className="sl2-plan-features">
-                  {plan.features?.map((feature, i) => (
+                  {plan.features?.filter(Boolean).map((feature, i) => (
                     <li key={i}>
                       <Check aria-hidden />
                       <span>{feature}</span>
