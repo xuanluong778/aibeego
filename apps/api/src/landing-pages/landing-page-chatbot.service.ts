@@ -24,6 +24,7 @@ import { OpenAiService } from '../openai/openai.service';
 import { EventsGateway } from '../events/events.gateway';
 import { LeadsService } from '../leads/leads.service';
 import { AdPlatform } from '@marketingspa/database';
+import { readLandingPageConversationState } from './landing-page-chatbot-context';
 import { generateLandingPageChatbotReply, requestsLandingPageContact, declinesLandingPageContact, LANDING_PAGE_HANDOFF_REPLY } from './landing-page-chatbot-replies';
 import { LandingPageChatbotNotificationService } from './landing-page-chatbot-notification.service';
 import { CREDIT_EXHAUSTED_MESSAGE, defaultGreeting } from '../chatbot-cskh/utils/chatbot-constants';
@@ -402,7 +403,7 @@ export class LandingPageChatbotService {
       return { ok: false, message: 'Tin nhắn trống.', reply: 'Vui lòng nhập nội dung.' };
     }
 
-    await this.prisma.chatbotMessage.create({
+    const userMessage = await this.prisma.chatbotMessage.create({
       data: { conversationId: conversation.id, role: 'user', message: userText },
     });
 
@@ -416,9 +417,9 @@ export class LandingPageChatbotService {
 
     const [history, settings] = await Promise.all([
       this.prisma.chatbotMessage.findMany({
-        where: { conversationId: conversation.id },
+        where: { conversationId: conversation.id, id: { not: userMessage.id } },
         orderBy: { createdAt: 'desc' },
-        take: 12,
+        take: 24,
       }),
       this.chatbot.getSettings(page.organizationId),
     ]);
@@ -435,19 +436,25 @@ export class LandingPageChatbotService {
             model: input.model,
             temperature: input.temperature,
             maxTokens: 500,
+            responseFormat: 'json_object',
             messages: [
               { role: 'system', content: input.systemPrompt },
-              ...input.history.slice(-6),
+              ...input.history.slice(-12),
               { role: 'user', content: input.userText },
             ],
           })
       : undefined;
 
+    const previousState = history.find(message => {
+      const meta = message.metadata as { landingPageId?: string; conversationState?: unknown } | null;
+      return message.role === 'assistant' && meta?.landingPageId === page.id && Boolean(meta.conversationState);
+    })?.metadata as { conversationState?: unknown } | undefined;
     const aiResult = await generateLandingPageChatbotReply({
       bot,
       userText,
       sources,
       history: history.reverse(),
+      conversationState: readLandingPageConversationState(previousState?.conversationState),
       settings,
       usageAllowed: usage.allowed || page.preview,
       openAiChat,
@@ -460,9 +467,12 @@ export class LandingPageChatbotService {
         conversationId: conversation.id,
         role: 'assistant',
         message: aiResult.reply,
-        ...(aiResult.evidence?.length
-          ? { metadata: { evidence: aiResult.evidence, landingPageId: page.id } as object }
-          : {}),
+        metadata: {
+          landingPageId: page.id,
+          conversationState: aiResult.conversationState,
+          answerMode: aiResult.answerMode || 'knowledge',
+          ...(aiResult.evidence?.length ? { evidence: aiResult.evidence } : {}),
+        } as object,
       },
     });
 

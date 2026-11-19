@@ -1,20 +1,37 @@
-# Overlay cho VPS aibeego.com (mirror of /opt/marketingaz/docker-compose.vps.yml).
-# Sync: deploy/aibeego-vps → /opt/marketingaz (see deploy/aibeego-vps/README.md).
+# Overlay cho VPS: chỉ publish Nginx ra cổng 3999.
+# API (4000) và web (3000) ở trong mạng Docker, không bind ra host
+# vì 3000/4000 trên VPS đã có tiến trình khác.
 services:
   api:
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    image: marketingaz-api:lp-chatbot-context-20261119
     build:
-      context: /var/www/marketingaut_usr/data/www/marketingautoaz.com
+      context: /var/www/aibeego_com_usr/data/www/aibeego.com
       dockerfile: apps/api/Dockerfile
     ports: !override []
     environment:
       HOST: 0.0.0.0
+      LP_CHATBOT_TRIAL_ENFORCE: "1"
+      LP_CHATBOT_TRIAL_ORG_IDS: "7109208d-870a-4829-aec3-82f9ebc605a1,5756b22e-c568-4a9f-b5d4-3e4d1a2e03a0"
+      LP_CHATBOT_CUSTOM_DOMAIN_E2E_PASS: "0"
+      LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED: "true"
+      LP_TEMPLATE_BULK_PREFERRED_SOURCES: '{"online-course":"online-course-dark-emerald-v3"}'
+      LP_TEMPLATE_RELEASE_READ_ONLY: "0"
+      LP_TEMPLATE_RELEASE_MANIFEST: "/run/template-release/manifest.json"
+      LP_TEMPLATE_RELEASE_ID: "templates-all-200-ee63e7f-20261103"
+      LP_TEMPLATE_RELEASE_SHA256: "c80af859cbb181e69ff3e6f908898570a39f461534bd25a175a40bcc5d638709"
+      LP_TEMPLATE_RELEASE_ENVIRONMENT: "production"
       APP_URL: https://aibeego.com
       API_URL: https://aibeego.com
     volumes:
       - /var/www/marketingaut_usr/data/www/marketingautoaz.com/apps/api/uploads:/app/uploads
   web:
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    image: marketingaz-web:lp-chatbot-form-polish-20261119
     build:
-      context: /var/www/marketingaut_usr/data/www/marketingautoaz.com
+      context: /var/www/aibeego_com_usr/platform-subdomain-worktree
       dockerfile: apps/web/Dockerfile
     ports: !override []
     environment:
@@ -28,7 +45,7 @@ services:
       - ./docker/brand/logo.png:/app/public/logo.png:ro
       - ./docker/brand/favicon.png:/app/public/favicon.png:ro
       - ./docker/brand/favicon.svg:/app/public/favicon.svg:ro
-    entrypoint: ["/bin/sh", "/web-start.sh"]
+    entrypoint: ["docker-entrypoint.sh", "node", "apps/web/server.js"]
   nginx:
     ports: !override
       - '3999:80'

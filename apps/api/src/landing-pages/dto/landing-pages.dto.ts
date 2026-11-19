@@ -1,9 +1,9 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsIn,
+  IsEmail,
   IsNumber,
   IsObject,
   IsOptional,
@@ -11,24 +11,6 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-
-export class GenerateTemplateContentDto {
-  @IsObject() brief!: Record<string, unknown>;
-  /** Current unsaved canvas, used for suggestions only; never persisted by this endpoint. */
-  @IsObject() snapshot!: Record<string, unknown>;
-  @IsOptional() @IsString() @MaxLength(180) blockId?: string;
-  @IsOptional() @IsString() @MaxLength(80) sourceId?: string;
-  @IsString() @MinLength(1) @MaxLength(120) idempotencyKey!: string;
-}
-
-export class ImportTemplateUrlImageDto {
-  @IsString() @MinLength(1) @MaxLength(80) sourceId!: string;
-  @IsString() @MinLength(8) @MaxLength(2000) imageUrl!: string;
-}
-
-export class ValidateTemplateContentImagesDto {
-  @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) @MaxLength(300, { each: true }) imageIds!: string[];
-}
 
 const THEMES = ['MODERN', 'PREMIUM', 'MINIMAL', 'BOLD', 'CORPORATE'] as const;
 const STATUSES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;
@@ -615,4 +597,65 @@ export class TrackLandingPageEventDto {
   @IsString()
   @MaxLength(200)
   website?: string;
+}
+
+export class LandingPageChatbotMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  message!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sessionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  pageUrl?: string;
+
+  /** Draft preview token — isolates sessions; never trusted for bot binding. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  previewToken?: string;
+}
+
+export class LandingPageChatbotLeadDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(32)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  need?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sessionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  pageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  previewToken?: string;
 }
