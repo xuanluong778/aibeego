@@ -1,0 +1,28 @@
+# LP chatbot controlled production deploy — rollback pointers
+# Created: 2026-11-19 (UTC+7)
+
+RELEASE_TAG=lp-chatbot-20261119
+
+## Rollback images (API first, then web — keep DB migrated)
+PREV_API_IMAGE=marketingaz-api:413fix-20261117
+PREV_API_SHA256=sha256:c30a49691813930862a1c487213f660b564c50a11ebdb3b02154c578e4b50730
+PREV_WEB_IMAGE=marketingaz-web:header-menu-editor-20261118
+PREV_WEB_SHA256=sha256:4df39736f709f84d6a0e4a13e9e74251480bcdcae2cab32dbea27f333b75550f
+
+NEW_API_IMAGE=marketingaz-api:lp-chatbot-20261119
+NEW_API_SHA256=sha256:8211014a8075ee9e3c63a4d93cad00b448c30ee5ae8d7dcc45f7be8ff31c67f9
+NEW_WEB_IMAGE=marketingaz-web:lp-chatbot-ui-20261119d
+# 20261119d: export landing-page-chatbot from @marketingspa/shared (fix builder Nâng cao → Chatbot crash)
+NEW_WEB_SHA256=sha256:6d704b7a9be1963271bf80d0b809fbed1d2b516905f7feb82169012fe66e6c39
+# 20261119c: restore header-menu-editor + header logo cap (from header-menu-editor-20261118)
+# Broken UI image (reverted): marketingaz-web:lp-chatbot-20261119 — built from mirror without new header/templates
+UI_FIX_DEPLOYED_AT=2026-11-19T11:50+07 (WEB only; API unchanged lp-chatbot-20261119)
+DEPLOYED_AT=2026-11-19T04:15+07 (API then WEB)
+
+## Rollback command (no migrate down)
+# cd /opt/marketingaz
+# Edit docker-compose.vps.yml image: tags back to PREV_* and remove trial env if desired
+# docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d api
+# smoke health; then: up -d web nginx
+
+LP_CHATBOT_TRIAL_ORG_IDS=7109208d-870a-4829-aec3-82f9ebc605a1
