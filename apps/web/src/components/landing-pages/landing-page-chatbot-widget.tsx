@@ -1,6 +1,9 @@
 'use client';
 
+import Image from 'next/image';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+
+const LP_CHATBOT_FAB_ICON = '/landing-page-assets/lp-chatbot-fab-icon.png';
 import type { LandingPageChatbotPublicConfig } from '@marketingspa/shared';
 import { getApiBaseUrl } from '@/lib/api-client';
 
@@ -225,11 +228,18 @@ export function LandingPageChatbotWidget({
         <button
           type="button"
           aria-label="Mở chatbot"
-          className="flex h-14 w-14 items-center justify-center rounded-full text-xl text-white shadow-lg"
-          style={{ background: cfg.primaryColor }}
+          className="relative h-16 w-16 overflow-hidden rounded-full shadow-lg ring-2 ring-white/90 transition-transform hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          style={{ outlineColor: cfg.accentColor }}
           onClick={() => setOpen(true)}
         >
-          💬
+          <Image
+            src={LP_CHATBOT_FAB_ICON}
+            alt=""
+            width={64}
+            height={64}
+            className="h-full w-full object-cover"
+            priority
+          />
         </button>
       ) : (
         <div
@@ -240,6 +250,13 @@ export function LandingPageChatbotWidget({
             className="flex items-center gap-2 px-3 py-2.5 text-white"
             style={{ background: cfg.primaryColor }}
           >
+            <Image
+              src={LP_CHATBOT_FAB_ICON}
+              alt=""
+              width={36}
+              height={36}
+              className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-white/40"
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{cfg.displayName}</div>
               {cfg.hotline ? (
@@ -260,7 +277,7 @@ export function LandingPageChatbotWidget({
             {msgs.map((m, i) => (
               <div
                 key={`${i}-${m.role}`}
-                className={`max-w-[92%] rounded-xl px-3 py-2 ${
+                className={`max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-3 py-2 ${
                   m.role === 'user'
                     ? 'ml-auto text-white'
                     : m.role === 'sys'
