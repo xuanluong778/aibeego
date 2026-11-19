@@ -1,4 +1,6 @@
 'use client';
+import { LandingPageFixedHeader } from './landing-page-fixed-header';
+import { readHeaderMenu, resolveHeaderLinks, followHeaderLink } from './landing-page-header-navigation';
 import { LandingPagePriceComparison } from './landing-page-price-comparison';
 import { useState, type ReactNode } from 'react';
 import type { LandingPageBlock, LandingPageSpec } from '@marketingspa/shared';
@@ -66,6 +68,7 @@ export function WebsiteBriefBlock({
   switch (block.type) {
     case 'Header':
       return (
+        <LandingPageFixedHeader blockId={block.id} disabled={Boolean(canvas)} background={block.background}>
         <header id={block.id} className="webstudio-header">
           <div className="webstudio-shell webstudio-header-row">
             <div className="webstudio-brand">
@@ -89,7 +92,15 @@ export function WebsiteBriefBlock({
                 if (e.key === 'Escape') setOpen(false);
               }}
             >
-              {(['Features', 'Process', 'Pricing'] as const).map((type, i) =>
+              {readHeaderMenu(block.body, spec.blocks, block.id) !== null
+                ? resolveHeaderLinks(block.body, spec.blocks, block.id).map(({ label, href }, i) => (
+                    <span key={i}><a className="webstudio-nav-link" href={href} onClick={(event) => {
+                      event.preventDefault();
+                      if (!canvas) followHeaderLink(event.currentTarget, href);
+                      setOpen(false);
+                    }}>{label}<span aria-hidden>→</span></a></span>
+                  ))
+                : (['Features', 'Process', 'Pricing'] as const).map((type, i) =>
                 target(type) ? (
                   <span key={type}>
                     {link(
@@ -111,6 +122,7 @@ export function WebsiteBriefBlock({
             </div>
           </div>
         </header>
+        </LandingPageFixedHeader>
       );
     case 'Hero':
       return section(

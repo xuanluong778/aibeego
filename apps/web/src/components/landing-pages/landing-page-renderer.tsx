@@ -1,4 +1,7 @@
 'use client';
+import { LandingPageFixedHeader } from './landing-page-fixed-header';
+import './landing-page-header-logo.css';
+import { LandingPageHeaderNavigation } from './landing-page-header-navigation';
 import { isRegistrationPair } from './landing-page-registration-layout';
 import './landing-page-registration-layout.css';
 import './landing-page-mobile.css';
@@ -2421,6 +2424,7 @@ function ListCards({
 
 function BlockView({
   block,
+  navigationBlocks,
   primary,
   layout,
   category,
@@ -2432,6 +2436,7 @@ function BlockView({
   goldStandard,
 }: {
   block: LandingPageBlock;
+  navigationBlocks?: LandingPageBlock[];
   primary: string;
   layout: LandingPageLayout;
   category?: string;
@@ -2455,15 +2460,11 @@ function BlockView({
     case 'Hero':
       return null; // rendered by shell
     case 'Header': {
-      const links = (block.body || '')
-        .split('|')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 6);
       const headerVariant = canonicalBlockVariant('Header', block.variant);
       const minimal = headerVariant === 'minimal';
       const centered = headerVariant === 'centered';
       return (
+        <LandingPageFixedHeader blockId={block.id} disabled={Boolean(canvas)} background={block.background}>
         <header
           className={
             minimal
@@ -2487,7 +2488,7 @@ function BlockView({
           >
             <div className="flex min-w-0 items-center gap-3">
               {block.imageUrl ? (
-                <ElementChrome blockId={block.id} element="image" handlers={canvas} kind="image" blockStyle={(block.style || {}) as Record<string, unknown>}>
+                <ElementChrome blockId={block.id} element="image" handlers={canvas} kind="image" className="lp-header-logo" blockStyle={(block.style || {}) as Record<string, unknown>}>
                   <LpContentImage src={block.imageUrl} alt={block.headline || ''} width={120} height={36} className="h-9 w-auto max-w-[120px] object-contain" />
                 </ElementChrome>
               ) : null}
@@ -2502,13 +2503,7 @@ function BlockView({
                 style={{ color: 'var(--lp-secondary)' }}
               />
             </div>
-            {links.length && !minimal ? (
-              <nav className="hidden flex-wrap gap-4 text-xs font-medium md:flex" style={{ color: 'var(--lp-muted)' }} aria-label="Primary">
-                {links.map((l) => (
-                  <span key={l}>{l}</span>
-                ))}
-              </nav>
-            ) : null}
+            <LandingPageHeaderNavigation body={block.body} blocks={navigationBlocks || []} editing={!!canvas} headerId={block.id} />
             {block.ctaLabel && !minimal ? (
               canvas ? (
                 <InlineEditable
@@ -2540,6 +2535,7 @@ function BlockView({
             ) : null}
           </div>
         </header>
+        </LandingPageFixedHeader>
       );
     }
     case 'Speaker': {
@@ -4676,7 +4672,7 @@ export function LandingPageRenderer({
                             primary={localPrimary} leadForm={null} onLeadSubmit={onLeadSubmit}
                             onFormStart={onFormStart} canvas={canvasHandlers} mode={mode} />
                         ) : (
-                          <MemoBlockView block={block} primary={localPrimary} layout="classic"
+                          <MemoBlockView navigationBlocks={spec.blocks} block={block} primary={localPrimary} layout="classic"
                             mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart}
                             skipLeadForm={false} canvas={canvasHandlers} />
                         )}
@@ -4817,6 +4813,7 @@ export function LandingPageRenderer({
                   surfaceFallback="var(--lp-surface)"
                 >
                   <MemoBlockView
+                    navigationBlocks={spec.blocks}
                     block={block}
                     primary={primary}
                     layout={layout}
@@ -4846,7 +4843,7 @@ export function LandingPageRenderer({
           return rows;
           })()}
           <LandingPageRenderOverlapGuard spec={spec}/>
-          <LandingPageSectionElements spec={spec} canvas={canvasHandlers} renderNative={block=><MemoBlockView block={block} primary={primary} layout={layout} category={category} mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} goldStandard={goldStandard}/>} />
+          <LandingPageSectionElements spec={spec} canvas={canvasHandlers} renderNative={block=><MemoBlockView navigationBlocks={spec.blocks} block={block} primary={primary} layout={layout} category={category} mode={mode} onLeadSubmit={onLeadSubmit} onFormStart={onFormStart} canvas={canvasHandlers} goldStandard={goldStandard}/>} />
         </article>
         </LandingPagePublicMetaProvider>
       </FreeGuidesProvider>

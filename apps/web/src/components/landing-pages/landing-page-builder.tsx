@@ -104,6 +104,8 @@ import {
 } from './landing-page-inspector-rail';
 import { LandingPageInspectorGlobalDesign } from './landing-page-inspector-global-design';
 import { LandingPageAddComponentsPanel } from './landing-page-add-components-panel';
+import { LandingPageHeaderMenuInspector } from './landing-page-header-menu-inspector';
+import { LandingPageChatbotInspector } from './landing-page-chatbot-inspector';
 import { LandingPageButtonInspector } from './landing-page-button-inspector';
 import { LandingPageIconInspector } from './landing-page-icon-inspector';
 import { LandingPageLeadFormFieldsInspector } from './landing-page-lead-form-fields-inspector';
@@ -7547,6 +7549,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 })()}
                 isTextHidden={(() => {
                   const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+                if (selected.type === 'Header' && field === 'body') return null;
                   if (!field) return false;
                   const key = elementStyleKey(selected.id, field);
                   return Boolean(
@@ -7641,6 +7644,15 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                     };
                     setMediaOpen(true);
                   }}
+                />
+              ) : null}
+
+              {selected.type === 'Header' ? (
+                <LandingPageHeaderMenuInspector
+                  block={selected}
+                  blocks={spec.blocks}
+                  rendererVersion={spec.meta?.rendererVersion}
+                  onChange={(body) => updateBlock(selected.id, { body })}
                 />
               ) : null}
 
@@ -8564,6 +8576,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 </div>
               </InspectorAccordion>
 
+              <InspectorAccordion title="Chatbot" data-lp="advanced-chatbot" defaultOpen={false}>
+                <LandingPageChatbotInspector
+                  spec={spec}
+                  pageId={pageId}
+                  slug={page.slug}
+                  onChange={(next) => pushHistory(markLandingPageUserEdits(next, ['chatbot']))}
+                />
+              </InspectorAccordion>
               <InspectorAccordion title="Phiên bản / Xem trước" data-lp="advanced-versions" defaultOpen={false}>
                 <div className="space-y-2" data-lp-inspector-versions>
                   <LandingPageVersionHistoryPanel

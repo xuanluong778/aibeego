@@ -32,9 +32,18 @@ export interface RagKnowledgeBase {
   updatedAt: string;
   stats: RagKbStats;
   documents: RagKbDocument[];
+  linkedBots?: Array<{ id: string; name: string; status: string }>;
 }
 
 const KEY = ['rag-kb'];
+
+function invalidateKnowledge(qc: ReturnType<typeof useQueryClient>) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: KEY }),
+    qc.invalidateQueries({ queryKey: ['chatbot-cskh', 'knowledge'] }),
+  ]);
+}
+
 
 export function useRagKnowledgeBases() {
   return useQuery({
@@ -51,7 +60,7 @@ export function useCreateRagKb() {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -71,7 +80,7 @@ export function useUpdateRagKb() {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -79,7 +88,7 @@ export function useDeleteRagKb() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient(`/rag-kb/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -88,7 +97,7 @@ export function useReindexRagKb() {
   return useMutation({
     mutationFn: (id: string) =>
       apiClient<RagKnowledgeBase>(`/rag-kb/${id}/reindex`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -100,7 +109,7 @@ export function useImportRagKbFile() {
       fd.append('file', file);
       return apiUpload<RagKnowledgeBase>(`/rag-kb/${id}/import/file`, fd);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -112,7 +121,7 @@ export function useImportRagKbUrl() {
         method: 'POST',
         body: JSON.stringify({ url, title }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -124,7 +133,7 @@ export function useImportRagKbText() {
         method: 'POST',
         body: JSON.stringify({ title, content }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -173,7 +182,7 @@ export function useDeleteRagKbDocument() {
   return useMutation({
     mutationFn: ({ kbId, docId }: { kbId: string; docId: string }) =>
       apiClient(`/rag-kb/${kbId}/documents/${docId}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }
 
@@ -194,5 +203,58 @@ export function useRagKbSearch() {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+  });
+}
+
+export interface SharedKnowledgeBot {
+  id: string;
+  botName: string;
+  status: string;
+  knowledgeBaseId: string | null;
+  knowledgeBaseName: string | null;
+  existingSourceCount: number;
+  zaloConnected: boolean;
+  zaloAutoReply: boolean;
+}
+
+export function useSharedKnowledgeBots() {
+  return useQuery({ queryKey: [...KEY, 'chatbots'], queryFn: () => apiClient<SharedKnowledgeBot[]>('/rag-kb/chatbots'), refetchOnWindowFocus: 'always' });
+}
+
+export function useConnectSharedKnowledge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, knowledgeBaseId, zaloAutoReply }: { botId: string; knowledgeBaseId: string; zaloAutoReply?: boolean }) =>
+      apiClient<{ botId: string; knowledgeBaseId: string; importedSourceCount: number }>(`/rag-kb/chatbots/${botId}`, { method: 'PATCH', body: JSON.stringify({ knowledgeBaseId, ...(typeof zaloAutoReply === 'boolean' ? { zaloAutoReply } : {}) }) }),
+    onSuccess: () => invalidateKnowledge(qc),
+  });
+}
+
+export function useConsolidateChatbotKnowledge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (botId: string) => apiClient<{ botId: string; knowledgeBaseId: string; importedSourceCount: number }>(`/rag-kb/chatbots/${botId}/consolidate`, { method: 'POST' }),
+    onSuccess: () => invalidateKnowledge(qc),
+  });
+}
+
+export function useUpdateRagDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kbId, docId, title, content }: { kbId: string; docId: string; title: string; content: string }) =>
+      apiClient<RagKbDocumentDetail>(`/rag-kb/${kbId}/documents/${docId}`, { method: 'PATCH', body: JSON.stringify({ title, content }) }),
+    onSuccess: () => invalidateKnowledge(qc),
+  });
+}
+
+export function useKnowledgeZaloOas() {
+  return useQuery({ queryKey: [...KEY, 'zalo-oas'], queryFn: () => apiClient<Array<{ id: string; name: string; status: string; isPaused: boolean; botId: string | null }>>('/rag-kb/zalo-oas'), refetchOnWindowFocus: 'always' });
+}
+
+export function useConnectKnowledgeZaloOa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ connectionId, botId }: { connectionId: string; botId: string | null }) => apiClient(`/rag-kb/zalo-oas/${connectionId}`, { method: 'PATCH', body: JSON.stringify({ botId }) }),
+    onSuccess: () => invalidateKnowledge(qc),
   });
 }

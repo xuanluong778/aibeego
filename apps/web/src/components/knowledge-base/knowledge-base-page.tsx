@@ -1,772 +1,288 @@
 'use client';
 
-import { useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  Download,
-  FileText,
-  Info,
-  Loader2,
-  Pencil,
-  RefreshCw,
-  Search,
-  Trash2,
-  Upload,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { FileText, Upload, Plus, Trash2, Pencil, Download, Info, Search, RefreshCw, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { LoadingState, ErrorState } from '@/components/shared/page-state';
 import {
-  useRagKnowledgeBases,
-  useCreateRagKb,
-  useUpdateRagKb,
-  useDeleteRagKb,
-  useImportRagKbFile,
-  useImportRagKbUrl,
-  useImportRagKbText,
-  useReindexRagKb,
-  useDeleteRagKbDocument,
-  useDownloadRagKbDocument,
-  useRagKbDocument,
-  useRagKbSearch,
-  type RagKnowledgeBase,
-  type RagKbDocument,
+  useRagKnowledgeBases, useCreateRagKb, useUpdateRagKb, useDeleteRagKb,
+  useImportRagKbFile, useImportRagKbText, useImportRagKbUrl,
+  useDeleteRagKbDocument, useDownloadRagKbDocument, useRagKbDocument,
+  useUpdateRagDocument, useRagKbSearch, useSharedKnowledgeBots, useReindexRagKb,
+  useConnectSharedKnowledge, useConsolidateChatbotKnowledge, useKnowledgeZaloOas, useConnectKnowledgeZaloOa,
+  type RagKnowledgeBase, type RagKbDocument,
 } from '@/hooks/use-rag-kb';
-import { cn } from '@/lib/utils';
-import { formatDateTime } from '@/lib/format';
-import { useT } from '@/i18n/i18n-provider';
 
-type ViewMode = 'list' | 'guide' | 'search';
-
-const ACCEPT = '.pdf,.docx,.txt,.csv,application/pdf,text/plain,text/csv';
-
-/** UI Knowledge Base theo layout RAG (danh sách card + Import / Reindex). */
 export function KnowledgeBasePage() {
-  const t = useT();
+  const params = useSearchParams();
+  const requestedBot = params.get('botId');
   const list = useRagKnowledgeBases();
-  const createKb = useCreateRagKb();
-  const updateKb = useUpdateRagKb();
-  const deleteKb = useDeleteRagKb();
-  const importFile = useImportRagKbFile();
-  const importUrl = useImportRagKbUrl();
-  const importText = useImportRagKbText();
-  const reindex = useReindexRagKb();
-  const delDoc = useDeleteRagKbDocument();
-  const downloadDoc = useDownloadRagKbDocument();
+  const bots = useSharedKnowledgeBots();
+  const create = useCreateRagKb();
+  const update = useUpdateRagKb();
+  const remove = useDeleteRagKb();
+  const upload = useImportRagKbFile();
+  const textImport = useImportRagKbText();
+  const urlImport = useImportRagKbUrl();
+  const deleteDoc = useDeleteRagKbDocument();
+  const download = useDownloadRagKbDocument();
+  const editDoc = useUpdateRagDocument();
   const search = useRagKbSearch();
-
-  const [view, setView] = useState<ViewMode>('list');
-  const [toast, setToast] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editKb, setEditKb] = useState<RagKnowledgeBase | null>(null);
+  const reindex = useReindexRagKb();
+  const connect = useConnectSharedKnowledge();
+  const consolidate = useConsolidateChatbotKnowledge();
+  const zaloOas = useKnowledgeZaloOas();
+  const connectOa = useConnectKnowledgeZaloOa();
+  const [view, setView] = useState<'documents' | 'chatbots' | 'guide' | 'search'>(requestedBot ? 'chatbots' : 'documents');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editingKb, setEditingKb] = useState<RagKnowledgeBase | 'new' | null>(null);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [importKb, setImportKb] = useState<RagKnowledgeBase | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [editName, setEditName] = useState('');
-  const [editDesc, setEditDesc] = useState('');
-  const [importUrlValue, setImportUrlValue] = useState('');
-  const [importTitle, setImportTitle] = useState('');
-  const [importContent, setImportContent] = useState('');
-  const [previewDoc, setPreviewDoc] = useState<{
-    kb: RagKnowledgeBase;
-    doc: RagKbDocument;
-  } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [importMode, setImportMode] = useState<'file' | 'text' | 'url'>('file');
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [url, setUrl] = useState('');
+  const [query, setQuery] = useState('');
+  const [document, setDocument] = useState<{ kb: RagKnowledgeBase; doc: RagKbDocument } | null>(null);
+  const [docTitle, setDocTitle] = useState('');
+  const [docContent, setDocContent] = useState('');
+  const detail = useRagKbDocument(document?.kb.id || null, document?.doc.id || null);
+  const busyImport = upload.isPending || textImport.isPending || urlImport.isPending;
+  const bases = list.data || [];
+  const fail = (e: unknown) => { setNotice(null); setError(e instanceof Error ? e.message : 'Chưa hoàn tất thao tác. Vui lòng thử lại.'); };
+  const success = (message: string) => { setError(null); setNotice(message); };
 
-  const fullDoc = useRagKbDocument(
-    previewDoc?.kb.id ?? null,
-    previewDoc?.doc.id ?? null,
-    !!previewDoc,
-  );
+  useEffect(() => { if (requestedBot) setView('chatbots'); }, [requestedBot]);
+  useEffect(() => {
+    if (detail.data) { setDocTitle(detail.data.title); setDocContent(detail.data.content); }
+  }, [detail.data]);
 
-  const bases = useMemo(() => list.data ?? [], [list.data]);
-
-  const flash = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 3500);
+  const addTo = (kb: RagKnowledgeBase) => {
+    setError(null); setNotice(null); setImportKb(kb); setImportMode('file'); setTitle(''); setContent(''); setUrl('');
   };
+  const finishImport = () => { setImportKb(null); success('Đã thêm tài liệu. Mọi kênh của chatbot dùng kho này sẽ đọc nội dung mới.'); };
 
-  if (list.isLoading) return <LoadingState message={t('knowledgeBase.loading')} />;
+  if (list.isPending) return <LoadingState message="Đang tải kho tri thức…" />;
   if (list.isError) return <ErrorState onRetry={list.refetch} />;
 
   return (
-    <div className="space-y-5 -mt-1">
-      {/* Header giống layout product RAG */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">Knowledge Base</h2>
-            <span title="Dữ liệu tham khảo dùng cho AI (RAG)">
-              <Info className="h-4 w-4 text-muted-foreground" />
-            </span>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Quản lý dữ liệu tham khảo để tạo bài viết chính xác với RAG
-          </p>
+    <div className="space-y-5" data-shared-knowledge>
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Knowledge Base</h2>
+          <span title="Kho tri thức dùng chung cho AI và các chatbot" aria-label="Thông tin kho tri thức"><Info className="h-4 w-4 text-muted-foreground" /></span>
         </div>
+        <p className="mt-1 text-sm text-muted-foreground">Một kho tri thức dùng chung cho Content AI, Chatbot và các kênh đã kết nối.</p>
       </div>
-
-      {/* Action bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <ToolbarBtn active={view === 'guide'} onClick={() => setView('guide')}>
-          Hướng dẫn RAG
-        </ToolbarBtn>
-        <ToolbarBtn active={view === 'list'} onClick={() => setView('list')}>
-          Danh sách KB ({bases.length})
-        </ToolbarBtn>
-        <ToolbarBtn active={view === 'search'} onClick={() => setView('search')}>
-          <Search className="h-3.5 w-3.5 mr-1.5" />
-          Test Search
-        </ToolbarBtn>
-        <Button
-          size="sm"
-          className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold shadow-[0_0_12px_rgba(16,185,129,0.35)]"
-          disabled={createKb.isPending}
-          onClick={() => {
-            setNewName('');
-            setNewDesc('');
-            setCreateOpen(true);
-          }}
-        >
-          + Tạo KB
+      <div className="flex flex-wrap items-center gap-2" aria-label="Quản lý tri thức">
+        {([
+          ['guide', 'Hướng dẫn RAG'],
+          ['documents', `Danh sách KB (${bases.length})`],
+          ['search', 'Test Search'],
+        ] as const).map(([value, label]) => (
+          <Button key={value} variant="outline" aria-pressed={view === value} className={`h-10 rounded-xl px-3.5 font-semibold ${view === value ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-400' : 'text-muted-foreground'}`} onClick={() => setView(value)}>
+            {value === 'search' ? <Search className="h-4 w-4" /> : null}{label}
+          </Button>
+        ))}
+        <Button className="h-10 rounded-xl bg-emerald-500 px-4 font-semibold text-black shadow-[0_0_16px_rgba(16,185,129,0.2)] hover:bg-emerald-400" onClick={() => { setEditingKb('new'); setName(''); setDescription(''); setError(null); }}>
+          <Plus className="h-4 w-4" />Tạo KB
         </Button>
+        <Button variant="outline" aria-pressed={view === 'chatbots'} className={`h-10 rounded-xl px-3.5 font-semibold ${view === 'chatbots' ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-400' : 'text-muted-foreground'}`} onClick={() => setView('chatbots')}>Dùng cho chatbot</Button>
       </div>
+      {notice ? <p role="status" className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">{notice}</p> : null}
+      {error ? <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
-      {toast && (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 rounded-md px-3 py-2">
-          {toast}
-        </p>
-      )}
-
-      {view === 'guide' && <GuidePanel />}
-
-      {view === 'search' && (
-        <div className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="max-w-md"
-              placeholder="Nhập câu hỏi test search…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <Button
-              size="sm"
-              disabled={!searchQuery.trim() || search.isPending}
-              onClick={() => search.mutate({ query: searchQuery.trim() })}
-            >
-              {search.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Tìm'}
-            </Button>
-          </div>
-          {search.data?.results?.length === 0 && (
-            <p className="text-sm text-muted-foreground">Không có kết quả.</p>
-          )}
-          {search.data?.results?.map((r, i) => (
-            <div key={`${r.documentId}-${i}`} className="rounded-lg border p-3 text-sm">
-              <p className="font-medium">
-                {r.title}{' '}
-                <span className="text-xs text-muted-foreground">
-                  · {r.knowledgeBaseName} · score {r.score.toFixed(3)}
-                </span>
-              </p>
-              <p className="text-muted-foreground mt-1">{r.excerpt}</p>
+      {view === 'guide' ? (
+        <section className="space-y-4 rounded-2xl border border-emerald-500/30 p-5 sm:p-6" data-knowledge-guide>
+          <h3 className="text-lg font-semibold text-foreground">Hướng dẫn dùng kho tri thức chung</h3>
+          <p className="text-sm text-muted-foreground">RAG giúp AI tìm thông tin trong tài liệu của bạn trước khi trả lời khách hàng hoặc tạo nội dung.</p>
+          <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
+            <li><strong className="text-foreground">Tạo KB</strong> cho doanh nghiệp hoặc chủ đề bạn muốn quản lý.</li>
+            <li>Nhấn <strong className="text-foreground">Import</strong> để tải file TXT/MD, nhập nội dung hoặc thêm đường dẫn website.</li>
+            <li>Dùng <strong className="text-foreground">Test Search</strong> để kiểm tra AI có tìm thấy thông tin cần thiết trong kho hay chưa.</li>
+            <li>Vào <strong className="text-foreground">Dùng cho chatbot</strong>, chọn kho cho bot. Fanpage, Landing Page và website đã gắn với bot sẽ dùng cùng nguồn. Với Zalo OA, chọn bot cho OA rồi bật trả lời tự động.</li>
+            <li>Sửa tài liệu tại một nơi để cập nhật nguồn trả lời cho mọi bot dùng kho đó. Nút <strong className="text-foreground">Reindex</strong> cập nhật lại thống kê và trạng thái xử lý tài liệu.</li>
+          </ol>
+          <p className="rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">Đã có nguồn tại Chatbot CSKH? Dùng nút “Đưa nguồn hiện có về kho tri thức” trong mục Dùng cho chatbot để giữ nguyên nguồn cũ.</p>
+        </section>
+      ) : view === 'search' ? (
+        <section className="space-y-4 rounded-2xl border border-emerald-500/30 p-5 sm:p-6" data-knowledge-search>
+          <div><h3 className="text-lg font-semibold text-foreground">Test Search</h3><p className="mt-1 text-sm text-muted-foreground">Nhập câu hỏi để tìm nội dung phù hợp trong các kho tri thức của bạn.</p></div>
+          <form className="flex flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); if (query.trim()) search.mutate({ query: query.trim() }, { onError: fail }); }}>
+            <Input aria-label="Tìm nội dung trong kho" placeholder="Ví dụ: Chính sách bảo hành như thế nào?" value={query} onChange={event => { setQuery(event.target.value); search.reset(); }} />
+            <Button type="submit" className="shrink-0" disabled={!query.trim() || search.isPending}><Search className="h-4 w-4" />{search.isPending ? 'Đang tìm…' : 'Tìm kiếm'}</Button>
+          </form>
+          {search.data ? <div className="space-y-3" aria-live="polite">
+            <p className="text-sm text-muted-foreground">{search.data.results.length} kết quả cho “{search.data.query}”</p>
+            {search.data.results.length ? search.data.results.map(hit => <article key={hit.documentId} className="rounded-xl border bg-muted/20 p-4"><p className="font-semibold">{hit.title}</p><p className="mt-1 text-xs text-emerald-400">{hit.knowledgeBaseName}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{hit.excerpt}</p></article>) : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Chưa tìm thấy nội dung phù hợp. Thử từ khóa khác hoặc Import thêm tài liệu.</p>}
+          </div> : null}
+        </section>
+      ) : view === 'chatbots' ? (
+        <div className="space-y-3" data-shared-knowledge-bots>
+          <p className="text-sm text-muted-foreground">Bạn có thể chọn cùng một kho cho nhiều chatbot. Khi gắn lần đầu, nguồn cũ của bot được giữ nguyên và chuyển vào kho bạn chọn.</p>
+          {bots.isPending ? <LoadingState message="Đang tải chatbot…" /> : bots.isError ? <ErrorState onRetry={bots.refetch} /> : null}
+          {!bots.isPending && !bots.isError && !bots.data?.length ? (
+            <div className="rounded-lg border border-dashed p-6">
+              <p className="mb-3 text-sm">Bạn chưa có chatbot. Tạo bot rồi chọn kho để dùng chung cho các kênh.</p>
+              <Button asChild><Link href="/chatbot-cskh?action=create">Tạo chatbot</Link></Button>
             </div>
-          ))}
-        </div>
-      )}
-
-      {view === 'list' && (
-        <div className="space-y-4">
-          {bases.length === 0 && (
-            <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">
-              <FileText className="h-10 w-10 mx-auto mb-3 opacity-50" />
-              <p className="font-medium text-foreground">{t('knowledgeBase.empty')}</p>
-              <p className="text-sm mt-1">Nhấn «+ Tạo KB» để bắt đầu.</p>
-            </div>
-          )}
-
-          {bases.map((kb, index) => (
-            <KbCard
-              key={kb.id}
-              kb={kb}
-              index={index}
-              busyId={
-                reindex.isPending
-                  ? (reindex.variables as string | undefined)
-                  : deleteKb.isPending
-                    ? (deleteKb.variables as string | undefined)
-                    : null
-              }
-              onImport={() => {
-                setImportKb(kb);
-                setImportUrlValue('');
-                setImportTitle('');
-                setImportContent('');
-              }}
-              onReindex={() =>
-                reindex.mutate(kb.id, {
-                  onSuccess: () => flash(`Đã reindex «${kb.name}».`),
-                  onError: (e) => flash(e instanceof Error ? e.message : 'Reindex thất bại'),
-                })
-              }
-              onEdit={() => {
-                setEditKb(kb);
-                setEditName(kb.name);
-                setEditDesc(kb.description || '');
-              }}
-              onDelete={() => {
-                if (!window.confirm(`Xóa Knowledge Base «${kb.name}»?`)) return;
-                deleteKb.mutate(kb.id, {
-                  onSuccess: () => flash('Đã xóa Knowledge Base.'),
-                  onError: (e) => flash(e instanceof Error ? e.message : 'Xóa thất bại'),
+          ) : null}
+          <section className="space-y-3 rounded-lg border p-4" data-knowledge-zalo-oas>
+            <h3 className="font-semibold">Zalo OA dùng chatbot nào?</h3>
+            <p className="text-sm text-muted-foreground">Chọn bot cho OA, rồi bật “Tự trả lời Zalo OA bằng kho này” tại bot bên dưới. Bỏ gắn sẽ dừng trả lời tự động bằng kho chung.</p>
+            {zaloOas.isPending ? <LoadingState message="Đang tải Zalo OA…" /> : zaloOas.isError ? <ErrorState onRetry={zaloOas.refetch} /> : null}
+            {zaloOas.data?.map(oa => <div key={oa.id} className="grid gap-2 sm:grid-cols-2 sm:items-center">
+              <Label htmlFor={`knowledge-oa-${oa.id}`}>{oa.name}{oa.isPaused || oa.status !== 'ACTIVE' ? ' · Chưa sẵn sàng' : ''}</Label>
+              <select id={`knowledge-oa-${oa.id}`} aria-label={`Chatbot cho OA ${oa.name}`} className="min-h-10 w-full rounded-md border bg-background px-3 text-sm" value={oa.botId || ''} disabled={connectOa.isPending} onChange={event => connectOa.mutate({ connectionId: oa.id, botId: event.target.value || null }, { onSuccess: () => success('Đã cập nhật chatbot cho Zalo OA.'), onError: fail })}>
+                <option value="">Chưa gắn chatbot</option>
+                {bots.data?.map(bot => <option key={bot.id} value={bot.id}>{bot.botName}</option>)}
+              </select>
+            </div>)}
+            <Button size="sm" variant="outline" asChild><Link href="/settings?tab=connections" target="_blank" rel="noopener noreferrer">{zaloOas.data?.length ? 'Quản lý kết nối Zalo OA' : 'Kết nối Zalo OA'}</Link></Button>
+          </section>
+          {bots.data?.map(bot => (
+            <section key={bot.id} data-knowledge-bot={bot.id} className={`space-y-3 rounded-lg border p-4 ${requestedBot === bot.id ? 'ring-2 ring-emerald-500' : ''}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-semibold">{bot.botName}</h3>
+                <span className="text-xs text-muted-foreground">{bot.status === 'ACTIVE' ? 'Đang hoạt động' : bot.status === 'PAUSED' ? 'Tạm dừng' : 'Bản nháp'}</span>
+              </div>
+              <Label htmlFor={`knowledge-for-${bot.id}`}>Kho tri thức của chatbot</Label>
+              <select id={`knowledge-for-${bot.id}`} className="min-h-10 w-full rounded-md border bg-background px-3 text-sm" value={bot.knowledgeBaseId || ''} disabled={connect.isPending || consolidate.isPending} onChange={event => {
+                if (!event.target.value) return;
+                connect.mutate({ botId: bot.id, knowledgeBaseId: event.target.value }, {
+                  onSuccess: result => success(result.importedSourceCount ? `Đã chọn kho và giữ lại ${result.importedSourceCount} nguồn hiện có của ${bot.botName}.` : `Đã cập nhật kho tri thức cho ${bot.botName}.`), onError: fail,
                 });
-              }}
-              onPreviewDoc={(doc) => setPreviewDoc({ kb, doc })}
-              onDownloadDoc={(doc) =>
-                downloadDoc.mutate(
-                  { kbId: kb.id, docId: doc.id },
-                  {
-                    onSuccess: (filename) => flash(`Đã tải «${filename}».`),
-                    onError: (e) =>
-                      flash(e instanceof Error ? e.message : 'Tải về thất bại'),
-                  },
-                )
-              }
-              downloadingDocId={
-                downloadDoc.isPending
-                  ? (downloadDoc.variables as { docId?: string } | undefined)?.docId
-                  : null
-              }
-              onDeleteDoc={(doc) => {
-                if (!window.confirm(`Xóa tài liệu «${doc.title}»?`)) return;
-                delDoc.mutate(
-                  { kbId: kb.id, docId: doc.id },
-                  {
-                    onSuccess: () => flash('Đã xóa tài liệu.'),
-                    onError: (e) => flash(e instanceof Error ? e.message : 'Xóa tài liệu thất bại'),
-                  },
-                );
-              }}
-            />
+              }}>
+                <option value="" disabled>{bot.existingSourceCount ? `Đang dùng ${bot.existingSourceCount} nguồn hiện có — chọn kho để gộp` : 'Chọn kho tri thức'}</option>
+                {bases.map(kb => <option key={kb.id} value={kb.id}>{kb.name} · {kb.documents.length} tài liệu</option>)}
+              </select>
+              {!bot.knowledgeBaseId && bot.existingSourceCount > 0 ? (
+                <Button variant="outline" disabled={consolidate.isPending} onClick={() => consolidate.mutate(bot.id, { onSuccess: result => success(`Đã đưa ${result.importedSourceCount} nguồn về kho chung, giữ nguyên nội dung và liên kết của Landing Page.`), onError: fail })}>Đưa nguồn hiện có về kho tri thức</Button>
+              ) : null}
+              {bot.knowledgeBaseId ? (
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span>Fanpage · Landing Page · Website · Zalo OA</span>
+                  <Button size="sm" variant="outline" onClick={() => setView('documents')}>Quản lý tài liệu</Button>
+                </div>
+              ) : null}
+              {bot.zaloConnected && bot.knowledgeBaseId ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={bot.zaloAutoReply} disabled={connect.isPending} onChange={event => connect.mutate({ botId: bot.id, knowledgeBaseId: bot.knowledgeBaseId!, zaloAutoReply: event.target.checked }, { onSuccess: () => success('Đã cập nhật trả lời tự động Zalo OA.'), onError: fail })} />
+                  <span>Tự trả lời Zalo OA bằng kho này<span className="mt-1 block text-xs text-muted-foreground">Dùng OA đã gắn với chatbot đang hoạt động. Khi nhân viên tiếp quản, bot dừng trả lời.</span></span>
+                </label>
+              ) : null}
+              {!bot.zaloConnected ? <p className="text-xs text-muted-foreground">Zalo OA sẽ dùng kho này sau khi bạn kết nối OA, gắn với chatbot và bật trả lời tự động tại đây.</p> : null}
+            </section>
           ))}
         </div>
-      )}
-
-      {/* Create dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Tạo Knowledge Base</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Tên</Label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="VD: it siêu tốc"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Mô tả (tuỳ chọn)</Label>
-              <Textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Huỷ
-            </Button>
-            <Button
-              disabled={!newName.trim() || createKb.isPending}
-              onClick={() =>
-                createKb.mutate(
-                  {
-                    name: newName.trim(),
-                    description: newDesc.trim() || undefined,
-                    isDefault: bases.length === 0,
-                  },
-                  {
-                    onSuccess: () => {
-                      setCreateOpen(false);
-                      setView('list');
-                      flash('Đã tạo Knowledge Base.');
-                    },
-                    onError: (e) => flash(e instanceof Error ? e.message : 'Tạo KB thất bại'),
-                  },
-                )
-              }
-            >
-              {createKb.isPending ? 'Đang tạo…' : 'Tạo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit dialog */}
-      <Dialog open={!!editKb} onOpenChange={(o) => !o && setEditKb(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Sửa Knowledge Base</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Tên</Label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Mô tả</Label>
-              <Textarea rows={3} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={editKb?.isDefault ?? false}
-                onChange={(e) => setEditKb((k) => (k ? { ...k, isDefault: e.target.checked } : k))}
-              />
-              Đặt làm mặc định
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditKb(null)}>
-              Huỷ
-            </Button>
-            <Button
-              disabled={!editKb || !editName.trim() || updateKb.isPending}
-              onClick={() => {
-                if (!editKb) return;
-                updateKb.mutate(
-                  {
-                    id: editKb.id,
-                    name: editName.trim(),
-                    description: editDesc,
-                    isDefault: editKb.isDefault,
-                  },
-                  {
-                    onSuccess: () => {
-                      setEditKb(null);
-                      flash('Đã cập nhật Knowledge Base.');
-                    },
-                    onError: (e) => flash(e instanceof Error ? e.message : 'Cập nhật thất bại'),
-                  },
-                );
-              }}
-            >
-              Lưu
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Import dialog */}
-      <Dialog open={!!importKb} onOpenChange={(o) => !o && setImportKb(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Import — {importKb?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>File (PDF / DOCX / TXT / CSV)</Label>
-              <Input
-                ref={fileRef}
-                type="file"
-                accept={ACCEPT}
-                disabled={importFile.isPending}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  if (!file || !importKb) return;
-                  importFile.mutate(
-                    { id: importKb.id, file },
-                    {
-                      onSuccess: () => {
-                        flash(`Đã import «${file.name}».`);
-                        setImportKb(null);
-                        setView('list');
-                      },
-                      onError: (err) =>
-                        flash(err instanceof Error ? err.message : 'Import file thất bại'),
-                    },
-                  );
-                }}
-              />
-            </div>
-            <div className="space-y-2 border-t pt-3">
-              <Label>URL</Label>
-              <Input
-                placeholder="https://…"
-                value={importUrlValue}
-                onChange={(e) => setImportUrlValue(e.target.value)}
-              />
-              <Input
-                placeholder="Tiêu đề (tuỳ chọn)"
-                value={importTitle}
-                onChange={(e) => setImportTitle(e.target.value)}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!importUrlValue || importUrl.isPending || !importKb}
-                onClick={() => {
-                  if (!importKb) return;
-                  importUrl.mutate(
-                    {
-                      id: importKb.id,
-                      url: importUrlValue,
-                      title: importTitle || undefined,
-                    },
-                    {
-                      onSuccess: () => {
-                        flash('Đã import URL.');
-                        setImportKb(null);
-                      },
-                      onError: (err) =>
-                        flash(err instanceof Error ? err.message : 'Import URL thất bại'),
-                    },
-                  );
-                }}
-              >
-                Import URL
-              </Button>
-            </div>
-            <div className="space-y-2 border-t pt-3">
-              <Label>FAQ / nội dung thủ công</Label>
-              <Input
-                placeholder="Tiêu đề"
-                value={importTitle}
-                onChange={(e) => setImportTitle(e.target.value)}
-              />
-              <Textarea
-                rows={4}
-                placeholder="Nội dung…"
-                value={importContent}
-                onChange={(e) => setImportContent(e.target.value)}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={
-                  !importTitle.trim() || !importContent.trim() || importText.isPending || !importKb
-                }
-                onClick={() => {
-                  if (!importKb) return;
-                  importText.mutate(
-                    {
-                      id: importKb.id,
-                      title: importTitle.trim(),
-                      content: importContent.trim(),
-                    },
-                    {
-                      onSuccess: () => {
-                        flash('Đã thêm nội dung.');
-                        setImportKb(null);
-                      },
-                      onError: (err) =>
-                        flash(err instanceof Error ? err.message : 'Thêm text thất bại'),
-                    },
-                  );
-                }}
-              >
-                Lưu nội dung
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Preview document — full content */}
-      <Dialog open={!!previewDoc} onOpenChange={(o) => !o && setPreviewDoc(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{previewDoc?.doc.title}</DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground">
-            {fullDoc.data?.sourceType ?? previewDoc?.doc.sourceType}
-            {(fullDoc.data?.url ?? previewDoc?.doc.url)
-              ? ` · ${fullDoc.data?.url ?? previewDoc?.doc.url}`
-              : ''}{' '}
-            · {previewDoc ? formatDateTime(previewDoc.doc.createdAt) : ''} ·{' '}
-            {fullDoc.data?.status ?? previewDoc?.doc.status}
-            {fullDoc.data
-              ? ` · ${fullDoc.data.contentLength.toLocaleString()} ký tự · ${fullDoc.data.chunkCount} chunks · ${fullDoc.data.tokenCount} tokens`
-              : ''}
-          </p>
-          {fullDoc.isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t('knowledgeBase.loadingAll')}
-            </div>
-          ) : fullDoc.isError ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {(fullDoc.error as Error)?.message || 'Không tải được nội dung tài liệu.'}
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 space-y-3 overflow-hidden">
-              <pre className="text-xs whitespace-pre-wrap rounded-md bg-muted p-3 max-h-[50vh] overflow-auto">
-                {fullDoc.data?.content || '(không có nội dung)'}
-              </pre>
-              {fullDoc.data?.chunks && fullDoc.data.chunks.length > 0 ? (
-                <details className="rounded-md border border-border/70">
-                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
-                    Xem {fullDoc.data.chunks.length} chunks
-                  </summary>
-                  <div className="max-h-56 space-y-2 overflow-auto border-t px-3 py-2">
-                    {fullDoc.data.chunks.map((chunk) => (
-                      <div key={chunk.index} className="rounded border bg-muted/50 p-2 text-xs">
-                        <p className="mb-1 text-[11px] text-muted-foreground">
-                          Chunk #{chunk.index} · {chunk.charCount} ký tự · ~{chunk.tokenEstimate}{' '}
-                          tokens
-                        </p>
-                        <pre className="whitespace-pre-wrap">{chunk.text}</pre>
-                      </div>
-                    ))}
+      ) : (
+        <div className="space-y-4" data-shared-knowledge-documents>
+          {!bases.length ? <div className="rounded-lg border border-dashed p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8" /><p>Chưa có kho tri thức. Tạo kho đầu tiên để tải TXT/MD lên.</p></div> : null}
+          {bases.map(kb => (
+            <article key={kb.id} className="space-y-4 rounded-2xl border border-emerald-500/40 p-4 sm:p-5" data-knowledge-base={kb.id}>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="break-words text-lg font-bold text-foreground">{kb.name}</h3>
+                    {kb.isDefault ? <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold tracking-wide text-emerald-300">MẶC ĐỊNH</span> : null}
                   </div>
-                </details>
-              ) : null}
-            </div>
-          )}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              disabled={!previewDoc || downloadDoc.isPending}
-              onClick={() => {
-                if (!previewDoc) return;
-                downloadDoc.mutate(
-                  { kbId: previewDoc.kb.id, docId: previewDoc.doc.id },
-                  {
-                    onSuccess: (filename) => flash(`Đã tải «${filename}».`),
-                    onError: (e) =>
-                      flash(e instanceof Error ? e.message : 'Tải về thất bại'),
-                  },
-                );
-              }}
-            >
-              {downloadDoc.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <Download className="h-3.5 w-3.5 mr-1" />
-              )}
-              Tải về
-            </Button>
-            <Button variant="secondary" onClick={() => setPreviewDoc(null)}>
-              Đóng
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function ToolbarBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
-        active
-          ? 'border-emerald-500/70 text-emerald-500 bg-emerald-500/10'
-          : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function KbCard({
-  kb,
-  index,
-  busyId,
-  onImport,
-  onReindex,
-  onEdit,
-  onDelete,
-  onPreviewDoc,
-  onDownloadDoc,
-  downloadingDocId,
-  onDeleteDoc,
-}: {
-  kb: RagKnowledgeBase;
-  index: number;
-  busyId?: string | null;
-  onImport: () => void;
-  onReindex: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onPreviewDoc: (doc: RagKbDocument) => void;
-  onDownloadDoc: (doc: RagKbDocument) => void;
-  downloadingDocId?: string | null;
-  onDeleteDoc: (doc: RagKbDocument) => void;
-}) {
-  const busy = busyId === kb.id;
-  const shortId = String(index + 1);
-
-  return (
-    <div className="rounded-xl border border-border/70 bg-card/80 shadow-sm overflow-hidden">
-      <div className="p-4 sm:p-5 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-semibold truncate">{kb.name}</h3>
-              <Badge variant="secondary" className="font-normal text-[11px]">
-                USER #{shortId}
-              </Badge>
-              {kb.isDefault && (
-                <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[11px]">
-                  MẶC ĐỊNH
-                </Badge>
-              )}
-            </div>
-            {kb.description ? (
-              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{kb.description}</p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-            <Button
-              size="sm"
-              className="bg-emerald-600 hover:bg-emerald-500 text-white h-8"
-              onClick={onImport}
-            >
-              <Upload className="h-3.5 w-3.5 mr-1" />
-              Import
-            </Button>
-            <Button size="sm" variant="outline" className="h-8" disabled={busy} onClick={onReindex}>
-              <RefreshCw className={cn('h-3.5 w-3.5 mr-1', busy && 'animate-spin')} />
-              Reindex
-            </Button>
-            <Button size="sm" variant="outline" className="h-8" onClick={onEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Sửa
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-destructive border-destructive/30"
-              disabled={busy}
-              onClick={onDelete}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <StatBox label="Tài liệu" value={kb.stats.documentCount} />
-          <StatBox label="Chunks" value={kb.stats.chunkCount} />
-          <StatBox
-            label="Embeddings"
-            value={`${kb.stats.embeddingCount}/${kb.stats.embeddingTotal}`}
-          />
-          <StatBox label="Tokens" value={kb.stats.tokenLabel || kb.stats.tokenCount} />
-        </div>
-
-        {kb.documents.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/80 py-10 px-4 text-center">
-            <FileText className="h-9 w-9 mx-auto mb-2 text-muted-foreground/60" />
-            <p className="text-sm text-muted-foreground">
-              {t('knowledgeBase.emptyDocs')}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {kb.documents.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{doc.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {doc.sourceType} · {doc.status} · chunks {doc.chunkCount}
-                  </p>
+                  {kb.description ? <p className="mt-1 text-sm text-muted-foreground">{kb.description}</p> : null}
+                  {kb.linkedBots?.length ? <p className="mt-1 text-xs text-muted-foreground">Dùng cho: {kb.linkedBots.map(bot => bot.name).join(', ')}</p> : null}
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8"
-                    onClick={() => onPreviewDoc(doc)}
-                  >
-                    Xem
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8"
-                    disabled={downloadingDocId === doc.id}
-                    onClick={() => onDownloadDoc(doc)}
-                  >
-                    {downloadingDocId === doc.id ? (
-                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                    ) : (
-                      <Download className="h-3.5 w-3.5 mr-1" />
-                    )}
-                    Tải về
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-destructive"
-                    onClick={() => onDeleteDoc(doc)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" className="rounded-xl bg-emerald-500 font-semibold text-black hover:bg-emerald-400" onClick={() => addTo(kb)}><Upload className="h-4 w-4" />Import</Button>
+                  <Button size="sm" variant="outline" className="rounded-xl" aria-label={`Reindex kho ${kb.name}`} disabled={reindex.isPending || !kb.documents.length} onClick={() => reindex.mutate(kb.id, { onSuccess: () => success(`Đã cập nhật chỉ mục kho “${kb.name}”.`), onError: fail })}><RefreshCw className={`h-4 w-4 ${reindex.isPending && reindex.variables === kb.id ? 'animate-spin' : ''}`} />Reindex</Button>
+                  <Button size="sm" variant="outline" className="rounded-xl" aria-label={`Sửa kho ${kb.name}`} onClick={() => { setEditingKb(kb); setName(kb.name); setDescription(kb.description || ''); setError(null); }}><Pencil className="h-3.5 w-3.5" />Sửa</Button>
+                  <Button size="icon" variant="ghost" className="h-9 w-9 text-muted-foreground hover:text-destructive" aria-label={`Xóa kho ${kb.name}`} disabled={remove.isPending} onClick={() => { if (window.confirm(`Xóa kho “${kb.name}” và tài liệu trong kho?`)) remove.mutate(kb.id, { onSuccess: () => success('Đã xóa kho tri thức.'), onError: fail }); }}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-knowledge-stats>
+                {[
+                  ['Tài liệu', kb.stats.documentCount],
+                  ['Chunks', kb.stats.chunkCount],
+                  ['Embeddings', `${kb.stats.embeddingCount}/${kb.stats.embeddingTotal}`],
+                  ['Tokens', kb.stats.tokenLabel || kb.stats.tokenCount],
+                ].map(([label, value]) => <div key={label} className="rounded-xl border bg-muted/20 px-3 py-3 text-center"><p className="text-lg font-bold tabular-nums text-foreground">{value}</p><p className="mt-1 text-[11px] font-medium text-muted-foreground">{label}</p></div>)}
+              </div>
+              <div className="space-y-2 border-t pt-4">
+                {!kb.documents.length ? <div className="flex min-h-28 flex-col items-center justify-center gap-3 py-4 text-center text-muted-foreground"><Archive className="h-8 w-8 opacity-50" /><p className="text-sm">Chưa có tài liệu nào. Nhấn <button type="button" className="font-semibold text-foreground underline-offset-4 hover:underline" onClick={() => addTo(kb)}>Import</button> để thêm.</p></div> : null}
+                {kb.documents.map(doc => (
+                  <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 border-l-2 border-emerald-500/40 py-2 pl-3" data-knowledge-document={doc.id}>
+                    <div className="min-w-0 flex-1"><p className="flex items-center gap-2 font-medium"><FileText className="h-4 w-4 shrink-0" />{doc.title}</p><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{doc.preview}</p><p className="mt-1 text-xs">{['ready', 'active'].includes(doc.status) ? 'Sẵn sàng sử dụng' : 'Cần kiểm tra nội dung'}</p></div>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" onClick={() => { setDocument({ kb, doc }); setDocTitle(doc.title); setDocContent(''); setError(null); }}>Xem / sửa</Button>
+                      <Button variant="ghost" size="sm" aria-label={`Tải tài liệu ${doc.title}`} disabled={download.isPending} onClick={() => download.mutate({ kbId: kb.id, docId: doc.id }, { onError: fail })}><Download className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="sm" aria-label={`Xóa tài liệu ${doc.title}`} onClick={() => { if (window.confirm(`Xóa “${doc.title}”? Các chatbot dùng kho này sẽ ngừng dùng tài liệu.`)) deleteDoc.mutate({ kbId: kb.id, docId: doc.id }, { onSuccess: () => success('Đã xóa tài liệu khỏi kho và các chatbot dùng chung.'), onError: fail }); }}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
 
-function StatBox({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5 text-center">
-      <p className="text-base font-semibold tabular-nums">{value}</p>
-      <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
-    </div>
-  );
-}
+      <Dialog open={!!editingKb} onOpenChange={open => { if (!open) setEditingKb(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingKb === 'new' ? 'Tạo kho tri thức' : 'Sửa kho tri thức'}</DialogTitle></DialogHeader>
+          <Label htmlFor="shared-kb-name">Tên kho</Label><Input id="shared-kb-name" maxLength={160} autoFocus value={name} onChange={event => setName(event.target.value)} placeholder="Ví dụ: Sản phẩm và chính sách công ty" />
+          <Label htmlFor="shared-kb-description">Mô tả (tuỳ chọn)</Label><Textarea id="shared-kb-description" maxLength={1000} value={description} onChange={event => setDescription(event.target.value)} />
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter><Button variant="outline" onClick={() => setEditingKb(null)}>Hủy</Button><Button disabled={!name.trim() || create.isPending || update.isPending} onClick={() => {
+            if (editingKb === 'new') create.mutate({ name: name.trim(), description: description.trim() }, { onSuccess: kb => { setEditingKb(null); addTo(kb); }, onError: fail });
+            else if (editingKb) update.mutate({ id: editingKb.id, name: name.trim(), description: description.trim() }, { onSuccess: () => { setEditingKb(null); success('Đã cập nhật kho tri thức.'); }, onError: fail });
+          }}>Lưu kho</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-function GuidePanel() {
-  return (
-    <div className="rounded-xl border bg-card p-5 space-y-3 text-sm text-muted-foreground max-w-3xl">
-      <h3 className="text-base font-semibold text-foreground">Hướng dẫn RAG (Knowledge Base)</h3>
-      <ol className="list-decimal pl-5 space-y-2">
-        <li>Tạo một KB cho từng chủ đề / thương hiệu (ví dụ website spa, bảng giá, FAQ).</li>
-        <li>
-          Import tài liệu: file PDF/DOCX/TXT/CSV, URL trang web, hoặc dán nội dung FAQ thủ công.
-        </li>
-        <li>
-          Chờ trạng thái index xong (chunks / embeddings). Dùng <strong>Reindex</strong> nếu đổi nội
-          dung.
-        </li>
-        <li>
-          Dùng <strong>Test Search</strong> để kiểm tra truy vấn trước khi dùng trong Content Studio
-          / Chatbot.
-        </li>
-        <li>Mỗi KB thuộc organization hiện tại — không trộn dữ liệu giữa các spa khác.</li>
-      </ol>
+      <Dialog open={!!importKb} onOpenChange={open => { if (!open && !busyImport) setImportKb(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Thêm tài liệu — {importKb?.name}</DialogTitle></DialogHeader>
+          <div className="flex flex-wrap gap-2">{(['file', 'text', 'url'] as const).map(mode => <Button key={mode} size="sm" variant={importMode === mode ? 'default' : 'outline'} onClick={() => { setImportMode(mode); setError(null); }}>{mode === 'file' ? 'Tải TXT / MD' : mode === 'text' ? 'Nhập nội dung' : 'Nhập đường dẫn'}</Button>)}</div>
+          {importMode === 'file' ? <div className="space-y-3 rounded-lg border border-dashed p-5">
+            <Label htmlFor="shared-kb-file">Chọn file văn bản hoặc Markdown</Label>
+            <Input id="shared-kb-file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown,text/x-markdown" disabled={busyImport} onChange={event => {
+              const file = event.target.files?.[0]; event.target.value = '';
+              if (!file || !importKb) return;
+              if (!/\.(txt|md|markdown)$/i.test(file.name)) { fail(new Error('Chỉ chọn file .txt hoặc .md.')); return; }
+              if (file.size > 2 * 1024 * 1024) { fail(new Error('File tối đa 2MB.')); return; }
+              upload.mutate({ id: importKb.id, file }, { onSuccess: finishImport, onError: fail });
+            }} />
+            <p className="text-xs text-muted-foreground">UTF-8 · tối đa 2MB và 200.000 ký tự mỗi tài liệu. Nội dung được giữ đầy đủ, không tự cắt bớt.</p>
+            {busyImport ? <p role="status" className="text-sm">Đang đọc và lưu tài liệu…</p> : null}
+          </div> : importMode === 'text' ? <div className="space-y-3">
+            <Label htmlFor="shared-text-title">Tiêu đề</Label><Input id="shared-text-title" maxLength={200} value={title} onChange={event => setTitle(event.target.value)} />
+            <Label htmlFor="shared-text-content">Nội dung</Label><Textarea id="shared-text-content" rows={8} maxLength={200000} value={content} onChange={event => setContent(event.target.value)} placeholder="Thông tin sản phẩm, bảng giá, chính sách, câu hỏi thường gặp…" />
+            <Button disabled={!title.trim() || !content.trim() || busyImport} onClick={() => importKb && textImport.mutate({ id: importKb.id, title: title.trim(), content: content.trim() }, { onSuccess: finishImport, onError: fail })}>Lưu nội dung</Button>
+          </div> : <div className="space-y-3">
+            <Label htmlFor="shared-url">Đường dẫn website</Label><Input id="shared-url" type="url" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://…" />
+            <Label htmlFor="shared-url-title">Tiêu đề (tuỳ chọn)</Label><Input id="shared-url-title" maxLength={200} value={title} onChange={event => setTitle(event.target.value)} />
+            <Button disabled={!url.trim() || busyImport} onClick={() => importKb && urlImport.mutate({ id: importKb.id, url: url.trim(), title: title.trim() || undefined }, { onSuccess: finishImport, onError: fail })}>Đọc nội dung từ đường dẫn</Button>
+          </div>}
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!document} onOpenChange={open => { if (!open) setDocument(null); }}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader><DialogTitle>Xem và sửa tài liệu</DialogTitle></DialogHeader>
+          {detail.isPending ? <LoadingState message="Đang đọc tài liệu…" /> : detail.isError ? <ErrorState onRetry={detail.refetch} /> : <>
+            <Label htmlFor="shared-doc-title">Tiêu đề tài liệu</Label><Input id="shared-doc-title" maxLength={200} value={docTitle} onChange={event => setDocTitle(event.target.value)} />
+            <Label htmlFor="shared-doc-content">Nội dung tài liệu</Label><Textarea id="shared-doc-content" className="min-h-[300px] font-mono text-sm" maxLength={200000} value={docContent} onChange={event => setDocContent(event.target.value)} />
+            <p className="text-xs text-muted-foreground">Lưu thay đổi sẽ cập nhật nguồn trả lời cho mọi chatbot dùng kho này.</p>
+          </>}
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter><Button variant="outline" onClick={() => setDocument(null)}>Đóng</Button><Button disabled={!document || !detail.data || !docTitle.trim() || !docContent.trim() || editDoc.isPending} onClick={() => document && editDoc.mutate({ kbId: document.kb.id, docId: document.doc.id, title: docTitle.trim(), content: docContent }, { onSuccess: () => { setDocument(null); success('Đã cập nhật tài liệu cho các chatbot dùng chung.'); }, onError: fail })}>Lưu thay đổi</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

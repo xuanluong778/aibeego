@@ -25,6 +25,7 @@ interface BotFormPanelProps {
   onCancel: () => void;
   onActivate?: () => void;
   saving?: boolean;
+  error?: string;
 }
 
 export function BotFormPanel({
@@ -34,6 +35,7 @@ export function BotFormPanel({
   onCancel,
   onActivate,
   saving,
+  error,
 }: BotFormPanelProps) {
   const suggest = useChatbotSuggest();
   const [greetingHints, setGreetingHints] = useState<string[]>([]);
@@ -63,12 +65,14 @@ export function BotFormPanel({
   }
 
   return (
-    <div className="rounded-lg border p-4 space-y-4 max-w-2xl">
+    <div className="rounded-lg border p-4 space-y-4 max-w-2xl" data-chatbot-bot-form>
       <h3 className="font-semibold">{form.id ? 'Chỉnh sửa chatbot' : 'Tạo chatbot mới'}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Tên chatbot *</Label>
           <Input
+            data-chatbot-name
+            aria-label="Tên chatbot"
             value={form.botName ?? ''}
             onChange={(e) => onChange({ botName: e.target.value })}
           />
@@ -193,12 +197,16 @@ export function BotFormPanel({
           />
         </div>
       </div>
+      {error ? (
+        <p role="alert" data-chatbot-save-error className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
+      ) : null}
       <div className="flex gap-2 flex-wrap">
         {form.id && form.status !== 'ACTIVE' && onActivate && (
           <Button
             type="button"
             className="bg-emerald-600 hover:bg-emerald-700 text-white"
             disabled={saving || !form.botName}
+            data-chatbot-activate
             onClick={onActivate}
           >
             Kích hoạt chatbot

@@ -47,6 +47,7 @@ export * from './funnel-inline-edit';
 export * from './landing-page-text-box';
 export * from './landing-page-types';
 export * from './landing-page-lead-crm';
+export * from './landing-page-chatbot';
 export * from './landing-page-webhook';
 export * from './landing-page-lifecycle';
 export * from './landing-page-html-import';

@@ -1,10 +1,6 @@
-import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
-import { domainMethods } from './landing-page-domain-manager';
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
-  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -25,10 +21,9 @@ import {
 } from '@marketingspa/database';
 import {
   LANDING_PAGE_SYSTEM_TEMPLATES,
-  agencyPortfolioCreationSeed,
-  isAgencyPortfolioStandard,
   LANDING_PAGE_TEMPLATE_CATALOG_VERSION,
   applyBusinessProfileToSpec,
+  buildLandingPageChatbotPublicConfig,
   businessProfileToAiBrief,
   createEmptyLandingPageSpec,
   createBlankLandingPageSpec,
@@ -42,16 +37,6 @@ import {
   selectLandingPageTemplate,
   mergeLandingPageAiBrief,
   normalizeLandingPageBriefSuggestInput,
-  normalizeTemplateContentBrief,
-  collectTemplateContentSlots,
-  planTemplateContent,
-  protectedTemplateSlotIds,
-  extractTemplateUrlSource,
-  templateUrlBrief,
-  buildEditorialContext,
-  type TemplateUrlSource,
-  type TemplateContentBrief,
-  type TemplateContentResult,
   protectLandingPageAiUserContent,
   type LandingPageDoctorReport,
   type LandingPageUrlSummary,
@@ -60,6 +45,7 @@ import {
   isBusinessProfileEmpty,
   markLandingPageAiSources,
   preserveUserEditedFields,
+  sanitizeLandingPageChatbotConfig,
   sanitizeLandingPageSpec,
   shouldSkipOpenAiInlineSuggest,
   slugifyLandingPage,
@@ -82,9 +68,16 @@ import { RateLimitService } from '../common/services/rate-limit.service';
 import { LeadsService } from '../leads/leads.service';
 import { AutomationEngineService } from '../crm/automation-engine.service';
 import { LandingPageAiService } from './landing-page-ai.service';
+import { LandingPageChatbotService } from './landing-page-chatbot.service';
+import {
+  assertLpChatbotOrgTrialAllowed,
+  lpChatbotPublicDenyCode,
+} from './landing-page-chatbot-rollout.util';
+import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
+import { domainMethods } from './landing-page-domain-manager';
 import { CreditService, isInsufficientCredits } from '../credit/credit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
-import { isPlatformAdmin, TEMPLATE_EDIT_SLUG_PREFIX, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
+import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
 import {
   assertUploadFile,
   PUBLIC_IMAGE_EXT,
@@ -96,8 +89,6 @@ import type {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
-  GenerateTemplateContentDto,
-  ImportTemplateUrlImageDto,
   SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
@@ -154,13 +145,11 @@ export class LandingPagesService implements OnModuleInit {
   private readonly generateIdem = new Map<string, IdemEntry<unknown>>();
   /** Retain provider output even when saving conflicts with a concurrent edit. */
   private readonly generateContentIdem = new Map<string, IdemEntry<Awaited<ReturnType<LandingPageAiService['generate']>>>>();
-  private readonly templateContentIdem = new Map<string, IdemEntry<TemplateContentResult>>();
-  private readonly templateUrlSources = new Map<string, { expiresAt: number; source: TemplateUrlSource }>();
   private readonly doctorApplyIdem = new Map<string, IdemEntry<unknown>>();
   /** Org-scoped crawl cache: key = orgId:urlHash → summary + expiry */
   private readonly urlCrawlCache = new Map<
     string,
-    { expiresAt: number; summary: LandingPageUrlSummary; content?: Omit<TemplateUrlSource, 'sourceId'> }
+    { expiresAt: number; summary: LandingPageUrlSummary }
   >();
   private static readonly URL_CRAWL_TTL_MS = 10 * 60 * 1000;
 
@@ -171,6 +160,7 @@ export class LandingPagesService implements OnModuleInit {
     private readonly automation: AutomationEngineService,
     private readonly ai: LandingPageAiService,
     private readonly credit: CreditService,
+    private readonly landingChatbot: LandingPageChatbotService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
@@ -199,7 +189,7 @@ export class LandingPagesService implements OnModuleInit {
       if (existing.promise) return existing.promise;
     }
     const entry: IdemEntry<T> = { expiresAt: Date.now() + IDEMPOTENCY_TTL_MS };
-    const promise = (this.redis && /^(?:lp:generate:|lp:create:|lp:brief-suggest:|lp:template-content:)/.test(cacheKey)
+    const promise = (this.redis && /^(?:lp:generate:|lp:create:|lp:brief-suggest:)/.test(cacheKey)
       ? this.withSharedAiIdempotency(cacheKey, factory)
       : factory())
       .then((value) => {
@@ -376,20 +366,6 @@ export class LandingPagesService implements OnModuleInit {
     return { synced: catalog.length, skipped: false as const };
   }
 
-  /** Canonical pilot is used only for template previews and NEW drafts; no DB row is upgraded. */
-  private creationTemplateSpec(
-    row: { slug: string; isSystem: boolean; organizationId: string | null; tags: string[] },
-    raw: unknown,
-  ): LandingPageSpec {
-    const parsed = this.parseSpec(raw);
-    const canonical = LANDING_PAGE_SYSTEM_TEMPLATES.find((t) => t.slug === 'agency-portfolio')!.spec;
-    return agencyPortfolioCreationSeed(
-      { ...row, managed: row.tags.includes(TEMPLATE_PACK_MANAGED_TAG) },
-      parsed,
-      canonical,
-    );
-  }
-
   private parseSpec(raw: unknown): LandingPageSpec {
     return sanitizeLandingPageSpec(raw);
   }
@@ -540,7 +516,7 @@ export class LandingPagesService implements OnModuleInit {
       }),
     ]);
     const recent = await this.prisma.landingPage.findMany({
-      where: { organizationId, NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } } },
+      where: { organizationId },
       orderBy: { updatedAt: 'desc' },
       take: 8,
       select: {
@@ -560,7 +536,7 @@ export class LandingPagesService implements OnModuleInit {
       archived,
       templates,
       recent,
-      defaultSubdomainHint: '{slug}.aibeego.com',
+      defaultSubdomainHint: '{slug}.lp.aibeego.com',
     };
   }
 
@@ -602,7 +578,7 @@ export class LandingPagesService implements OnModuleInit {
     });
     const mapped = items.map((t) => {
       const visibleRaw = admin ? t.definition : (t.publishedDefinition ?? t.definition);
-      const def = this.creationTemplateSpec(t, visibleRaw);
+      const def = this.parseSpec(visibleRaw);
       const gallery = def.meta?.gallery;
       const recipe = def.meta?.architectureRecipe;
       const designFamily =
@@ -632,11 +608,9 @@ export class LandingPagesService implements OnModuleInit {
         theme: t.theme,
         description: t.description,
         tags: t.tags,
-        thumbnailUrl: isAgencyPortfolioStandard(def)
-          ? gallery?.thumbnail || t.thumbnailUrl || null
-          : def.meta?.htmlConverted
-            ? gallery?.thumbnail || null
-            : t.thumbnailUrl || gallery?.thumbnail || null,
+        thumbnailUrl: def.meta?.htmlConverted
+          ? gallery?.thumbnail || null
+          : t.thumbnailUrl || gallery?.thumbnail || null,
         previewLongImage: def.meta?.htmlConverted ? null : gallery?.previewLongImage || null,
         htmlPreviewUrl: def.meta?.htmlConverted ? null : htmlPreviewPath(t.id, visibleRaw, t.updatedAt),
         badges,
@@ -691,7 +665,6 @@ export class LandingPagesService implements OnModuleInit {
       throw new NotFoundException('Template không tồn tại');
     }
     const visibleRaw = admin ? row.definition : (row.publishedDefinition ?? row.definition);
-    const definition = this.creationTemplateSpec(row, visibleRaw);
     return {
       id: row.id,
       slug: row.slug,
@@ -700,7 +673,7 @@ export class LandingPagesService implements OnModuleInit {
       theme: row.theme,
       description: row.description,
       tags: row.tags,
-      thumbnailUrl: isAgencyPortfolioStandard(definition) ? definition.meta?.gallery?.thumbnail || row.thumbnailUrl : row.thumbnailUrl,
+      thumbnailUrl: row.thumbnailUrl,
       isSystem: row.isSystem,
       ...(admin
         ? {
@@ -708,7 +681,7 @@ export class LandingPagesService implements OnModuleInit {
             hasPublishedVersion: row.publishedDefinition != null,
           }
         : {}),
-      definition,
+      definition: this.parseSpec(visibleRaw),
     };
   }
 
@@ -721,7 +694,6 @@ export class LandingPagesService implements OnModuleInit {
     const items = await this.prisma.landingPage.findMany({
       where: {
         organizationId,
-        NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } },
         ...(status ? { status } : {}),
         ...(q
           ? {
@@ -735,28 +707,7 @@ export class LandingPagesService implements OnModuleInit {
       orderBy: { updatedAt: 'desc' },
       take: 100,
     });
-    // Resolve only bindings belonging to this tenant's returned pages, in one query.
-    const bindings = process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' && items.length
-      ? await this.prisma.$queryRaw<Array<{ landing_page_id: string; hostname: string; label: string }>>(Prisma.sql`
-          SELECT d.landing_page_id, d.hostname, d.label
-          FROM landing_page_platform_domains d
-          JOIN landing_pages p ON p.id = d.landing_page_id
-          WHERE p.organization_id = ${organizationId}
-            AND d.landing_page_id IN (${Prisma.join(items.map((page) => page.id))})
-        `)
-      : [];
-    const byPage = new Map(bindings.map((binding) => [binding.landing_page_id, binding]));
-    return {
-      items: items.map((row) => {
-        const binding = byPage.get(row.id);
-        return {
-          ...this.serializePage(row),
-          publicUrl: binding ? 'https://' + binding.hostname + '/' : null,
-          platformSubdomain: binding?.label || null,
-        };
-      }),
-      total: items.length,
-    };
+    return { items: items.map((r) => this.serializePage(r)), total: items.length };
   }
 
   /** New page from an HTML upload becomes editable sections. The template row is not changed. */
@@ -831,7 +782,9 @@ export class LandingPagesService implements OnModuleInit {
         theme = tpl.theme;
         // Clone a copy with fresh ids. User pages never share the template row's JSON.
         const source = admin ? tpl.definition : (tpl.publishedDefinition ?? tpl.definition);
-        spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.creationTemplateSpec(tpl, source)));
+        spec = this.editableCopyFromImportedHtml(
+          cloneLandingPageSpecWithNewIds(this.parseSpec(source), { stripChatbotOrgBindings: true }),
+        );
       }
 
       if (dto.draftSpec) {
@@ -888,12 +841,7 @@ export class LandingPagesService implements OnModuleInit {
 
   async get(user: AuthUser, id: string) {
     const row = await this.assertPage(user.organizationId, id);
-    const binding = await new LandingPagePlatformDomains(this.prisma).current(row.id);
-    return {
-      ...this.serializePage(row),
-      publicUrl: binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' ? 'https://' + binding.hostname + '/' : null,
-      platformSubdomain: binding?.label || null,
-    };
+    return this.serializePage(row);
   }
 
   async update(user: AuthUser, id: string, dto: UpdateLandingPageDto) {
@@ -948,6 +896,21 @@ export class LandingPagesService implements OnModuleInit {
     const row = await this.assertPage(user.organizationId, id);
     this.assertMutable(row.status);
 
+    const rawIncoming = dto.draftSpec;
+    const storedSpec = sanitizeLandingPageSpec(row.draftSpec);
+    if (
+      storedSpec.blocks.length > 0 &&
+      (!rawIncoming ||
+        typeof rawIncoming !== 'object' ||
+        !Array.isArray((rawIncoming as LandingPageSpec).blocks))
+    ) {
+      throw new BadRequestException({
+        code: 'DRAFT_SPEC_INCOMPLETE',
+        message:
+          'Autosave phải gửi nguyên draftSpec (gồm blocks/seo/theme). API không merge từng phần — dùng Builder hoặc spread draftSpec hiện có.',
+      });
+    }
+
     const incomingRevision =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
         ? Math.floor(dto.clientRevision)
@@ -959,6 +922,10 @@ export class LandingPagesService implements OnModuleInit {
 
     // Sanitize outside the row lock — large specs were exceeding Prisma interactive tx timeout (5s).
     const sanitizedIncoming = sanitizeLandingPageSpec(dto.draftSpec);
+    const incomingChatbot = sanitizeLandingPageChatbotConfig(sanitizedIncoming.chatbot);
+    if (incomingChatbot?.enabled) {
+      assertLpChatbotOrgTrialAllowed(user.organizationId);
+    }
     const requestHash = dto.requestId
       ? hashLandingPageAutosaveRequest({
           // Sanitizers may allocate IDs for legacy input. The submitted payload
@@ -1025,7 +992,7 @@ export class LandingPagesService implements OnModuleInit {
           seoTitle: sanitized.seo.title?.slice(0, 200),
           seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
           seoCanonical: sanitized.seo.canonical ?? undefined,
-          ogImage: sanitized.seo.ogImage ?? null,
+          ogImage: sanitized.seo.ogImage ?? undefined,
           robotsIndex: sanitized.seo.robotsIndex,
           theme: THEME_MAP[sanitized.theme] ?? fresh.theme,
         },
@@ -1112,15 +1079,17 @@ export class LandingPagesService implements OnModuleInit {
   }
 
   async subdomainAvailability(user: AuthUser, id: string, label: string) {
-    this.rateLimit.assertWithinLimit('lp:subdomain-check:' + user.organizationId, 90, 60000, 'Bạn kiểm tra quá nhanh. Vui lòng thử lại sau.');
+    this.rateLimit.assertWithinLimit(
+      'lp:subdomain-check:' + user.organizationId,
+      90,
+      60000,
+      'Bạn kiểm tra quá nhanh. Vui lòng thử lại sau.',
+    );
     return new LandingPagePlatformDomains(this.prisma).availability(user.organizationId, id, label);
   }
 
   async publish(user: AuthUser, id: string, dto: PublishLandingPageDto) {
     const gate = await this.assertPage(user.organizationId, id);
-    if (gate.slug.startsWith(TEMPLATE_EDIT_SLUG_PREFIX)) {
-      throw new BadRequestException('Đây là phiên sửa mẫu gốc. Dùng "Lưu vào mẫu" hoặc "Lưu & xuất bản mẫu".');
-    }
     this.assertMutable(gate.status);
     const expected =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
@@ -1131,78 +1100,93 @@ export class LandingPagesService implements OnModuleInit {
       throw new BadRequestException('Hãy chọn xuất bản bằng subdomain khi nhập tên miền.');
     }
     const platform = new LandingPagePlatformDomains(this.prisma);
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
-      const row = await tx.landingPage.findFirst({ where: { id: gate.id, organizationId: user.organizationId } });
-      if (!row) throw new NotFoundException('Landing page not found');
-      this.assertMutable(row.status);
-      const storedRevision = readLandingPageRevision(row.draftSpec);
-      const allowed = publishRevisionAllowed(storedRevision, expected);
-      if (allowed !== 'ok') {
-        throw new ConflictException({
-          code: allowed === 'not_saved' ? 'REVISION_NOT_SAVED' : 'STALE_REVISION',
-          message:
-            allowed === 'not_saved'
-              ? 'Bản nháp chưa lưu xong — lưu lại rồi publish'
-              : 'Có bản mới hơn — tải bản mới nhất rồi publish',
-          clientRevision: storedRevision,
+    const updated = await this.prisma
+      .$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
+        const row = await tx.landingPage.findFirst({
+          where: { id: gate.id, organizationId: user.organizationId },
         });
-      }
-      const sanitized = sanitizeLandingPageSpec(row.draftSpec);
-      const validation = validateLandingPageSpec(sanitized);
-      if (!validation.ok) {
-        throw new BadRequestException({
-          code: 'INVALID_SPEC',
-          message: validation.errors.join('; '),
-          errors: validation.errors,
+        if (!row) throw new NotFoundException('Landing page not found');
+        this.assertMutable(row.status);
+        const storedRevision = readLandingPageRevision(row.draftSpec);
+        const allowed = publishRevisionAllowed(storedRevision, expected);
+        if (allowed !== 'ok') {
+          throw new ConflictException({
+            code: allowed === 'not_saved' ? 'REVISION_NOT_SAVED' : 'STALE_REVISION',
+            message:
+              allowed === 'not_saved'
+                ? 'Bản nháp chưa lưu xong — lưu lại rồi publish'
+                : 'Có bản mới hơn — tải bản mới nhất rồi publish',
+            clientRevision: storedRevision,
+          });
+        }
+        const sanitized = sanitizeLandingPageSpec(row.draftSpec);
+        const validation = validateLandingPageSpec(sanitized);
+        if (!validation.ok) {
+          throw new BadRequestException({
+            code: 'INVALID_SPEC',
+            message: validation.errors.join('; '),
+            errors: validation.errors,
+          });
+        }
+        await this.landingChatbot.assertChatbotReadyForPublish(user.organizationId, sanitized);
+        const lastVersion = await tx.landingPageVersion.findFirst({
+          where: { landingPageId: row.id },
+          orderBy: { version: 'desc' },
+          select: { version: true },
         });
-      }
-      const lastVersion = await tx.landingPageVersion.findFirst({
-        where: { landingPageId: row.id },
-        orderBy: { version: 'desc' },
-        select: { version: true },
+        const nextVersion = (lastVersion?.version ?? 0) + 1;
+        let binding = await platform.current(row.id, tx);
+        if (dto.publicationTarget === 'subdomain') {
+          binding = await platform.claim(tx, user.organizationId, row.id, dto.subdomainSlug || '');
+        } else if (dto.publicationTarget === 'path') {
+          await platform.release(tx, user.organizationId, row.id);
+          binding = null;
+        }
+        const saved = await tx.landingPage.update({
+          where: { id: row.id },
+          data: {
+            status: LandingPageStatus.PUBLISHED,
+            ...(binding ? { subdomainSlug: binding.label } : {}),
+            publishedSpec: sanitized as unknown as Prisma.InputJsonValue,
+            draftSpec: sanitized as unknown as Prisma.InputJsonValue,
+            publishedAt: new Date(),
+            seoTitle: sanitized.seo.title?.slice(0, 200),
+            seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
+            seoCanonical: sanitized.seo.canonical ?? null,
+            ogImage: sanitized.seo.ogImage ?? null,
+            robotsIndex: sanitized.seo.robotsIndex !== false,
+            theme: THEME_MAP[sanitized.theme] ?? row.theme,
+          },
+        });
+        await tx.landingPageVersion.create({
+          data: {
+            organizationId: user.organizationId,
+            landingPageId: row.id,
+            version: nextVersion,
+            snapshot: sanitized as unknown as Prisma.InputJsonValue,
+            note: dto.note?.slice(0, 500) ?? `Publish v${nextVersion}`,
+            createdById: user.id,
+          },
+        });
+        return { saved, binding };
+      })
+      .catch((error: { code?: string; meta?: { code?: string } }) => {
+        if (error.code === 'P2002' || (error.code === 'P2010' && error.meta?.code === '23505')) {
+          throw new ConflictException({
+            code: 'SUBDOMAIN_TAKEN',
+            message: 'Tên này vừa được sử dụng. Hãy chọn subdomain khác.',
+          });
+        }
+        throw error;
       });
-      const nextVersion = (lastVersion?.version ?? 0) + 1;
-      let binding = await platform.current(row.id, tx);
-      if (dto.publicationTarget === 'subdomain') binding = await platform.claim(tx, user.organizationId, row.id, dto.subdomainSlug || '');
-      else if (dto.publicationTarget === 'path') { await platform.release(tx, user.organizationId, row.id); binding = null; }
-      const saved = await tx.landingPage.update({
-        where: { id: row.id },
-        data: {
-          status: LandingPageStatus.PUBLISHED,
-          ...(binding ? { subdomainSlug: binding.label } : {}),
-          publishedSpec: sanitized as unknown as Prisma.InputJsonValue,
-          draftSpec: sanitized as unknown as Prisma.InputJsonValue,
-          publishedAt: new Date(),
-          seoTitle: sanitized.seo.title?.slice(0, 200),
-          seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
-          seoCanonical: sanitized.seo.canonical ?? null,
-          ogImage: sanitized.seo.ogImage ?? null,
-          robotsIndex: sanitized.seo.robotsIndex !== false,
-          theme: THEME_MAP[sanitized.theme] ?? row.theme,
-        },
-      });
-      await tx.landingPageVersion.create({
-        data: {
-          organizationId: user.organizationId,
-          landingPageId: row.id,
-          version: nextVersion,
-          snapshot: sanitized as unknown as Prisma.InputJsonValue,
-          note: dto.note?.slice(0, 500) ?? `Publish v${nextVersion}`,
-          createdById: user.id,
-        },
-      });
-      return { saved, binding };
-    }).catch((error: any) => {
-      if (error.code === 'P2002' || (error.code === 'P2010' && error.meta?.code === '23505')) {
-        throw new ConflictException({ code: 'SUBDOMAIN_TAKEN', message: 'Tên này vừa được sử dụng. Hãy chọn subdomain khác.' });
-      }
-      throw error;
-    });
 
     return {
       ...this.serializePage(updated.saved),
-      publicUrl: updated.binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true' ? 'https://' + updated.binding.hostname + '/' : null,
+      publicUrl:
+        updated.binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true'
+          ? 'https://' + updated.binding.hostname + '/'
+          : null,
       platformSubdomain: updated.binding?.label || null,
     };
   }
@@ -1276,12 +1260,104 @@ export class LandingPagesService implements OnModuleInit {
     return { success: true, deletedCount: res.count };
   }
 
-  async listDomains(organizationId: string) { return domainMethods.listDomains.call(this, organizationId); }
-  async upsertDomain(user: AuthUser, id: string, dto: UpsertCustomDomainDto) { return domainMethods.upsertDomain.call(this, user, id, dto); }
-  async verifyDomain(user: AuthUser, id: string) { return domainMethods.verifyDomain.call(this, user, id); }
-  async removeDomain(user: AuthUser, id: string) { return domainMethods.removeDomain.call(this, user, id); }
   async resolveDomainHost(host: string) { return domainMethods.resolveDomainHost.call(this, host); }
+
   async domainOrganization(host: string, slug: string, requested?: string) { return domainMethods.domainOrganization.call(this, host, slug, requested); }
+
+  async listDomains(organizationId: string) {
+    const items = await this.prisma.landingPage.findMany({
+      where: {
+        organizationId,
+        OR: [
+          { customDomain: { not: null } },
+          { subdomainSlug: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        subdomainSlug: true,
+        customDomain: true,
+        customDomainStatus: true,
+        customDomainError: true,
+        customDomainVerifiedAt: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const target = landingPageCnameTarget();
+    return {
+      items,
+      architecture: {
+        defaultSubdomain: '{subdomainSlug}.lp.aibeego.com',
+        customDomain: `CNAME → ${target}`,
+        statuses: ['PENDING', 'VERIFYING', 'ACTIVE', 'FAILED'],
+      },
+    };
+  }
+
+  async upsertDomain(user: AuthUser, id: string, dto: UpsertCustomDomainDto) {
+    const row = await this.assertPage(user.organizationId, id);
+    const domain = normalizeLandingCustomDomain(dto.customDomain);
+    if (!isValidLandingCustomDomain(domain)) {
+      throw new BadRequestException('Domain không hợp lệ');
+    }
+    if (
+      domain.includes('localhost') ||
+      domain.endsWith('.local') ||
+      /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(domain)
+    ) {
+      throw new BadRequestException('Domain nội bộ bị chặn (SSRF)');
+    }
+    const clash = await this.prisma.landingPage.findFirst({
+      where: { customDomain: domain, NOT: { id: row.id } },
+      select: { id: true },
+    });
+    if (clash) throw new BadRequestException('Domain đã được dùng');
+
+    const updated = await this.prisma.landingPage.update({
+      where: { id: row.id },
+      data: {
+        customDomain: domain,
+        customDomainStatus: LandingPageDomainStatus.PENDING,
+        customDomainError: null,
+        customDomainVerifiedAt: null,
+      },
+    });
+    return this.serializePage(updated);
+  }
+
+  async verifyDomain(user: AuthUser, id: string) {
+    const row = await this.assertPage(user.organizationId, id);
+    if (!row.customDomain) throw new BadRequestException('Chưa gắn custom domain');
+
+    await this.prisma.landingPage.update({
+      where: { id: row.id },
+      data: { customDomainStatus: LandingPageDomainStatus.VERIFYING, customDomainError: null },
+    });
+
+    const result = await verifyLandingPageCname(row.customDomain);
+    const updated = await this.prisma.landingPage.update({
+      where: { id: row.id },
+      data: result.ok
+        ? {
+            customDomainStatus: LandingPageDomainStatus.ACTIVE,
+            customDomainError: null,
+            customDomainVerifiedAt: new Date(),
+          }
+        : {
+            customDomainStatus: LandingPageDomainStatus.FAILED,
+            customDomainError: (result.error || 'DNS verify failed').slice(0, 500),
+            customDomainVerifiedAt: null,
+          },
+    });
+    return {
+      page: this.serializePage(updated),
+      dns: result,
+      sslNote: 'SSL provisioning is architecture-ready (edge terminates TLS when ACTIVE).',
+    };
+  }
 
   private sanitizeTrackingConfig(input: Record<string, unknown>) {
     const str = (v: unknown, max: number) =>
@@ -1616,25 +1692,25 @@ export class LandingPagesService implements OnModuleInit {
    * SSRF-safe public URL crawl → structured summary for Create-from-URL preview.
    * Soft-safe: never throws SSRF internals to client as stack; crawl errors are typed.
    */
-  async crawlPublicUrl(user: AuthUser, dto: CrawlLandingPageUrlDto, templateMode = false) {
+  async crawlPublicUrl(user: AuthUser, dto: CrawlLandingPageUrlDto) {
     const url = (dto.url || '').trim();
-    await this.assertTemplateContentLimit(
+    this.rateLimit.assertWithinLimit(
       `lp:crawl:u:${user.organizationId}:${user.id}`,
       10,
       60_000,
       'Quá nhiều lần phân tích URL — thử lại sau',
     );
-    await this.assertTemplateContentLimit(
+    this.rateLimit.assertWithinLimit(
       `lp:crawl:o:${user.organizationId}`,
       40,
       60_000,
       'Tổ chức đang phân tích URL quá nhiều',
     );
 
-    const cacheKey = `${user.organizationId}:${templateMode ? 'template:' : ''}${hashInlineAiFieldContent(url)}`;
+    const cacheKey = `${user.organizationId}:${hashInlineAiFieldContent(url.toLowerCase())}`;
     const cached = this.urlCrawlCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return { summary: cached.summary, content: cached.content, cached: true };
+      return { summary: cached.summary, cached: true };
     }
 
     try {
@@ -1652,11 +1728,9 @@ export class LandingPagesService implements OnModuleInit {
         text: fetched.text,
         html: fetched.html,
       });
-      const content = templateMode ? extractTemplateUrlSource(fetched.html || '', url, fetched.finalUrl) : undefined;
       this.urlCrawlCache.set(cacheKey, {
         expiresAt: Date.now() + LandingPagesService.URL_CRAWL_TTL_MS,
         summary,
-        content,
       });
       // Purge stale cache entries opportunistically
       if (this.urlCrawlCache.size > 200) {
@@ -1664,9 +1738,8 @@ export class LandingPagesService implements OnModuleInit {
         for (const [k, v] of this.urlCrawlCache) {
           if (v.expiresAt < now) this.urlCrawlCache.delete(k);
         }
-        while (this.urlCrawlCache.size > 200) this.urlCrawlCache.delete(this.urlCrawlCache.keys().next().value!);
       }
-      return { summary, content, cached: false };
+      return { summary, cached: false };
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err
@@ -1679,70 +1752,6 @@ export class LandingPagesService implements OnModuleInit {
           : code,
         message,
       });
-    }
-  }
-
-  async readTemplateContentUrl(user: AuthUser, pageId: string, dto: CrawlLandingPageUrlDto) {
-    await this.templateContentPage(user, pageId);
-    const crawled = await this.crawlPublicUrl(user, dto, true);
-    if (!crawled.content) throw new BadRequestException('Không đọc được nội dung chính. Hãy nhập thủ công.');
-    const source = { ...crawled.content, sourceId: randomUUID() };
-    const key = `${user.organizationId}:${user.id}:${pageId}:${source.sourceId}`;
-    if (this.redis) {
-      this.assertTemplateRedisReady();
-      await this.redis.set(`lp:template-source:${key}`, JSON.stringify(source), 'PX', IDEMPOTENCY_TTL_MS);
-    } else {
-      const now = Date.now();
-      for (const [id, receipt] of this.templateUrlSources) if (receipt.expiresAt <= now) this.templateUrlSources.delete(id);
-      this.templateUrlSources.set(key, { source, expiresAt: now + IDEMPOTENCY_TTL_MS });
-      while (this.templateUrlSources.size > 100) this.templateUrlSources.delete(this.templateUrlSources.keys().next().value!);
-    }
-    return { source, brief: templateUrlBrief(source) };
-  }
-
-  private assertTemplateRedisReady() {
-    if (this.redis && this.redis.status !== 'ready') throw new ServiceUnavailableException('Hệ thống đang kết nối lại. Vui lòng thử lại sau.');
-  }
-
-  /** Shared atomic quota across API replicas; local mode remains available without Redis. */
-  private async assertTemplateContentLimit(key: string, limit: number, windowMs: number, message?: string) {
-    if (!this.redis) return this.rateLimit.assertWithinLimit(key, limit, windowMs, message);
-    this.assertTemplateRedisReady();
-    const count = Number(await this.redis.eval(
-      "local n=redis.call('incr',KEYS[1]); if n==1 then redis.call('pexpire',KEYS[1],ARGV[1]) end; return n",
-      1, `lp:quota:${key}`, windowMs,
-    ));
-    if (count > limit) throw new HttpException(message || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', HttpStatus.TOO_MANY_REQUESTS);
-  }
-
-  private async templateUrlSource(user: AuthUser, pageId: string, sourceId: string) {
-    const key = `${user.organizationId}:${user.id}:${pageId}:${sourceId}`;
-    if (this.redis) {
-      this.assertTemplateRedisReady();
-      const raw = await this.redis.get(`lp:template-source:${key}`);
-      if (raw) return JSON.parse(raw) as TemplateUrlSource;
-    }
-    const receipt = this.templateUrlSources.get(key);
-    if (this.redis || !receipt || receipt.expiresAt <= Date.now()) {
-      this.templateUrlSources.delete(key);
-      throw new BadRequestException({ code: 'URL_SOURCE_EXPIRED', message: 'Nội dung URL đã hết hạn hoặc không thuộc phiên này. Đọc lại URL hoặc chuyển sang nhập thủ công.' });
-    }
-    return receipt.source;
-  }
-
-  async importTemplateUrlImage(user: AuthUser, pageId: string, dto: ImportTemplateUrlImageDto) {
-    await this.templateContentPage(user, pageId);
-    const source = await this.templateUrlSource(user, pageId, dto.sourceId);
-    if (!source.images.some(image => image.url === dto.imageUrl)) throw new BadRequestException('Ảnh không thuộc trang nguồn đã đọc.');
-    await this.assertTemplateContentLimit(`lp:url-image:${user.organizationId}:${user.id}`, 10, 60_000, 'Nhập ảnh quá nhanh. Vui lòng thử lại sau một phút.');
-    try {
-      const { fetchPublicImageSafe } = await import('@marketingspa/shared/dist/ssrf-fetch');
-      const file = await fetchPublicImageSafe(dto.imageUrl);
-      const upload = await this.uploadPublicImage(user, pageId, file);
-      const library = await this.listMedia(user, pageId, { scope: 'org' });
-      return { image: library.items.find(image => image.url === upload.url), sourceUrl: source.sourceUrl, originalImageUrl: dto.imageUrl };
-    } catch (error) {
-      throw new BadRequestException({ code: 'URL_IMAGE_FAILED', message: 'Không nhập được ảnh công khai này. Bạn có thể tải ảnh lên thư viện theo cách thông thường.' });
     }
   }
 
@@ -2040,12 +2049,15 @@ export class LandingPagesService implements OnModuleInit {
     const parsed = this.parseSpec(row.draftSpec);
     // Strip builder provenance only — keep inlineTextStyles / free-layouts / hidden / locked.
     const spec = this.toPublicSpec(parsed);
+    const cbCfg = sanitizeLandingPageChatbotConfig(spec.chatbot);
+    const chatbotConfig = await this.buildPublicChatbotConfig(row, cbCfg, { preview: true });
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
       theme: row.theme,
       spec,
+      chatbotConfig,
       isPreview: true as const,
       seo: {
         title: `[Preview] ${row.seoTitle || spec.seo.title || row.name}`,
@@ -2155,54 +2167,6 @@ export class LandingPagesService implements OnModuleInit {
       this.rateLimit.assertWithinLimit(`lp:brief-suggest:u:${user.organizationId}:${user.id}`, 12, 60_000, 'Bạn đang lấy gợi ý quá nhanh. Vui lòng thử lại sau một phút.');
       this.rateLimit.assertWithinLimit(`lp:brief-suggest:o:${user.organizationId}`, 60, 60_000, 'Hệ thống đang xử lý nhiều gợi ý. Vui lòng thử lại sau.');
       return this.ai.suggestBriefField(input);
-    });
-  }
-
-  private async templateContentPage(user: AuthUser, pageId: string) {
-    const page = await this.assertPage(user.organizationId, pageId);
-    this.assertMutable(page.status);
-    if (!page.templateId) throw new BadRequestException('Chọn một mẫu trước khi tạo nội dung.');
-    const template = await this.prisma.landingPageTemplate.findFirst({ where: {
-      id: page.templateId,
-      OR: [{ organizationId: user.organizationId }, { organizationId: null, isSystem: true }],
-    } });
-    if (!template) throw new NotFoundException('Template không tồn tại hoặc bạn không có quyền truy cập.');
-    return { page, template };
-  }
-
-  async validateTemplateContentImages(user: AuthUser, pageId: string, imageIds: string[]) {
-    await this.templateContentPage(user, pageId);
-    if (!Array.isArray(imageIds) || imageIds.length > 30 || imageIds.some(id => typeof id !== 'string' || id.length > 300)) throw new BadRequestException('Danh sách ảnh không hợp lệ.');
-    const library = await this.listMedia(user, pageId, { scope: 'org' });
-    const images = imageIds.map(id => library.items.find(image => image.id === id));
-    if (images.some(image => !image)) throw new BadRequestException('Ảnh không còn tồn tại hoặc không thuộc thư viện của bạn. Vui lòng chọn lại.');
-    return { images: images.map(image => ({ id: image!.id, url: image!.url, name: image!.name })) };
-  }
-
-  async generateTemplateContent(user: AuthUser, pageId: string, dto: GenerateTemplateContentDto) {
-    const { template } = await this.templateContentPage(user, pageId);
-    const urlSource = dto.sourceId ? await this.templateUrlSource(user, pageId, dto.sourceId) : undefined;
-    let brief: TemplateContentBrief;
-    try { brief = normalizeTemplateContentBrief({ ...dto.brief, sourceText: urlSource?.text } as unknown as TemplateContentBrief, !!urlSource); }
-    catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'Thông tin sản phẩm không hợp lệ.'); }
-    if(urlSource){brief.sourceContext=buildEditorialContext(urlSource); if(!brief.curriculum)brief.curriculum=templateUrlBrief(urlSource).curriculum;}
-    const { images } = await this.validateTemplateContentImages(user, pageId, brief.imageIds);
-    const snapshot = sanitizeLandingPageSpec(dto.snapshot);
-    if (!validateLandingPageSpec(snapshot).ok || snapshot.meta?.htmlSource) throw new BadRequestException('Mẫu này chưa hỗ trợ tạo nội dung theo vị trí.');
-    const allSlots = collectTemplateContentSlots(snapshot, !!brief.originalPrice);
-    if (brief.originalPrice && brief.pricingTargetId && !allSlots.some(slot => slot.id === brief.pricingTargetId && slot.blockType === 'Pricing' && slot.field === 'price'))
-      throw new BadRequestException('Box nhận giá đã thay đổi hoặc không còn hiển thị. Hãy chọn lại box báo giá.');
-    const slots = dto.blockId ? allSlots.filter(slot => slot.blockId === dto.blockId) : allSlots;
-    if (!slots.length || slots.length > 400) throw new BadRequestException('Không tìm thấy vị trí nội dung phù hợp trong mẫu.');
-    const key = this.normalizeIdemKey(dto.idempotencyKey);
-    if (!key) throw new BadRequestException('Thiếu mã yêu cầu.');
-    const requestHash = hashInlineAiFieldContent(JSON.stringify({ brief, snapshot, blockId: dto.blockId || '' }));
-    return this.withIdempotency(this.templateContentIdem, `lp:template-content:${user.organizationId}:${user.id}:${pageId}:${key}:${requestHash}`, async () => {
-      await this.assertTemplateContentLimit(`lp:template-content:${user.organizationId}:${user.id}`, 8, 60_000, 'Bạn đang tạo nội dung quá nhanh. Vui lòng thử lại sau một phút.');
-      await this.assertTemplateContentLimit(`lp:template-content:org:${user.organizationId}`, 24, 60_000, 'Tổ chức đang tạo nội dung quá nhanh. Vui lòng thử lại sau một phút.');
-      const generated = await this.ai.generateTemplateContent(slots, brief, planTemplateContent(allSlots, brief));
-      const original = this.creationTemplateSpec(template, template.publishedDefinition ?? template.definition);
-        return { ...generated, ...(urlSource ? { urlSource: { sourceUrl: urlSource.sourceUrl, finalUrl: urlSource.finalUrl, readAt: urlSource.readAt } } : {}), slots, images, protectedSlotIds: protectedTemplateSlotIds(snapshot, original, !!brief.originalPrice).filter(id => slots.some(slot => slot.id === id)) };
     });
   }
 
@@ -2484,12 +2448,15 @@ export class LandingPagesService implements OnModuleInit {
     const parsed = this.parseSpec(row.publishedSpec);
     // Strip builder provenance only — keep layout/category + canvas render meta.
     const spec = this.toPublicSpec(parsed);
+    const cbCfg = sanitizeLandingPageChatbotConfig(spec.chatbot);
+    const chatbotConfig = await this.buildPublicChatbotConfig(row, cbCfg, { preview: false });
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
       theme: row.theme,
       spec,
+      chatbotConfig,
       seo: {
         title: row.seoTitle || spec.seo.title,
         description: row.seoDescription || spec.seo.metaDescription,
@@ -2503,6 +2470,46 @@ export class LandingPagesService implements OnModuleInit {
       customDomainStatus: row.customDomainStatus,
       publishedAt: row.publishedAt,
     };
+  }
+
+  private async buildPublicChatbotConfig(
+    row: {
+      id: string;
+      slug: string;
+      organizationId: string;
+      customDomain: string | null;
+      customDomainStatus: LandingPageDomainStatus | null;
+    },
+    cbCfg: ReturnType<typeof sanitizeLandingPageChatbotConfig>,
+    options: { preview: boolean },
+  ) {
+    if (!cbCfg?.enabled || !cbCfg.botId) return null;
+    const deny = lpChatbotPublicDenyCode(
+      row.organizationId,
+      {
+        customDomain: row.customDomain,
+        customDomainStatus: row.customDomainStatus,
+      },
+      { preview: options.preview },
+    );
+    if (deny) return null;
+    const bot = await this.prisma.chatbotBot.findFirst({
+      where: {
+        id: cbCfg.botId,
+        organizationId: row.organizationId,
+        ...(options.preview ? {} : { status: 'ACTIVE' }),
+      },
+      select: { botName: true, greeting: true, hotline: true, status: true },
+    });
+    if (!bot || (!options.preview && bot.status !== 'ACTIVE')) return null;
+    return buildLandingPageChatbotPublicConfig({
+      pageId: row.id,
+      slug: row.slug,
+      config: cbCfg,
+      fallbackBotName: bot.botName,
+      fallbackGreeting: bot.greeting ?? undefined,
+      hotline: bot.hotline ?? undefined,
+    });
   }
 
   private async resolvePublishedPage(slug: string, organizationId?: string) {

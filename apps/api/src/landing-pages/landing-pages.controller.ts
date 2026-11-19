@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   BadRequestException,
-  Logger,
   Header,
   Param,
   Patch,
@@ -12,11 +11,10 @@ import {
   Query,
   StreamableFile,
   UploadedFile,
-  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../common/guards/auth.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
@@ -28,14 +26,11 @@ import { createUploadMulterOptions } from '../common/uploads/upload-policy';
 import { PlatformAdminGuard } from '../common/guards/platform-admin.guard';
 import { LandingPagesService } from './landing-pages.service';
 import { LandingPageTemplatePackService } from './landing-page-template-pack.service';
-import { TEMPLATE_PACK_MAX_ZIP_BYTES, TEMPLATE_BULK_MAX_ZIP_BYTES } from './template-pack';
+import { TEMPLATE_PACK_MAX_ZIP_BYTES } from './template-pack';
 import {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
   GenerateLandingPageAiDto,
-  GenerateTemplateContentDto,
-  ImportTemplateUrlImageDto,
-  ValidateTemplateContentImagesDto,
   SuggestLandingPageBriefDto,
   ApplyBusinessProfileDto,
   UpsertBusinessProfileDto,
@@ -50,20 +45,6 @@ import {
   UpdateLandingPageDto,
   UpsertCustomDomainDto,
 } from './dto/landing-pages.dto';
-
-const templateBulkUploadLogger = new Logger('LandingTemplateBulkUpload');
-const templateBulkUpload = FilesInterceptor('files', 300, {
-  storage: memoryStorage(),
-  limits: { fileSize: TEMPLATE_BULK_MAX_ZIP_BYTES, files: 300 },
-  fileFilter: (req, file, cb) => {
-    const request = req as typeof req & { lpBulkUploadLogged?: boolean };
-    if (!request.lpBulkUploadLogged) {
-      request.lpBulkUploadLogged = true;
-      templateBulkUploadLogger.log(JSON.stringify({ event: 'bulk-upload-received', file: String(file.originalname || '').slice(0, 160), requestBytes: Number(req.headers['content-length'] || 0), fileLimitBytes: TEMPLATE_BULK_MAX_ZIP_BYTES }));
-    }
-    cb(null, true);
-  },
-});
 
 const templateZipUpload = FileInterceptor('file', {
   storage: memoryStorage(),
@@ -126,30 +107,6 @@ export class LandingPagesController {
     return this.service.suggestAiBrief(user, dto);
   }
 
-  @Post(':id/ai-template-content')
-  @RequirePermissions('lead.write')
-  templateContent(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: GenerateTemplateContentDto) {
-    return this.service.generateTemplateContent(user, id, dto);
-  }
-
-  @Post(':id/ai-template-content/validate-images')
-  @RequirePermissions('lead.write')
-  validateTemplateImages(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ValidateTemplateContentImagesDto) {
-    return this.service.validateTemplateContentImages(user, id, dto.imageIds);
-  }
-
-  @Post(':id/ai-template-content/read-url')
-  @RequirePermissions('lead.write')
-  readTemplateUrl(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CrawlLandingPageUrlDto) {
-    return this.service.readTemplateContentUrl(user, id, dto);
-  }
-
-  @Post(':id/ai-template-content/import-url-image')
-  @RequirePermissions('lead.write')
-  importTemplateUrlImage(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ImportTemplateUrlImageDto) {
-    return this.service.importTemplateUrlImage(user, id, dto);
-  }
-
   @Post('crawl-url')
   @RequirePermissions('lead.write')
   crawlUrl(@CurrentUser() user: AuthUser, @Body() dto: CrawlLandingPageUrlDto) {
@@ -163,29 +120,6 @@ export class LandingPagesController {
     @Query() query: ListLandingPageTemplatesQueryDto,
   ) {
     return this.service.listTemplates(user.organizationId, query, user);
-  }
-
-  @Get('templates/packs/export-all')
-  @UseGuards(PlatformAdminGuard)
-  @RequirePermissions('lead.read')
-  @Header('Cache-Control', 'no-store')
-  async exportAllTemplatePacks(@CurrentUser() user: AuthUser): Promise<StreamableFile> {
-    const bundle = await this.templatePacks.exportAll(user);
-    return new StreamableFile(bundle.body, {
-      type: 'application/zip',
-      disposition: `attachment; filename="${bundle.filename}"`,
-    });
-  }
-
-  @Post('templates/packs/bulk')
-  @UseGuards(PlatformAdminGuard)
-  @RequirePermissions('lead.write')
-  @UseInterceptors(templateBulkUpload)
-  importTemplatePacksBulk(
-    @CurrentUser() user: AuthUser,
-    @UploadedFiles() files: Array<{ originalname?: string; buffer?: Buffer; size?: number }>,
-  ) {
-    return this.templatePacks.importBulk(user, files || []);
   }
 
   @Post('templates/packs')
@@ -221,28 +155,6 @@ export class LandingPagesController {
     @UploadedFile() file: { originalname?: string; buffer?: Buffer; size?: number },
   ) {
     return this.templatePacks.importUpdate(user, idOrSlug, file);
-  }
-
-  @Post('templates/:idOrSlug/edit-session')
-  @UseGuards(PlatformAdminGuard)
-  @RequirePermissions('lead.write')
-  openTemplateEditSession(
-    @CurrentUser() user: AuthUser,
-    @Param('idOrSlug') idOrSlug: string,
-    @Body() body: { reset?: boolean },
-  ) {
-    return this.templatePacks.openEditSession(user, idOrSlug, { reset: body?.reset === true });
-  }
-
-  @Post('templates/:idOrSlug/save-from-session')
-  @UseGuards(PlatformAdminGuard)
-  @RequirePermissions('lead.write')
-  saveTemplateFromSession(
-    @CurrentUser() user: AuthUser,
-    @Param('idOrSlug') idOrSlug: string,
-    @Body() body: { publish?: boolean },
-  ) {
-    return this.templatePacks.saveFromSession(user, idOrSlug, { publish: body?.publish === true });
   }
 
   @Post('templates/:idOrSlug/publish')
@@ -527,10 +439,4 @@ export class LandingPagesController {
   verifyDomain(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.verifyDomain(user, id);
   }
-  @Delete(':id/domain')
-  @RequirePermissions('lead.write')
-  removeDomain(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.removeDomain(user, id);
-  }
-
 }

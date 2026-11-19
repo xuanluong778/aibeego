@@ -1,3 +1,4 @@
+import type { LandingPageChatbotConfig } from './landing-page-chatbot';
 /**
  * Landing Page Auto — Phase 1 shared types (block + JSON config engine).
  * Additive module; independent from Funnel / Facebook App Review surfaces.
@@ -431,6 +432,7 @@ export type LandingPageBlock =
   | LandingPageCountdownBlock;
 
 export type LandingPageSpec = {
+  chatbot?: LandingPageChatbotConfig;
   version: 1;
   theme: LandingPageTheme;
   themeTokens: LandingPageThemeTokens;

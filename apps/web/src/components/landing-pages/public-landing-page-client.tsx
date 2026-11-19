@@ -11,7 +11,6 @@ import type { LandingPageSpec } from '@marketingspa/shared';
 import { isAgencyPortfolioStandard } from './agency-portfolio-client';
 import { getApiBaseUrl } from '@/lib/api-client';
 import { interpretPublicLeadResponse } from '@/components/landing-pages/landing-page-public-lead';
-import { LandingPageMobileConsultCta } from './landing-page-mobile-consult-cta';
 
 const LandingPageRenderer = dynamic(
   () => import('@/components/landing-pages/landing-page-renderer').then((m) => m.LandingPageRenderer),
@@ -24,18 +23,26 @@ import {
   injectTrackingPixels,
   readUtmFromLocation,
 } from '@/components/landing-pages/lp-tracking';
+import type { LandingPageChatbotPublicConfig } from '@marketingspa/shared';
+
+const LandingPageChatbotWidget = dynamic(
+  () =>
+    import('@/components/landing-pages/landing-page-chatbot-widget').then((m) => m.LandingPageChatbotWidget),
+  { ssr: false },
+);
 
 type PublicViewport = 'desktop' | 'tablet' | 'mobile';
 
 function readPublicViewport(): PublicViewport {
   if (typeof window === 'undefined') return 'desktop';
   const w = window.innerWidth || 1280;
-  if (w < 768) return 'mobile';
+  if (w < 640) return 'mobile';
   if (w < 1024) return 'tablet';
   return 'desktop';
 }
 
 export type PublicLandingPayload = {
+  id?: string;
   slug: string;
   name: string;
   spec: LandingPageSpec;
@@ -47,6 +54,7 @@ export type PublicLandingPayload = {
     robotsIndex: boolean;
   };
   trackingConfig?: Record<string, unknown> | null;
+  chatbotConfig?: LandingPageChatbotPublicConfig | null;
   /** Draft preview — no analytics write / noindex. */
   isPreview?: boolean;
 };
@@ -54,12 +62,14 @@ export type PublicLandingPayload = {
 export function PublicLandingPageClient({
   initial,
   eventsSlug,
+  previewToken,
 }: {
   initial: PublicLandingPayload;
   /** Slug used for public event/lead endpoints (preview uses special path). */
   eventsSlug?: string;
+  previewToken?: string;
 }) {
-  const api = useMemo(() => typeof window === 'undefined' ? getApiBaseUrl() : '/api/v1', []);
+  const api = useMemo(() => getApiBaseUrl(), []);
   const [data] = useState(initial);
   const [success, setSuccess] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -210,12 +220,15 @@ export function PublicLandingPageClient({
           void track('FORM_START');
         }}
       />
-      {(() => {
-        const form = data.spec.blocks.find(b => b.type === 'LeadForm' && b.enabled !== false && !b.hidden);
-        return form?.type === 'LeadForm' && /tư vấn/i.test(form.submitLabel || '') &&
-          !!data.spec.meta?.contentSource && /khóa học|khoá học|đào tạo/i.test(JSON.stringify(data.spec.seo))
-          ? <LandingPageMobileConsultCta formBlockId={form.id} /> : null;
-      })()}
+      {data.chatbotConfig && data.id ? (
+        <LandingPageChatbotWidget
+          slug={data.slug}
+          pageId={data.id}
+          staticConfig={data.chatbotConfig}
+          previewMode={isPreview}
+          previewToken={previewToken}
+        />
+      ) : null}
     </main>
   );
 }
