@@ -81,3 +81,5 @@ backups/github-sync/*.dump
 
 # Isolated production release build
 **/.next-platform-release/
+**/.next-chatbot-*/
+**/.next-*/

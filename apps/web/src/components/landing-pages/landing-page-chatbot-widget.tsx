@@ -1,8 +1,8 @@
 'use client';
 
-import Image from 'next/image';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
+/** Static public asset — plain img avoids /_next/image (404 on LP subdomains). */
 const LP_CHATBOT_FAB_ICON = '/landing-page-assets/lp-chatbot-fab-icon.png';
 import type { LandingPageChatbotPublicConfig } from '@marketingspa/shared';
 import { getApiBaseUrl } from '@/lib/api-client';
@@ -232,13 +232,14 @@ export function LandingPageChatbotWidget({
           style={{ outlineColor: cfg.accentColor }}
           onClick={() => setOpen(true)}
         >
-          <Image
+          <img
             src={LP_CHATBOT_FAB_ICON}
             alt=""
             width={64}
             height={64}
             className="h-full w-full object-cover"
-            priority
+            decoding="async"
+            fetchPriority="high"
           />
         </button>
       ) : (
@@ -250,12 +251,13 @@ export function LandingPageChatbotWidget({
             className="flex items-center gap-2 px-3 py-2.5 text-white"
             style={{ background: cfg.primaryColor }}
           >
-            <Image
+            <img
               src={LP_CHATBOT_FAB_ICON}
               alt=""
               width={36}
               height={36}
               className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-white/40"
+              decoding="async"
             />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{cfg.displayName}</div>

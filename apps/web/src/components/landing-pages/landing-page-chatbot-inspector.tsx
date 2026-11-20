@@ -86,13 +86,25 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
 
   return (
     <div className="space-y-3" data-lp-inspector-chatbot>
-      <label className="flex items-center justify-between gap-2 text-xs">
+      <label className="flex cursor-pointer items-center justify-between gap-2 text-xs">
         <span>Bật chatbot trên trang</span>
-        <input
-          type="checkbox"
-          checked={cfg.enabled}
-          onChange={(e) => patch({ enabled: e.target.checked })}
-        />
+        <span className="relative inline-flex h-6 w-11 shrink-0">
+          <input
+            type="checkbox"
+            role="switch"
+            className="peer sr-only"
+            checked={cfg.enabled}
+            onChange={(e) => patch({ enabled: e.target.checked })}
+          />
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 rounded-full bg-white/20 transition-colors peer-checked:bg-emerald-500 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-emerald-950"
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5"
+          />
+        </span>
       </label>
 
       <p className="text-xs text-white/60">
