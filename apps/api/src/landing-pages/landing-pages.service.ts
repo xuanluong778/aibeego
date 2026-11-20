@@ -24,10 +24,9 @@ import {
 } from '@marketingspa/database';
 import {
   LANDING_PAGE_SYSTEM_TEMPLATES,
-  agencyPortfolioCreationSeed,
-  isAgencyPortfolioStandard,
   LANDING_PAGE_TEMPLATE_CATALOG_VERSION,
   applyBusinessProfileToSpec,
+  buildLandingPageChatbotPublicConfig,
   businessProfileToAiBrief,
   createEmptyLandingPageSpec,
   createBlankLandingPageSpec,
@@ -59,6 +58,7 @@ import {
   isBusinessProfileEmpty,
   markLandingPageAiSources,
   preserveUserEditedFields,
+  sanitizeLandingPageChatbotConfig,
   sanitizeLandingPageSpec,
   shouldSkipOpenAiInlineSuggest,
   slugifyLandingPage,
@@ -81,9 +81,16 @@ import { RateLimitService } from '../common/services/rate-limit.service';
 import { LeadsService } from '../leads/leads.service';
 import { AutomationEngineService } from '../crm/automation-engine.service';
 import { LandingPageAiService } from './landing-page-ai.service';
+import { LandingPageChatbotService } from './landing-page-chatbot.service';
+import {
+  assertLpChatbotOrgTrialAllowed,
+  lpChatbotPublicDenyCode,
+} from './landing-page-chatbot-rollout.util';
+import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
+import { domainMethods } from './landing-page-domain-manager';
 import { CreditService, isInsufficientCredits } from '../credit/credit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
-import { isPlatformAdmin, TEMPLATE_EDIT_SLUG_PREFIX, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
+import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
 import {
   assertUploadFile,
   PUBLIC_IMAGE_EXT,
@@ -170,6 +177,7 @@ export class LandingPagesService implements OnModuleInit {
     private readonly automation: AutomationEngineService,
     private readonly ai: LandingPageAiService,
     private readonly credit: CreditService,
+    private readonly landingChatbot: LandingPageChatbotService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
@@ -375,20 +383,6 @@ export class LandingPagesService implements OnModuleInit {
     return { synced: catalog.length, skipped: false as const };
   }
 
-  /** Canonical pilot is used only for template previews and NEW drafts; no DB row is upgraded. */
-  private creationTemplateSpec(
-    row: { slug: string; isSystem: boolean; organizationId: string | null; tags: string[] },
-    raw: unknown,
-  ): LandingPageSpec {
-    const parsed = this.parseSpec(raw);
-    const canonical = LANDING_PAGE_SYSTEM_TEMPLATES.find((t) => t.slug === 'agency-portfolio')!.spec;
-    return agencyPortfolioCreationSeed(
-      { ...row, managed: row.tags.includes(TEMPLATE_PACK_MANAGED_TAG) },
-      parsed,
-      canonical,
-    );
-  }
-
   private parseSpec(raw: unknown): LandingPageSpec {
     return sanitizeLandingPageSpec(raw);
   }
@@ -539,7 +533,7 @@ export class LandingPagesService implements OnModuleInit {
       }),
     ]);
     const recent = await this.prisma.landingPage.findMany({
-      where: { organizationId, NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } } },
+      where: { organizationId },
       orderBy: { updatedAt: 'desc' },
       take: 8,
       select: {
@@ -601,7 +595,7 @@ export class LandingPagesService implements OnModuleInit {
     });
     const mapped = items.map((t) => {
       const visibleRaw = admin ? t.definition : (t.publishedDefinition ?? t.definition);
-      const def = this.creationTemplateSpec(t, visibleRaw);
+      const def = this.parseSpec(visibleRaw);
       const gallery = def.meta?.gallery;
       const recipe = def.meta?.architectureRecipe;
       const designFamily =
@@ -631,11 +625,9 @@ export class LandingPagesService implements OnModuleInit {
         theme: t.theme,
         description: t.description,
         tags: t.tags,
-        thumbnailUrl: isAgencyPortfolioStandard(def)
-          ? gallery?.thumbnail || t.thumbnailUrl || null
-          : def.meta?.htmlConverted
-            ? gallery?.thumbnail || null
-            : t.thumbnailUrl || gallery?.thumbnail || null,
+        thumbnailUrl: def.meta?.htmlConverted
+          ? gallery?.thumbnail || null
+          : t.thumbnailUrl || gallery?.thumbnail || null,
         previewLongImage: def.meta?.htmlConverted ? null : gallery?.previewLongImage || null,
         htmlPreviewUrl: def.meta?.htmlConverted ? null : htmlPreviewPath(t.id, visibleRaw, t.updatedAt),
         badges,
@@ -690,7 +682,6 @@ export class LandingPagesService implements OnModuleInit {
       throw new NotFoundException('Template không tồn tại');
     }
     const visibleRaw = admin ? row.definition : (row.publishedDefinition ?? row.definition);
-    const definition = this.creationTemplateSpec(row, visibleRaw);
     return {
       id: row.id,
       slug: row.slug,
@@ -699,7 +690,7 @@ export class LandingPagesService implements OnModuleInit {
       theme: row.theme,
       description: row.description,
       tags: row.tags,
-      thumbnailUrl: isAgencyPortfolioStandard(definition) ? definition.meta?.gallery?.thumbnail || row.thumbnailUrl : row.thumbnailUrl,
+      thumbnailUrl: row.thumbnailUrl,
       isSystem: row.isSystem,
       ...(admin
         ? {
@@ -707,7 +698,7 @@ export class LandingPagesService implements OnModuleInit {
             hasPublishedVersion: row.publishedDefinition != null,
           }
         : {}),
-      definition,
+      definition: this.parseSpec(visibleRaw),
     };
   }
 
@@ -720,7 +711,6 @@ export class LandingPagesService implements OnModuleInit {
     const items = await this.prisma.landingPage.findMany({
       where: {
         organizationId,
-        NOT: { slug: { startsWith: TEMPLATE_EDIT_SLUG_PREFIX } },
         ...(status ? { status } : {}),
         ...(q
           ? {
@@ -809,7 +799,9 @@ export class LandingPagesService implements OnModuleInit {
         theme = tpl.theme;
         // Clone a copy with fresh ids. User pages never share the template row's JSON.
         const source = admin ? tpl.definition : (tpl.publishedDefinition ?? tpl.definition);
-        spec = this.editableCopyFromImportedHtml(cloneLandingPageSpecWithNewIds(this.creationTemplateSpec(tpl, source)));
+        spec = this.editableCopyFromImportedHtml(
+          cloneLandingPageSpecWithNewIds(this.parseSpec(source), { stripChatbotOrgBindings: true }),
+        );
       }
 
       if (dto.draftSpec) {
@@ -921,6 +913,21 @@ export class LandingPagesService implements OnModuleInit {
     const row = await this.assertPage(user.organizationId, id);
     this.assertMutable(row.status);
 
+    const rawIncoming = dto.draftSpec;
+    const storedSpec = sanitizeLandingPageSpec(row.draftSpec);
+    if (
+      storedSpec.blocks.length > 0 &&
+      (!rawIncoming ||
+        typeof rawIncoming !== 'object' ||
+        !Array.isArray((rawIncoming as LandingPageSpec).blocks))
+    ) {
+      throw new BadRequestException({
+        code: 'DRAFT_SPEC_INCOMPLETE',
+        message:
+          'Autosave phải gửi nguyên draftSpec (gồm blocks/seo/theme). API không merge từng phần — dùng Builder hoặc spread draftSpec hiện có.',
+      });
+    }
+
     const incomingRevision =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
         ? Math.floor(dto.clientRevision)
@@ -932,6 +939,10 @@ export class LandingPagesService implements OnModuleInit {
 
     // Sanitize outside the row lock — large specs were exceeding Prisma interactive tx timeout (5s).
     const sanitizedIncoming = sanitizeLandingPageSpec(dto.draftSpec);
+    const incomingChatbot = sanitizeLandingPageChatbotConfig(sanitizedIncoming.chatbot);
+    if (incomingChatbot?.enabled) {
+      assertLpChatbotOrgTrialAllowed(user.organizationId);
+    }
     const requestHash = dto.requestId
       ? hashLandingPageAutosaveRequest({
           // Sanitizers may allocate IDs for legacy input. The submitted payload
@@ -1080,77 +1091,121 @@ export class LandingPagesService implements OnModuleInit {
     });
   }
 
+  async publicationOptions(user: AuthUser, id: string) {
+    return new LandingPagePlatformDomains(this.prisma).options(user.organizationId, id);
+  }
+
+  async subdomainAvailability(user: AuthUser, id: string, label: string) {
+    this.rateLimit.assertWithinLimit(
+      'lp:subdomain-check:' + user.organizationId,
+      90,
+      60000,
+      'Bạn kiểm tra quá nhanh. Vui lòng thử lại sau.',
+    );
+    return new LandingPagePlatformDomains(this.prisma).availability(user.organizationId, id, label);
+  }
+
   async publish(user: AuthUser, id: string, dto: PublishLandingPageDto) {
     const gate = await this.assertPage(user.organizationId, id);
-    if (gate.slug.startsWith(TEMPLATE_EDIT_SLUG_PREFIX)) {
-      throw new BadRequestException('Đây là phiên sửa mẫu gốc. Dùng "Lưu vào mẫu" hoặc "Lưu & xuất bản mẫu".');
-    }
     this.assertMutable(gate.status);
     const expected =
       typeof dto.clientRevision === 'number' && Number.isFinite(dto.clientRevision)
         ? Math.floor(dto.clientRevision)
         : null;
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
-      const row = await tx.landingPage.findFirst({ where: { id: gate.id } });
-      if (!row) throw new NotFoundException('Landing page not found');
-      const storedRevision = readLandingPageRevision(row.draftSpec);
-      const allowed = publishRevisionAllowed(storedRevision, expected);
-      if (allowed !== 'ok') {
-        throw new ConflictException({
-          code: allowed === 'not_saved' ? 'REVISION_NOT_SAVED' : 'STALE_REVISION',
-          message:
-            allowed === 'not_saved'
-              ? 'Bản nháp chưa lưu xong — lưu lại rồi publish'
-              : 'Có bản mới hơn — tải bản mới nhất rồi publish',
-          clientRevision: storedRevision,
+    if (dto.subdomainSlug !== undefined && dto.publicationTarget !== 'subdomain') {
+      throw new BadRequestException('Hãy chọn xuất bản bằng subdomain khi nhập tên miền.');
+    }
+    const platform = new LandingPagePlatformDomains(this.prisma);
+    const updated = await this.prisma
+      .$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM landing_pages WHERE id = ${gate.id} FOR UPDATE`;
+        const row = await tx.landingPage.findFirst({
+          where: { id: gate.id, organizationId: user.organizationId },
         });
-      }
-      const sanitized = sanitizeLandingPageSpec(row.draftSpec);
-      const validation = validateLandingPageSpec(sanitized);
-      if (!validation.ok) {
-        throw new BadRequestException({
-          code: 'INVALID_SPEC',
-          message: validation.errors.join('; '),
-          errors: validation.errors,
+        if (!row) throw new NotFoundException('Landing page not found');
+        this.assertMutable(row.status);
+        const storedRevision = readLandingPageRevision(row.draftSpec);
+        const allowed = publishRevisionAllowed(storedRevision, expected);
+        if (allowed !== 'ok') {
+          throw new ConflictException({
+            code: allowed === 'not_saved' ? 'REVISION_NOT_SAVED' : 'STALE_REVISION',
+            message:
+              allowed === 'not_saved'
+                ? 'Bản nháp chưa lưu xong — lưu lại rồi publish'
+                : 'Có bản mới hơn — tải bản mới nhất rồi publish',
+            clientRevision: storedRevision,
+          });
+        }
+        const sanitized = sanitizeLandingPageSpec(row.draftSpec);
+        const validation = validateLandingPageSpec(sanitized);
+        if (!validation.ok) {
+          throw new BadRequestException({
+            code: 'INVALID_SPEC',
+            message: validation.errors.join('; '),
+            errors: validation.errors,
+          });
+        }
+        await this.landingChatbot.assertChatbotReadyForPublish(user.organizationId, sanitized);
+        const lastVersion = await tx.landingPageVersion.findFirst({
+          where: { landingPageId: row.id },
+          orderBy: { version: 'desc' },
+          select: { version: true },
         });
-      }
-      const lastVersion = await tx.landingPageVersion.findFirst({
-        where: { landingPageId: row.id },
-        orderBy: { version: 'desc' },
-        select: { version: true },
+        const nextVersion = (lastVersion?.version ?? 0) + 1;
+        let binding = await platform.current(row.id, tx);
+        if (dto.publicationTarget === 'subdomain') {
+          binding = await platform.claim(tx, user.organizationId, row.id, dto.subdomainSlug || '');
+        } else if (dto.publicationTarget === 'path') {
+          await platform.release(tx, user.organizationId, row.id);
+          binding = null;
+        }
+        const saved = await tx.landingPage.update({
+          where: { id: row.id },
+          data: {
+            status: LandingPageStatus.PUBLISHED,
+            ...(binding ? { subdomainSlug: binding.label } : {}),
+            publishedSpec: sanitized as unknown as Prisma.InputJsonValue,
+            draftSpec: sanitized as unknown as Prisma.InputJsonValue,
+            publishedAt: new Date(),
+            seoTitle: sanitized.seo.title?.slice(0, 200),
+            seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
+            seoCanonical: sanitized.seo.canonical ?? null,
+            ogImage: sanitized.seo.ogImage ?? null,
+            robotsIndex: sanitized.seo.robotsIndex !== false,
+            theme: THEME_MAP[sanitized.theme] ?? row.theme,
+          },
+        });
+        await tx.landingPageVersion.create({
+          data: {
+            organizationId: user.organizationId,
+            landingPageId: row.id,
+            version: nextVersion,
+            snapshot: sanitized as unknown as Prisma.InputJsonValue,
+            note: dto.note?.slice(0, 500) ?? `Publish v${nextVersion}`,
+            createdById: user.id,
+          },
+        });
+        return { saved, binding };
+      })
+      .catch((error: { code?: string; meta?: { code?: string } }) => {
+        if (error.code === 'P2002' || (error.code === 'P2010' && error.meta?.code === '23505')) {
+          throw new ConflictException({
+            code: 'SUBDOMAIN_TAKEN',
+            message: 'Tên này vừa được sử dụng. Hãy chọn subdomain khác.',
+          });
+        }
+        throw error;
       });
-      const nextVersion = (lastVersion?.version ?? 0) + 1;
-      const saved = await tx.landingPage.update({
-        where: { id: row.id },
-        data: {
-          status: LandingPageStatus.PUBLISHED,
-          publishedSpec: sanitized as unknown as Prisma.InputJsonValue,
-          draftSpec: sanitized as unknown as Prisma.InputJsonValue,
-          publishedAt: new Date(),
-          seoTitle: sanitized.seo.title?.slice(0, 200),
-          seoDescription: sanitized.seo.metaDescription?.slice(0, 500),
-          seoCanonical: sanitized.seo.canonical ?? null,
-          ogImage: sanitized.seo.ogImage ?? null,
-          robotsIndex: sanitized.seo.robotsIndex !== false,
-          theme: THEME_MAP[sanitized.theme] ?? row.theme,
-        },
-      });
-      await tx.landingPageVersion.create({
-        data: {
-          organizationId: user.organizationId,
-          landingPageId: row.id,
-          version: nextVersion,
-          snapshot: sanitized as unknown as Prisma.InputJsonValue,
-          note: dto.note?.slice(0, 500) ?? `Publish v${nextVersion}`,
-          createdById: user.id,
-        },
-      });
-      return saved;
-    });
 
-    return this.serializePage(updated);
+    return {
+      ...this.serializePage(updated.saved),
+      publicUrl:
+        updated.binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true'
+          ? 'https://' + updated.binding.hostname + '/'
+          : null,
+      platformSubdomain: updated.binding?.label || null,
+    };
   }
 
   async unpublish(user: AuthUser, id: string) {
@@ -1986,12 +2041,15 @@ export class LandingPagesService implements OnModuleInit {
     const parsed = this.parseSpec(row.draftSpec);
     // Strip builder provenance only — keep inlineTextStyles / free-layouts / hidden / locked.
     const spec = this.toPublicSpec(parsed);
+    const cbCfg = sanitizeLandingPageChatbotConfig(spec.chatbot);
+    const chatbotConfig = await this.buildPublicChatbotConfig(row, cbCfg, { preview: true });
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
       theme: row.theme,
       spec,
+      chatbotConfig,
       isPreview: true as const,
       seo: {
         title: `[Preview] ${row.seoTitle || spec.seo.title || row.name}`,
@@ -2415,7 +2473,7 @@ export class LandingPagesService implements OnModuleInit {
 
   /** Public published page by org-scoped slug (default path /p/:slug). */
   async getPublicBySlug(slug: string, organizationId?: string) {
-    if (slug.startsWith('lp-domain-')) return domainMethods.getPublicByDomainKey.call(this, slug);
+    if (slug.startsWith('lp-domain-') || isPlatformDomainKey(slug)) return domainMethods.getPublicByDomainKey.call(this, slug);
     const row = await this.prisma.landingPage.findFirst({
       where: {
         slug,
@@ -2430,12 +2488,15 @@ export class LandingPagesService implements OnModuleInit {
     const parsed = this.parseSpec(row.publishedSpec);
     // Strip builder provenance only — keep layout/category + canvas render meta.
     const spec = this.toPublicSpec(parsed);
+    const cbCfg = sanitizeLandingPageChatbotConfig(spec.chatbot);
+    const chatbotConfig = await this.buildPublicChatbotConfig(row, cbCfg, { preview: false });
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
       theme: row.theme,
       spec,
+      chatbotConfig,
       seo: {
         title: row.seoTitle || spec.seo.title,
         description: row.seoDescription || spec.seo.metaDescription,
@@ -2449,6 +2510,46 @@ export class LandingPagesService implements OnModuleInit {
       customDomainStatus: row.customDomainStatus,
       publishedAt: row.publishedAt,
     };
+  }
+
+  private async buildPublicChatbotConfig(
+    row: {
+      id: string;
+      slug: string;
+      organizationId: string;
+      customDomain: string | null;
+      customDomainStatus: LandingPageDomainStatus | null;
+    },
+    cbCfg: ReturnType<typeof sanitizeLandingPageChatbotConfig>,
+    options: { preview: boolean },
+  ) {
+    if (!cbCfg?.enabled || !cbCfg.botId) return null;
+    const deny = lpChatbotPublicDenyCode(
+      row.organizationId,
+      {
+        customDomain: row.customDomain,
+        customDomainStatus: row.customDomainStatus,
+      },
+      { preview: options.preview },
+    );
+    if (deny) return null;
+    const bot = await this.prisma.chatbotBot.findFirst({
+      where: {
+        id: cbCfg.botId,
+        organizationId: row.organizationId,
+        ...(options.preview ? {} : { status: 'ACTIVE' }),
+      },
+      select: { botName: true, greeting: true, hotline: true, status: true },
+    });
+    if (!bot || (!options.preview && bot.status !== 'ACTIVE')) return null;
+    return buildLandingPageChatbotPublicConfig({
+      pageId: row.id,
+      slug: row.slug,
+      config: cbCfg,
+      fallbackBotName: bot.botName,
+      fallbackGreeting: bot.greeting ?? undefined,
+      hotline: bot.hotline ?? undefined,
+    });
   }
 
   private async resolvePublishedPage(slug: string, organizationId?: string) {

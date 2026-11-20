@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ElementType, type UIEvent } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, type ElementType, type UIEvent } from 'react';
 import {
   Bot,
   Globe,
@@ -44,8 +44,6 @@ import {
   useUpdateChatbotBot,
   useDeleteChatbotBot,
   useChatbotEmbed,
-  useCreateKnowledge,
-  useDeleteKnowledge,
   useCreateChannel,
   useDeleteChannel,
   useUpdateChatbotSettings,
@@ -57,7 +55,7 @@ import {
   useChatbotConversation,
   useMarkChatbotConversationRead,
 } from '@/hooks/use-chatbot-cskh';
-import { CHANNEL_LABELS, SOURCE_TYPE_LABELS, type ChatbotBot } from '@/types/chatbot-cskh';
+import { CHANNEL_LABELS, type ChatbotBot } from '@/types/chatbot-cskh';
 import { formatDateTime } from '@/lib/format';
 import { copyToClipboard } from '@/lib/copy-to-clipboard';
 import Link from 'next/link';
@@ -69,6 +67,9 @@ import {
   type InboxChannelFilter,
 } from '@/components/chatbot-cskh/chatbot-inbox-filters';
 import { useAutoPostStatus } from '@/hooks/use-auto-post';
+import { useSearchParams } from 'next/navigation';
+import { ApiError } from '@/lib/api-client';
+import { useSharedKnowledgeBots } from '@/hooks/use-rag-kb';
 
 function StatCard({
   label,
@@ -130,13 +131,34 @@ function ConversationDetailSkeleton() {
 }
 
 
+function chatbotSaveError(error: unknown): string | undefined {
+  if (!error) return undefined;
+  const detail = error instanceof ApiError && error.errors?.length
+    ? error.errors.join('; ')
+    : error instanceof Error ? error.message : 'Vui lòng thử lại.';
+  return `Không thể lưu hoặc kích hoạt chatbot: ${detail}`;
+}
+
+function newChatbotDraft(): Partial<ChatbotBot> {
+  return { botName: 'Chatbot Spa', consultationTone: 'friendly', status: 'DRAFT', industry: 'Spa / Thẩm mỹ' };
+}
+
 export default function ChatbotCskhPage() {
+  return <Suspense fallback={<LoadingState />}><ChatbotCskhContent /></Suspense>;
+}
+
+function ChatbotCskhContent() {
   const t = useT();
+  const searchParams = useSearchParams();
+  const setupRequest = searchParams.toString();
+  const appliedSetup = useRef<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [botNotice, setBotNotice] = useState<string | null>(null);
+  const [setupFocus, setSetupFocus] = useState<'name' | 'activate' | 'knowledge' | null>(null);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [inboxId, setInboxId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('bots');
   const [botForm, setBotForm] = useState<Partial<ChatbotBot> | null>(null);
-  const [kbForm, setKbForm] = useState({ title: '', content: '', sourceType: 'FAQ' });
   const [fbForm, setFbForm] = useState({ pageName: '', pageId: '', pageAccessToken: '' });
   const [settingsForm, setSettingsForm] = useState<{
     model?: string;
@@ -153,6 +175,7 @@ export default function ChatbotCskhPage() {
   const overview = useChatbotOverview();
   const bots = useChatbotBots();
   const knowledge = useChatbotKnowledge(selectedBotId ?? undefined);
+  const sharedKnowledge = useSharedKnowledgeBots();
   const { data: autoPostStatus } = useAutoPostStatus();
   const canPastePageToken = Boolean(autoPostStatus?.canUseServerEnv);
   const channels = useChatbotChannels();
@@ -178,8 +201,6 @@ export default function ChatbotCskhPage() {
   const createBot = useCreateChatbotBot();
   const updateBot = useUpdateChatbotBot();
   const deleteBot = useDeleteChatbotBot();
-  const createKb = useCreateKnowledge();
-  const deleteKb = useDeleteKnowledge();
   const createChannel = useCreateChannel();
   const deleteChannel = useDeleteChannel();
   const updateSettings = useUpdateChatbotSettings();
@@ -204,6 +225,60 @@ export default function ChatbotCskhPage() {
       setSelectedBotId(bots.data[0].id);
     }
   }, [bots.data, selectedBotId]);
+
+  // Links from the Landing Page open the relevant form; activation still requires a click.
+  useEffect(() => {
+    if (appliedSetup.current === setupRequest) return;
+    const params = new URLSearchParams(setupRequest);
+    const action = params.get('action');
+    const requestedBot = params.get('botId');
+    const tab = params.get('tab');
+    const tabs = ['bots', 'knowledge', 'channels', 'embed', 'inbox', 'leads', 'settings'];
+    setSetupError(null);
+    setBotNotice(null);
+    if (action === 'create') {
+      setActiveTab('bots');
+      setBotForm(newChatbotDraft());
+      setSetupFocus('name');
+    } else if (requestedBot) {
+      if (bots.isPending || bots.isError) return;
+      const bot = bots.data?.find((item) => item.id === requestedBot);
+      if (!bot) {
+        setBotForm(null);
+        setActiveTab('embed');
+        setSetupFocus(null);
+        setSetupError('Không tìm thấy chatbot được liên kết trong tài khoản này. Hãy chọn chatbot hiện có hoặc tạo chatbot mới.');
+      } else {
+        setSelectedBotId(bot.id);
+        if (action === 'activate' || action === 'edit') {
+          setActiveTab('bots');
+          setBotForm({ ...bot });
+          setSetupFocus(action === 'activate' && bot.status !== 'ACTIVE' ? 'activate' : 'name');
+        } else if (tab === 'knowledge') {
+          setBotForm(null);
+          setActiveTab('knowledge');
+          setSetupFocus('knowledge');
+        } else if (tab && tabs.includes(tab)) {
+          setActiveTab(tab);
+        }
+      }
+    } else if (tab && tabs.includes(tab)) {
+      setActiveTab(tab);
+    }
+    appliedSetup.current = setupRequest;
+  }, [setupRequest, bots.data, bots.isPending, bots.isError]);
+
+  useEffect(() => {
+    if (!setupFocus) return;
+    const frame = window.requestAnimationFrame(() => {
+      const selector = setupFocus === 'activate' ? '[data-chatbot-activate]'
+        : setupFocus === 'knowledge' ? '[data-chatbot-knowledge-title]' : '[data-chatbot-name]';
+      const field = document.querySelector<HTMLElement>(selector);
+      field?.scrollIntoView({ block: 'center' });
+      field?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [setupFocus, setupRequest, activeTab, botForm?.id]);
 
   useEffect(() => {
     if (!inboxId) return;
@@ -233,6 +308,8 @@ export default function ChatbotCskhPage() {
         title={t('chatbot.title')}
         description={t('chatbot.extendedDescription')}
       />
+
+      {setupError ? <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{setupError}</p> : null}
 
       {overview.isLoading && <LoadingState />}
       {overview.isError && <ErrorState onRetry={overview.refetch} />}
@@ -268,14 +345,13 @@ export default function ChatbotCskhPage() {
         <TabsContent value="bots" className="space-y-4">
           <div className="flex justify-end">
             <Button
-              onClick={() =>
-                setBotForm({
-                  botName: 'Chatbot Spa',
-                  consultationTone: 'friendly',
-                  status: 'DRAFT',
-                  industry: 'Spa / Thẩm mỹ',
-                })
-              }
+              disabled={createBot.isPending || updateBot.isPending}
+              onClick={() => {
+                createBot.reset();
+                updateBot.reset();
+                setBotNotice(null);
+                setBotForm(newChatbotDraft());
+              }}
             >
               <Plus className="h-4 w-4 mr-2" />
               Tạo chatbot
@@ -285,10 +361,19 @@ export default function ChatbotCskhPage() {
           {bots.isLoading && <LoadingState />}
           {bots.isError && <ErrorState onRetry={bots.refetch} />}
 
+          {botNotice && !botForm ? (
+            <p role="status" className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">{botNotice}</p>
+          ) : null}
+
           {botForm && (
             <BotFormPanel
               form={botForm}
-              onChange={(patch) => setBotForm({ ...botForm, ...patch })}
+              onChange={(patch) => {
+                if (createBot.isError) createBot.reset();
+                if (updateBot.isError) updateBot.reset();
+                setBotForm({ ...botForm, ...patch });
+              }}
+              error={chatbotSaveError(botForm.id ? updateBot.error : createBot.error)}
               saving={createBot.isPending || updateBot.isPending}
               onSave={() => {
                 if (botForm.id) {
@@ -310,7 +395,7 @@ export default function ChatbotCskhPage() {
                 if (botForm.id) {
                   updateBot.mutate(
                     { ...botForm, id: botForm.id, status: 'ACTIVE' },
-                    { onSuccess: () => setBotForm(null) },
+                    { onSuccess: () => { setBotForm(null); setBotNotice('Đã kích hoạt chatbot.'); } },
                   );
                 }
               }}
@@ -319,93 +404,18 @@ export default function ChatbotCskhPage() {
         </TabsContent>
 
         <TabsContent value="knowledge" className="space-y-4">
-          <div className="flex flex-wrap gap-2 items-center">
-            <Label>Chatbot:</Label>
-            <Select value={botId ?? ''} onValueChange={setSelectedBotId}>
-              <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Chọn bot" />
-              </SelectTrigger>
-              <SelectContent>
-                {bots.data?.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.botName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+          <div className="space-y-4 rounded-lg border p-5" data-chatbot-shared-knowledge>
+            <h2 className="text-lg font-semibold">Kho tri thức dùng chung</h2>
+            <p className="text-sm text-muted-foreground">Tài liệu và sơ đồ tri thức được quản lý tại Cài đặt. Chọn kho một lần cho chatbot; Fanpage, Landing Page, Zalo OA và website đã gắn với bot dùng cùng nguồn.</p>
+            <Label>Chatbot</Label>
+            <Select value={botId || ''} onValueChange={setSelectedBotId}>
+              <SelectTrigger aria-label="Chatbot dùng kho tri thức"><SelectValue placeholder="Chọn chatbot" /></SelectTrigger>
+              <SelectContent>{bots.data?.map(bot => <SelectItem key={bot.id} value={bot.id}>{bot.botName}</SelectItem>)}</SelectContent>
             </Select>
+            {botId ? <p className="text-sm">Đang dùng: <strong>{sharedKnowledge.data?.find(bot => bot.id === botId)?.knowledgeBaseName || 'Nguồn hiện có của chatbot'}</strong> · {(knowledge.data || []).filter(source => ['active', 'ready'].includes(source.status)).length} nguồn sẵn sàng</p> : null}
+            <Button asChild><Link href={`/settings?tab=knowledge${botId ? `&botId=${encodeURIComponent(botId)}` : ''}`} target="_blank" rel="noopener noreferrer">Mở kho tri thức trong Cài đặt</Link></Button>
+            <p className="text-xs text-muted-foreground">Tại đây bạn có thể tải TXT/MD, nhập nội dung và chọn kho cho chatbot. Nguồn cũ vẫn được giữ khi chuyển.</p>
           </div>
-
-          {!botId && <EmptyState title="Chọn hoặc tạo chatbot trước" />}
-
-          {botId && (
-            <>
-              <div className="rounded-lg border p-4 space-y-3 max-w-2xl">
-                <h3 className="font-semibold">Thêm nguồn kiến thức</h3>
-                <Input
-                  placeholder="Tiêu đề (VD: Bảng giá dịch vụ)"
-                  value={kbForm.title}
-                  onChange={(e) => setKbForm({ ...kbForm, title: e.target.value })}
-                />
-                <Select
-                  value={kbForm.sourceType}
-                  onValueChange={(v) => setKbForm({ ...kbForm, sourceType: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(SOURCE_TYPE_LABELS).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Textarea
-                  placeholder="Nội dung FAQ, chính sách, bảng giá..."
-                  rows={5}
-                  value={kbForm.content}
-                  onChange={(e) => setKbForm({ ...kbForm, content: e.target.value })}
-                />
-                <Button
-                  disabled={!kbForm.title || createKb.isPending}
-                  onClick={() =>
-                    createKb.mutate(
-                      {
-                        botId,
-                        title: kbForm.title,
-                        sourceType: kbForm.sourceType,
-                        content: kbForm.content,
-                      },
-                      { onSuccess: () => setKbForm({ title: '', content: '', sourceType: 'FAQ' }) },
-                    )
-                  }
-                >
-                  Thêm nguồn
-                </Button>
-              </div>
-
-              <div className="space-y-2">
-                {knowledge.data?.map((src) => (
-                  <div
-                    key={src.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                  >
-                    <div>
-                      <p className="font-medium">{src.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {SOURCE_TYPE_LABELS[src.sourceType]}
-                      </p>
-                      <p className="text-sm mt-1 line-clamp-2">{src.content}</p>
-                    </div>
-                    <Button size="sm" variant="ghost" onClick={() => deleteKb.mutate(src.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
         </TabsContent>
 
         <TabsContent value="channels" className="space-y-4">
@@ -671,6 +681,7 @@ export default function ChatbotCskhPage() {
             onEdit={(bot) => {
               setSelectedBotId(bot.id);
               setBotForm(bot);
+              setActiveTab('bots');
             }}
           />
         </TabsContent>

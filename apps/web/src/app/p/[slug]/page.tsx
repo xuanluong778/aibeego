@@ -13,7 +13,7 @@ async function fetchPublic(slug: string): Promise<PublicLandingPayload | null> {
   try {
     const res = await fetch(
       `${landingPagePublicApiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}`,
-      slug.startsWith('lp-domain-')
+      slug.startsWith('lp-domain-') || slug.startsWith('lp-platform-')
         ? { cache: 'no-store' }
         : { next: { revalidate: 60, tags: [`lp-public-${slug}`] } },
     );

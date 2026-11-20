@@ -3,9 +3,12 @@ import type { Request, Response } from 'express';
 import { LandingPagesService } from './landing-pages.service';
 import { LandingPageTemplatePackService } from './landing-page-template-pack.service';
 import {
+  LandingPageChatbotLeadDto,
+  LandingPageChatbotMessageDto,
   SubmitLandingPageLeadDto,
   TrackLandingPageEventDto,
 } from './dto/landing-pages.dto';
+import { LandingPageChatbotService } from './landing-page-chatbot.service';
 
 /** Public landing pages — no JWT. Builder code is never loaded here. */
 @Controller('landing-pages/public')
@@ -13,6 +16,7 @@ export class LandingPagesPublicController {
   constructor(
     private readonly service: LandingPagesService,
     private readonly templatePacks: LandingPageTemplatePackService,
+    private readonly chatbot: LandingPageChatbotService,
   ) {}
 
   private clientIp(req: Request): string {
@@ -77,8 +81,7 @@ export class LandingPagesPublicController {
     @Query('organizationId') organizationId?: string,
     @Req() req?: Request,
   ) {
-    // Internal SSR uses a binding-specific key. Browser requests are scoped by Host.
-    const org = slug.startsWith('lp-domain-') ? organizationId : await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
+    const org = await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
     return this.service.getPublicBySlug(slug, org);
   }
 
@@ -91,6 +94,67 @@ export class LandingPagesPublicController {
   ) {
     const org = await this.service.domainOrganization(req.headers.host || '', slug, organizationId);
     return this.service.submitPublicLead(slug, dto, this.clientIp(req), org);
+  }
+
+  @Get(':slug/chatbot/config')
+  chatbotConfig(
+    @Param('slug') slug: string,
+    @Query('organizationId') organizationId: string | undefined,
+    @Query('previewToken') previewToken: string | undefined,
+    @Req() req: Request,
+  ) {
+    const origin = String(req.headers.origin || '');
+    const referer = String(req.headers.referer || '');
+    return this.chatbot.getPublicConfig(slug, organizationId, previewToken, origin, referer);
+  }
+
+  @Post(':slug/chatbot/message')
+  chatbotMessage(
+    @Param('slug') slug: string,
+    @Body() dto: LandingPageChatbotMessageDto,
+    @Query('organizationId') organizationId: string | undefined,
+    @Query('previewToken') previewToken: string | undefined,
+    @Req() req: Request,
+  ) {
+    const origin = String(req.headers.origin || '');
+    const referer = String(req.headers.referer || '');
+    return this.chatbot.processMessage(
+      slug,
+      { message: dto.message, sessionId: dto.sessionId, pageUrl: dto.pageUrl },
+      organizationId,
+      previewToken ?? dto.previewToken,
+      origin,
+      referer,
+      this.clientIp(req),
+    );
+  }
+
+  @Post(':slug/chatbot/lead')
+  chatbotLead(
+    @Param('slug') slug: string,
+    @Body() dto: LandingPageChatbotLeadDto,
+    @Query('organizationId') organizationId: string | undefined,
+    @Query('previewToken') previewToken: string | undefined,
+    @Req() req: Request,
+  ) {
+    const origin = String(req.headers.origin || '');
+    const referer = String(req.headers.referer || '');
+    return this.chatbot.submitLead(
+      slug,
+      {
+        sessionId: dto.sessionId,
+        name: dto.name,
+        phone: dto.phone,
+        email: dto.email,
+        need: dto.need,
+        pageUrl: dto.pageUrl,
+      },
+      organizationId,
+      previewToken ?? dto.previewToken,
+      this.clientIp(req),
+      origin,
+      referer,
+    );
   }
 
   @Post(':slug/events')

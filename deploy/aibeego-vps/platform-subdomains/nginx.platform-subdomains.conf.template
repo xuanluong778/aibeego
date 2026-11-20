@@ -1,0 +1,101 @@
+# TEMPLATE ONLY — requires wildcard DNS, wildcard TLS and explicit rollout approval.
+# Shared single-label platform subdomains; exact existing vhosts take precedence.
+# Wildcard TLS must use automated DNS-01 renewal; the HTTP ACME route is retained separately.
+server {
+    listen 116.118.45.72:80;
+    server_name "~^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.aibeego\.com$";
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/aibeego_com_usr/data/acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 116.118.45.72:443 ssl;
+    http2 on;
+    if ($ssl_server_name != $host) { return 421; }
+    server_name "~^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.aibeego\.com$";
+
+    ssl_certificate /etc/letsencrypt/live/aibeego-wildcard/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/aibeego-wildcard/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_session_cache shared:SSL_platform_aibeego:10m;
+    ssl_session_timeout 1d;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/aibeego_com_usr/data/acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    # Resolve the verified, published domain binding on every landing request.
+    # This is a separate shared regex vhost; existing FastPanel vhosts are not edited.
+    location = /_aibeego_platform_domain_auth {
+        internal;
+        proxy_pass http://127.0.0.1:3999/api/v1/landing-pages/public/domains/resolve?host=$host;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host aibeego.com;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location = / {
+        auth_request /_aibeego_platform_domain_auth;
+        auth_request_set $platform_lp_public_key $upstream_http_x_lp_public_key;
+        auth_request_set $platform_lp_page_id $upstream_http_x_lp_page_id;
+        proxy_pass http://127.0.0.1:3999/p/$platform_lp_public_key$is_args$args;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_set_header X-LP-Public-Key "";
+        proxy_set_header X-LP-Page-Id "";
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store" always;
+        add_header X-LP-Page-Id $platform_lp_page_id always;
+        add_header Strict-Transport-Security "max-age=86400" always;
+    }
+
+    location ~ ^/api/v1/landing-pages/public/(?:domains|preview)(?:/|$) {
+        return 404;
+    }
+
+    location /api/v1/landing-pages/public/ {
+        auth_request /_aibeego_platform_domain_auth;
+        proxy_pass http://127.0.0.1:3999;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+
+    location ~ ^/(?:_next/static/|landing-page-assets/|landing-pages/templates/|brand/|uploads/|favicon\.(?:ico|png|svg)$) {
+        auth_request /_aibeego_platform_domain_auth;
+        proxy_pass http://127.0.0.1:3999;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+    }
+
+    location = /robots.txt {
+        default_type text/plain;
+        return 200 "User-agent: *\nAllow: /\nDisallow: /api/\n";
+    }
+
+    location / {
+        return 404;
+    }
+}

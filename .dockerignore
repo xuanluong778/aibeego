@@ -1,6 +1,7 @@
 node_modules
 **/node_modules
 **/.next
+**/.next-*
 **/dist
 **/*.tsbuildinfo
 **/.turbo
@@ -20,3 +21,6 @@ backups
 *.dump
 *.sql
 *.tsv
+
+# Isolated production release build
+**/.next-platform-release/

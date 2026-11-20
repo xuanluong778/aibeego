@@ -104,6 +104,8 @@ import {
 } from './landing-page-inspector-rail';
 import { LandingPageInspectorGlobalDesign } from './landing-page-inspector-global-design';
 import { LandingPageAddComponentsPanel } from './landing-page-add-components-panel';
+import { LandingPageHeaderMenuInspector } from './landing-page-header-menu-inspector';
+import { LandingPageChatbotInspector } from './landing-page-chatbot-inspector';
 import { LandingPageButtonInspector } from './landing-page-button-inspector';
 import { LandingPageIconInspector } from './landing-page-icon-inspector';
 import { LandingPageLeadFormFieldsInspector } from './landing-page-lead-form-fields-inspector';
@@ -132,6 +134,7 @@ import {
 import { LandingPageGroupSelection, CanvasMultiInspector } from './landing-page-group-selection';
 import { targetKey, canvasMoveLimits, readCanvasElementLayer, targetIsLocked, targetIsHidden, targetField, findCanvasTargetNode, selectionBox, boxIdentity, collectBoxTargets, readCanvasGroups, writeCanvasGroups, groupForSelection, canGroupTargets, applyCanvasMoves, selectionRect, type CanvasMove } from './landing-page-canvas-groups';
 import { LandingPageImageField } from './landing-page-image-field';
+import { LandingPagePublishDialog, type LandingPagePublishSelection } from './landing-page-publish-dialog';
 import { LandingPageBuilderToolbar } from './landing-page-builder-toolbar';
 import { LandingPageTemplateContentDialog } from './landing-page-template-content-dialog';
 import { applyTemplateContent } from '@marketingspa/shared';
@@ -248,6 +251,8 @@ type PagePayload = {
   status: string;
   draftSpec: LandingPageSpec;
   publicPath?: string;
+  publicUrl?: string | null;
+  platformSubdomain?: string | null;
   trackingConfig?: {
     ga4MeasurementId?: string | null;
     googleAdsId?: string | null;
@@ -639,6 +644,8 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   const [historyNav, setHistoryNav] = useState({ undo: false, redo: false });
   const [saveMsg, setSaveMsg] = useState('');
   const [publishPublicPath, setPublishPublicPath] = useState<string | null>(null);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [openAfterPublish, setOpenAfterPublish] = useState(false);
   /** Another writer (tab/session) saved a newer revision — autosave paused until user resolves. */
   const [saveConflict, setSaveConflict] = useState(false);
   const [pendingLocalDraft, setPendingLocalDraft] = useState<LocalLandingDraft | null>(null);
@@ -6145,7 +6152,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
     );
   }
 
-  async function publish(): Promise<string | null> {
+  async function publish(selection?: LandingPagePublishSelection): Promise<string | null> {
     if (publishing) return null;
     if (saveConflictRef.current) {
       setPublishPublicPath(null);
@@ -6169,17 +6176,17 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       try {
         updated = await apiClient<PagePayload>(`/landing-pages/${pageId}/publish`, {
           method: 'POST',
-          body: JSON.stringify({ clientRevision: ackedRevisionRef.current }),
+          body: JSON.stringify({ clientRevision: ackedRevisionRef.current, ...selection }),
         });
       } catch (e) {
         setSaveMsg(
           e instanceof Error ? e.message : 'Publish thất bại — bản công khai chưa đổi',
         );
-        return null;
+        throw e;
       }
       setPage(updated);
       clearLocalLandingDraft(pageId);
-      const publicPath = updated.slug ? `/p/${updated.slug}` : null;
+      const publicPath = updated.publicUrl || updated.publicPath || (updated.slug ? `/p/${updated.slug}` : null);
       setPublishPublicPath(publicPath);
       const fresh = await revalidatePublicLandingPage(updated.slug);
       setSaveMsg(
@@ -6187,7 +6194,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           ? 'Đã xuất bản thành công'
           : 'Đã xuất bản. Cache trang công khai chưa làm mới — tải lại sau ít phút',
       );
-      return updated.slug || null;
+      return publicPath;
     } finally {
       setPublishing(false);
     }
@@ -6228,9 +6235,24 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
   }
 
   async function viewLive() {
-    const slug = await publish();
-    if (!slug || typeof window === 'undefined') return;
-    window.open(`/p/${encodeURIComponent(slug)}?v=${Date.now()}`, '_blank', 'noopener,noreferrer');
+    flushCanvasEdit();
+    setOpenAfterPublish(true);
+    setPublishDialogOpen(true);
+  }
+
+  async function confirmPublish(selection: LandingPagePublishSelection) {
+    // Reserve the popup in the user click handler, before autosave/network awaits.
+    const preview = openAfterPublish ? window.open('about:blank', '_blank') : null;
+    if (preview) preview.opener = null;
+    try {
+      const url = await publish(selection);
+      if (!url) throw new Error('Chưa lưu xong bản nháp. Kiểm tra thông báo lưu và thử xuất bản lại.');
+      if (preview) {
+        const target = new URL(url, window.location.origin);
+        target.searchParams.set('v', String(Date.now()));
+        preview.location.replace(target.toString());
+      }
+    } catch (error) { if (preview) preview.close(); throw error; }
   }
 
   async function applyBusinessProfile(force: boolean) {
@@ -6425,6 +6447,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
         body:has([data-lp-inspector-drawer], [data-lp-media-modal], [data-lp-section-library-modal], [data-lp-button-library-modal]) [data-lp-floating-toolbar] { visibility: hidden; }
         body:has([data-lp-builder-root]) [data-lp-free-drag-handle], [data-lp-builder-root] [data-lp-resize-handle], [data-lp-builder-root] [data-lp-rotate-handle] { touch-action: none; }
       `}</style>
+      <LandingPagePublishDialog open={publishDialogOpen} pageId={pageId} publishing={publishing} onOpenChange={setPublishDialogOpen} onPublish={confirmPublish} />
       {!fullscreenPreview && templateEditSlug ? (
         <div
           className="flex flex-wrap items-center gap-2 border-b border-amber-400/40 bg-amber-500/15 px-3 py-2 text-xs text-amber-100"
@@ -6480,7 +6503,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
           canUndo={historyNav.undo}
           canRedo={historyNav.redo}
           onSave={() => { flushCanvasEdit(); void persist(specRef.current, page.name, { manual: true }); }}
-          onPublish={() => void publish()}
+          onPublish={() => { flushCanvasEdit(); setOpenAfterPublish(false); setPublishDialogOpen(true); }}
           onViewLive={() => void viewLive()}
           onTemplateContent={page.templateId && page.status !== 'ARCHIVED' && !spec.meta?.htmlSource && hasPermission(templateContentUser.data, 'lead.write')
             ? () => { flushCanvasEdit(); setTemplateContentOpen(true); }
@@ -6636,7 +6659,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 canUndo={historyNav.undo}
                 canRedo={historyNav.redo}
                 onSave={() => { flushCanvasEdit(); void persist(specRef.current, page.name, { manual: true }); }}
-                onPublish={() => void publish()}
+                onPublish={() => { flushCanvasEdit(); setOpenAfterPublish(false); setPublishDialogOpen(true); }}
                 onViewLive={() => void viewLive()}
               />
               <div
@@ -7527,6 +7550,7 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 })()}
                 isTextHidden={(() => {
                   const field = inspectorTextFieldKey(selectedElement, primaryTarget?.field);
+                if (selected.type === 'Header' && field === 'body') return null;
                   if (!field) return false;
                   const key = elementStyleKey(selected.id, field);
                   return Boolean(
@@ -8554,6 +8578,14 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
                 </div>
               </InspectorAccordion>
 
+              <InspectorAccordion title="Chatbot" data-lp="advanced-chatbot" defaultOpen={false}>
+                <LandingPageChatbotInspector
+                  spec={spec}
+                  pageId={pageId}
+                  slug={page.slug}
+                  onChange={(next) => pushHistory(markLandingPageUserEdits(next, ['chatbot']))}
+                />
+              </InspectorAccordion>
               <InspectorAccordion title="Phiên bản / Xem trước" data-lp="advanced-versions" defaultOpen={false}>
                 <div className="space-y-2" data-lp-inspector-versions>
                   <LandingPageVersionHistoryPanel
@@ -8615,9 +8647,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
             </div>
           ) : null}
 
-          {page.publicPath ? (
-            <a className="block text-xs underline opacity-80" href={page.publicPath} target="_blank" rel="noreferrer">
-              Public: {page.publicPath}
+          {page.publicUrl || page.publicPath ? (
+            <a className="block text-xs underline opacity-80" href={page.publicUrl || page.publicPath} target="_blank" rel="noreferrer">
+              Public: {page.publicUrl || page.publicPath}
             </a>
           ) : null}
 

@@ -1898,6 +1898,7 @@ model LandingPage {
   events       LandingPageEvent[]
   leads        Lead[]
   domainConnection LandingPageDomainConnection?
+  platformDomain LandingPagePlatformDomain?
 
   @@unique([organizationId, slug])
   @@index([organizationId, status, updatedAt])
@@ -1927,6 +1928,17 @@ model LandingPageDomainConnection {
   @@map("landing_page_domain_connections")
 }
 
+/// Platform-owned <label>.aibeego.com, claimed atomically on publish.
+model LandingPagePlatformDomain {
+  landingPageId String @id @map("landing_page_id")
+  bindingId String @unique @map("binding_id")
+  label String @db.VarChar(63)
+  hostname String @unique @db.VarChar(253)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  landingPage LandingPage @relation(fields: [landingPageId], references: [id], onDelete: Cascade)
+  @@map("landing_page_platform_domains")
+}
 model LandingPageVersion {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")

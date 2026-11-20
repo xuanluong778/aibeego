@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsEmail,
   IsNumber,
   IsObject,
   IsOptional,
@@ -203,6 +204,15 @@ export class AutosaveLandingPageDto {
 }
 
 export class PublishLandingPageDto {
+  @IsOptional()
+  @IsIn(['path', 'subdomain'])
+  publicationTarget?: 'path' | 'subdomain';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(63)
+  subdomainSlug?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -606,4 +616,65 @@ export class TrackLandingPageEventDto {
   @IsString()
   @MaxLength(200)
   website?: string;
+}
+
+export class LandingPageChatbotMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  message!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sessionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  pageUrl?: string;
+
+  /** Draft preview token — isolates sessions; never trusted for bot binding. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  previewToken?: string;
+}
+
+export class LandingPageChatbotLeadDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(32)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  need?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  sessionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  pageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  previewToken?: string;
 }

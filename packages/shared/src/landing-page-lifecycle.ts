@@ -1,3 +1,4 @@
+import { sanitizeLandingPageChatbotConfig } from './landing-page-chatbot';
 import { sanitizeLandingPageMotionStyle, remapLandingPageMotion } from './landing-page-motion';
 import { sanitizeSectionPlacement } from './landing-page-section-elements';
 import { isVersionedLandingPageCanvasSpec, remapAgencyPortfolioCloneIds } from './landing-page-agency-portfolio-standard';
@@ -608,6 +609,7 @@ export function sanitizeLandingPageSpec(
   );
 
   const normalizedTokens = sanitizePersistedThemeTokens(tokensIn, preset, theme);
+  const chatbot = sanitizeLandingPageChatbotConfig((raw as { chatbot?: unknown }).chatbot, { mode });
 
   return {
     version: 1,
@@ -621,6 +623,7 @@ export function sanitizeLandingPageSpec(
       robotsIndex: seoIn.robotsIndex !== false,
     },
     blocks,
+    ...(chatbot ? { chatbot } : {}),
     ...(metaIn
       ? {
           meta: {

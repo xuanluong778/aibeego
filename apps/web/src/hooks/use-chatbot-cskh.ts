@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, apiUpload } from '@/lib/api-client';
+import { toChatbotBotPayload } from '@/lib/chatbot-bot-payload';
 import { invalidateFanpageConnectionCaches } from '@/lib/invalidate-fanpage-connection-caches';
 import type {
   ChatbotBot,
@@ -26,17 +27,19 @@ export function useChatbotOverview() {
   });
 }
 
-export function useChatbotBots() {
+export function useChatbotBots(options?: { refetchOnWindowFocus?: boolean | 'always' }) {
   return useQuery({
     queryKey: [...KEY, 'bots'],
+    ...(options?.refetchOnWindowFocus ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
     queryFn: () => apiClient<ChatbotBot[]>('/chatbot-cskh/bots'),
   });
 }
 
-export function useChatbotKnowledge(botId?: string) {
+export function useChatbotKnowledge(botId?: string, options?: { refetchOnWindowFocus?: boolean | 'always' }) {
   const qs = botId ? `?botId=${botId}` : '';
   return useQuery({
     queryKey: [...KEY, 'knowledge', botId],
+    ...(options?.refetchOnWindowFocus ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
     queryFn: () => apiClient<ChatbotKnowledgeSource[]>(`/chatbot-cskh/knowledge${qs}`),
   });
 }
@@ -264,7 +267,7 @@ export function useCreateChatbotBot() {
     mutationFn: (body: Partial<ChatbotBot>) =>
       apiClient<ChatbotBot>('/chatbot-cskh/bots', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(toChatbotBotPayload(body)),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
@@ -276,7 +279,7 @@ export function useUpdateChatbotBot() {
     mutationFn: ({ id, ...body }: Partial<ChatbotBot> & { id: string }) =>
       apiClient<ChatbotBot>(`/chatbot-cskh/bots/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify(body),
+        body: JSON.stringify(toChatbotBotPayload(body)),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });

@@ -1,0 +1,6 @@
+{
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {"noEmit": true, "incremental": false},
+  "include": ["../../apps/web/next-env.d.ts", "../../apps/web/src/components/landing-pages/landing-page-publish-dialog.tsx"],
+  "exclude": ["../../apps/web/node_modules"]
+}
