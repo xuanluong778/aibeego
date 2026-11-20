@@ -2,26 +2,55 @@ import type { ChatbotKnowledgeSource } from '@marketingspa/database';
 
 export const normalizeKnowledgeText = (text: string) => text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 const words = (text: string) => normalizeKnowledgeText(text).match(/[a-z0-9]+/g) || [];
-const STOP = new Set('toi minh em anh chi ban cho muon can xin duoc la va cua ve voi co khong thi nao nhe oi mot nhung cac nay do tai day giup tu van thong tin biet tim hieu xin chao hello hi hey o dau nhu the hoc khoa phi gia bao nhieu kho de'.split(' '));
-const keywords = (text: string) => [...new Set(words(text).filter(w => w.length >= 3 && !STOP.has(w)))];
 export type KnowledgeIntent = 'address' | 'contact' | 'hours' | 'price' | 'difficulty' | 'curriculum' | 'duration' | 'general';
 export type KnowledgeTopic = 'seo-course' | 'entity' | 'seo-service' | 'website' | 'digital-course';
 
+// Search-only normalization: the customer's original message is kept for the AI/history.
+function questionText(text: string): string {
+  return normalizeKnowledgeText(text)
+    .replace(/\bhoc\s*fi\b|\bhocphi\b/g, 'hoc phi')
+    .replace(/\bkhoahoc\b/g, 'khoa hoc')
+    .replace(/\b(?:bnh|bnhiu|bn)\b|\bbao nhiu\b/g, 'bao nhieu')
+    .replace(/\bs\s*[.]\s*e\s*[.]\s*o\b/g, 'seo')
+    .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const PRICE = /\b(?:hoc phi|phi (?:hoc|khoa hoc|khoa|lop)|tien hoc|tien (?:khoa|lop)(?: hoc)?|chi phi|muc phi|le phi|bang gia|bao gia|gia(?: tien| ca| ro| khoa hoc| khoa| goi)?|mat bao nhieu tien|can dong bao nhieu|phai dong bao nhieu|bao nhieu tien|bao nhieu dong|tuition(?: fee)?|pricing|price|cost|fee|how much)\b/;
+const hasPriceLanguage = (text: string) => PRICE.test(text.replace(/\b(?:danh gia|chuyen gia|doc gia|tac gia|quoc gia|tham gia|gia dinh|gia su)\b/g, ' '));
+const DURATION = /\b(?:bao lau|thoi luong|thoi gian hoc|lich hoc|lich khai giang|khai giang|mo lop|khi nao bat dau hoc|hoc (?:may|bao nhieu) (?:buoi|tuan|thang|ngay|gio)|(?:may|bao nhieu) buoi|(?:may|bao nhieu) (?:tuan|thang|ngay) hoc|schedule|duration)\b/;
+const CURRICULUM = /\b(?:giao trinh|chuong trinh(?: hoc| dao tao)?|noi dung(?: hoc| dao tao| khoa hoc)?|hoc (?:duoc )?(?:nhung )?gi|hoc ve nhung gi|nhung gi duoc hoc|cac bai hoc|(?:may|bao nhieu) bai(?: hoc)?|nhung chu de|nhung mon hoc|curriculum|syllabus)\b/;
+const ADDRESS = /\b(?:dia chi|tru so|van phong|dia diem|co so o dau|cong ty o dau|ben (?:ban|minh|em) o dau|o dau|o cho nao|nam o dau|address|location)\b/;
+const CONTACT = /\b(?:hotline|so dien thoai|so dt|sdt|so lien he|lien he (?:the nao|nhu nao|bang cach nao)|goi (?:so nao|vao so)|email|gmail|contact)\b/;
+const HOURS = /\b(?:gio (?:lam viec|mo cua|dong cua|tu van)|(?:may gio|luc nao) (?:mo cua|dong cua)|mo cua|dong cua|working hours|opening hours)\b/;
+const DIFFICULTY = /\b(?:kho(?: hoc| khong)?|de (?:hoc|khong)|nguoi moi|bat dau|chua biet|can kien thuc|can nen tang|dau vao|prerequisite)\b/;
+const patterns: Partial<Record<KnowledgeIntent, RegExp>> = { price: PRICE, duration: DURATION, curriculum: CURRICULUM, address: ADDRESS, contact: CONTACT, hours: HOURS, difficulty: DIFFICULTY };
+const canonical: Partial<Record<KnowledgeIntent, string>> = {price:'gia',duration:'thoi luong',curriculum:'giao trinh',address:'dia chi',contact:'hotline',hours:'gio lam viec',difficulty:'nguoi moi'};
+const STOP = new Set('toi minh em anh chi ban cho muon can xin duoc la va cua ve voi co khong thi nao nhe oi mot nhung cac nay do tai day giup tu van thong tin biet tim hieu xin chao hello hi hey o dau nhu the hoc khoa phi gia bao nhieu kho de a da nhi vay nha nhen ha ah ak nhe luon chut xiu hoi ben tam khoang sao lam gi se phai dong tra nop het ton mat lop goi moi dung ne the nay ay no roi ntn ra hien nay bay cu nua ko k ahh the how is are the this that it course does do please can could you me your our for of to about a'.split(' '));
+
+/** Normalize equivalent intent phrases before matching, without removing a new product name. */
+export function normalizeLandingPageKnowledgeQuery(text: string): string {
+  const t = questionText(text), intent = knowledgeIntent(t), pattern = patterns[intent];
+  return pattern ? t.replace(new RegExp(pattern.source, 'g'), canonical[intent] || '').replace(/\s+/g, ' ').trim() : t;
+}
+const keywords = (text: string) => [...new Set(words(normalizeLandingPageKnowledgeQuery(text)).filter(w => w.length >= 3 && !STOP.has(w)))];
+
 export function knowledgeIntent(text: string): KnowledgeIntent {
-  const t = normalizeKnowledgeText(text);
-  if (/dia chi|tru so|van phong|cong ty o dau|ben (?:ban|minh|em) o dau|\bo dau\b/.test(t) && !/dia chi (?:website|trang web|email)/.test(t)) return 'address';
-  if (/gio (?:lam viec|mo cua)|mo cua|dong cua|may gio/.test(t)) return 'hours';
-  if (/hotline|so dien thoai|\bsdt\b|email|gmail/.test(t) && !/hoc phi|gia/.test(t)) return 'contact';
-  if (/hoc phi|chi phi|bao nhieu|gia tien|muc phi|\bgia\b/.test(t)) return 'price';
-  if (/\bkho\b|\bde khong\b|nguoi moi|bat dau|chua biet|can kien thuc/.test(t)) return 'difficulty';
-  if (/giao trinh|hoc (?:nhung gi|gi)|noi dung hoc|hoc duoc gi|chuong trinh|co hoc/.test(t)) return 'curriculum';
-  if (/bao lau|thoi gian|lich hoc|khai giang|may buoi/.test(t)) return 'duration';
+  const t = questionText(text);
+  if (ADDRESS.test(t) && !/dia chi (?:website|trang web|email)/.test(t)) return 'address';
+  if (HOURS.test(t)) return 'hours';
+  if (CONTACT.test(t) && !hasPriceLanguage(t)) return 'contact';
+  if (hasPriceLanguage(t)) return 'price';
+  // Counts of lessons or sessions are not prices, even though they contain “bao nhiêu”.
+  if (CURRICULUM.test(t)) return 'curriculum';
+  if (DURATION.test(t)) return 'duration';
+  if (DIFFICULTY.test(t)) return 'difficulty';
+  if (/bao nhieu/.test(t) && !/bao nhieu (?:nguoi|hoc vien|khach|nhan vien|tuoi)/.test(t)) return 'price';
   return 'general';
 }
 
 export function knowledgeTopic(text: string): KnowledgeTopic | undefined {
-  const t = normalizeKnowledgeText(text);
-  if (/khoa (?:hoc )?seo|hoc seo|hoc phi.*seo|seo.*hoc phi|dao tao seo|seo dong hanh|seo basic|seo premium|basic.*premium/.test(t)) return 'seo-course';
+  const t = questionText(text);
+  if (/khoa (?:hoc )?seo|lop (?:hoc )?seo|hoc (?:ve )?seo|hoc phi.*seo|seo.*hoc phi|dao tao seo|seo dong hanh|seo basic|seo premium|basic.*premium|seo course|course seo|learn seo|seo training/.test(t)) return 'seo-course';
   if (/entity|google stack/.test(t)) return 'entity';
   if (/dich vu seo|seo tong the|trien khai seo|thue.*seo/.test(t)) return 'seo-service';
   if (/thiet ke (?:website|web)|lam (?:website|web)/.test(t)) return 'website';
@@ -29,21 +58,32 @@ export function knowledgeTopic(text: string): KnowledgeTopic | undefined {
   return undefined;
 }
 
-export function resolveLandingPageKnowledgeQuery(text: string, history: Array<{role:string;message:string}>): string {
+export function resolveLandingPageKnowledgeQuery(text: string, history: Array<{role:string;message:string}>, rememberedTopic?: KnowledgeTopic): string {
   const intent = knowledgeIntent(text);
-  if (['address','contact','hours'].includes(intent) || knowledgeTopic(text)) return text;
-  // Only genuinely elliptical follow-ups inherit a product, never a new question's unrelated subject.
-  const followupWords = new Set('hoc phi gia tien bao nhieu kho de lich thoi gian bao lau may buoi nhu the nao nguoi moi bat dau co ban duoc gi noi dung chuong trinh'.split(' '));
-  const elliptical = words(text).filter(w => !STOP.has(w)).every(w => followupWords.has(w));
-  if (!elliptical || intent === 'general') return text;
-  for (const message of [...history].reverse()) {
-    if (message.role !== 'user' || message.message === text) continue;
-    const topic = knowledgeTopic(message.message);
-    if (!topic) continue;
-    const label: Record<KnowledgeTopic,string> = {'seo-course':'Khóa học SEO','entity':'Dịch vụ Entity','seo-service':'Dịch vụ SEO tổng thể','website':'Thiết kế website','digital-course':'Khóa học Digital Marketing'};
-    return `${label[topic]}: ${text}`;
+  const explicitTopic=knowledgeTopic(text);
+  if (['address','contact','hours'].includes(intent)) return text;
+  if (explicitTopic) {
+    const productWords=new Set('seo khoa hoc lop dong hanh basic premium entity social google stack dich vu tong the trien khai thue thiet ke lam website web digital marketing dao tao course training'.split(' '));
+    if (intent==='general' && words(questionText(text)).filter(w=>!STOP.has(w)).every(w=>productWords.has(w))) {
+      const previous=[...history].reverse().find(m=>m.role==='user' && m.message!==text);
+      const previousIntent=previous?knowledgeIntent(previous.message):'general';
+      if (previous && !knowledgeTopic(previous.message) && ['price','duration','curriculum'].includes(previousIntent)) return `${text}: ${canonical[previousIntent]}`;
+    }
+    return text;
   }
-  return text;
+  if (intent === 'general') return text;
+  const semanticWords = words(normalizeLandingPageKnowledgeQuery(text)).filter(w => !STOP.has(w));
+  const followupWords = new Set('thoi luong lich gian lau may buoi tuan thang ngay gio nguoi bat dau ban giao trinh chuong trinh noi dung mon bai trinh do nen tang ki khai giang tuong phuong phap khoan thanh toan'.split(' '));
+  const recentTopic = [...history].reverse().filter(m => m.role==='user').map(m => knowledgeTopic(m.message)).find(Boolean) || rememberedTopic;
+  if (!recentTopic) return text;
+  const sameTopicWords: Record<KnowledgeTopic,Set<string>> = {
+    'seo-course':new Set(['seo','basic','premium']), 'entity':new Set(['entity','social','stack']),
+    'seo-service':new Set(['seo','tong','the']), 'website':new Set(['web','website']), 'digital-course':new Set(['digital','marketing']),
+  };
+  // A novel subject such as “khóa nấu ăn” must never inherit SEO pricing.
+  if (!semanticWords.every(w => followupWords.has(w) || sameTopicWords[recentTopic].has(w))) return text;
+  const label: Record<KnowledgeTopic,string> = {'seo-course':'Khóa học SEO','entity':'Dịch vụ Entity','seo-service':'Dịch vụ SEO tổng thể','website':'Thiết kế website','digital-course':'Khóa học Digital Marketing'};
+  return `${label[recentTopic]}: ${text}`;
 }
 
 export type LandingPageKnowledgeChunk = {
@@ -121,19 +161,21 @@ function facetScore(chunk: LandingPageKnowledgeChunk, intent: KnowledgeIntent): 
   if(intent==='address')return /dia chi|tru so|van phong/.test(text)||/cong ty o dau/.test(text)?40:0;
   if(intent==='contact')return /hotline|dien thoai|email|gmail/.test(text)?35:0;
   if(intent==='hours')return /gio lam viec|gio mo cua|gio mo|mo cua|thu hai.*chu nhat/.test(text)?40:0;
-  if(intent==='price')return chunk.tablePrice?45:/hoc phi|gia hoc|gia khoa hoc|gia tham khao|gia niem yet|gia tien|gia goi|bao nhieu/.test(text+' '+heading)?35:0;
+  if(intent==='price')return chunk.tablePrice?45:hasPriceLanguage(text+' '+heading)||chunk.intent==='price'?35:0;
   if(intent==='difficulty')return /nguoi moi|co ban|bat dau/.test(text)?40:/phuong phap dao tao|thuc hanh/.test(heading+' '+text)?20:0;
   if(intent==='curriculum')return /giao trinh|noi dung hoc|hoc nhung gi|chu de gom|bai \d/.test(text+' '+heading)?35:0;
-  if(intent==='duration')return /lich hoc|khai giang|thoi luong|thoi gian hoc|buoi hoc|hoc bao lau/.test(text+' '+heading)?35:0;
+  if(intent==='duration')return /lich hoc|khai giang|thoi luong|thoi gian hoc|hoc bao lau|\d+\s*(?:buoi|tuan|thang|ngay|gio|phut)\b/.test(text+' '+heading)?35:0;
   return 0;
 }
 
 export function retrieveLandingPageKnowledge(sources:ChatbotKnowledgeSource[],query:string,sourceIds?:string[]):LandingPageKnowledgeChunk[] {
   const intent=knowledgeIntent(query), topic=knowledgeTopic(query), target=keywords(query);
   const global=['address','contact','hours'].includes(intent);
+  const tuition=/\b(?:hoc phi|phi (?:hoc|khoa|lop)|tien hoc|tuition)\b/.test(questionText(query));
   const ranked:LandingPageKnowledgeChunk[]=[];
   for(const candidate of parseLandingPageKnowledge(sources,sourceIds)) {
     if(!global && topic && candidate.topic && candidate.topic!==topic)continue;
+    if(intent==='price' && tuition && !topic && candidate.topic && !['seo-course','digital-course'].includes(candidate.topic))continue;
     const facet=facetScore(candidate,intent);
     if(intent!=='general' && !facet)continue;
     const bodyWords=new Set(words(`${candidate.question || ''} ${candidate.content}`)),headingWords=new Set(words(candidate.heading));

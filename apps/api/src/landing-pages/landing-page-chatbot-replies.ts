@@ -2,7 +2,7 @@ import type { ChatbotBot, ChatbotKnowledgeSource } from '@marketingspa/database'
 import type { AiReplyResult, OrgSettings } from '../chatbot-cskh/utils/chatbot-ai.util';
 import { detectPromptInjection } from '../chatbot-cskh/utils/chatbot-ai.util';
 import { updateLandingPageConversationState, readLandingPageConversationState, conversationStatePrompt, isLearnerProfileStatement, isGeneralAdviceRequest, isBusinessFactRequest, removeAnsweredQuestions, repeatsPreviousAnswer, lastQuestion, type LandingPageConversationState } from './landing-page-chatbot-context';
-import { knowledgeTopic, retrieveLandingPageKnowledge, directLandingPageKnowledgeAnswer, resolveLandingPageKnowledgeQuery } from './landing-page-knowledge-retrieval';
+import { knowledgeIntent, knowledgeTopic, retrieveLandingPageKnowledge, directLandingPageKnowledgeAnswer, resolveLandingPageKnowledgeQuery } from './landing-page-knowledge-retrieval';
 
 export const LANDING_PAGE_HANDOFF_REPLY = 'Anh / chị vui lòng để lại thông tin để chúng tôi sẽ hỗ trợ tư vấn nhanh nhất.';
 const DECLINED_REPLY = 'Dạ, em tiếp tục tư vấn trực tiếp tại đây. Anh/chị muốn tìm hiểu thêm nội dung nào ạ?';
@@ -12,9 +12,38 @@ const STOP = new Set('toi minh em anh chi ban cho toi muon can xin duoc la va cu
 const terms = (text: string) => [...new Set(words(text).filter(w => w.length > 1 && !STOP.has(w)))];
 const greeting = (text: string) => /^(xin chao|chao|hello|hi|hey)( anh| chi| ban| em| bot| chatbot| nhe| a| oi)*[.!?\s]*$/.test(norm(text.trim()));
 export function declinesLandingPageContact(text: string): boolean {
-  return /(?:khong|chua|dung|thoi|mien)(?:\s+\w+){0,5}\s+(?:dien|dang ky|de lai|cung cap|gui|goi|lien he|email|gmail|sdt|so dien thoai|thong tin)|khong can (?:form|dang ky)|chi (?:can |muon )?(?:tu van|tra loi|hoi|chat)|tu van .*thoi/.test(norm(text));
+  return /(?:khong|chua|dung|thoi|mien)(?:\s+\w+){0,5}\s+(?:dien|dang ky|de lai|cung cap|gui|goi|lien he|email|gmail|sdt|so dien thoai|thong tin)|khong can (?:form|dang ky)|chi (?:can |muon )?(?:tu van|tra loi|hoi|chat)|tu van .*thoi/.test(norm(text).replace(/\bdang ki\b/g, 'dang ky').replace(/\bghi danh\b/g, 'dang ky'));
 }
+/** A new registration request also reopens a contact form the visitor dismissed earlier. */
+export function requestsLandingPageRegistration(text: string): boolean {
+  const t = norm(text).replace(/\bdang ki\b/g, 'dang ky');
+  const registration = /\bdang (?:ky|ki)\b|\bghi danh\b|\b(?:gui|mo|hien|cho|nhan|dien)(?:\s+\w+){0,3}\s+(?:form|bieu mau)\b/.test(t);
+  if (!registration) return false;
+  // Not knowing how to register is a request for help, not a refusal.
+  const intent = t.replace(/\b(?:khong|chua)\s+(?:biet|ro|hieu)\b/g, '').replace(/\bchua (?=dang ky|ghi danh)/g, '');
+  if (/\b(?:khong|chua|dung|mien)(?:\s+(?:muon|can|thich|tiep tuc))?\s+(?:dang ky|ghi danh)\b/.test(intent)) return false;
+  if (/\b(?:huy|rut|dung)\s+(?:yeu cau\s+)?(?:dang (?:ky|ki)|ghi danh)\b|\b(?:da|vua)\s+(?:dang (?:ky|ki)|ghi danh)\b/.test(intent)) return false;
+  return !declinesLandingPageContact(intent);
+}
+
+function landingPageRegistrationGuide(state: LandingPageConversationState, bot: ChatbotBot, formEnabled: boolean): string {
+  const course = state.topic === 'seo-course' ? 'khóa học SEO' : state.topic === 'digital-course' ? 'khóa học Digital Marketing' : 'khóa học hoặc dịch vụ quan tâm';
+  if (!formEnabled) return [
+    'Anh/chị có thể gửi yêu cầu đăng ký theo 3 bước:',
+    `1. ${bot.hotline ? `Liên hệ hotline ${bot.hotline}` : 'Liên hệ nhân viên qua kênh liên hệ trên trang'} và cho biết ${course}.`,
+    '2. Trao đổi nhu cầu để nhân viên xác nhận nội dung, lịch và chi phí phù hợp.',
+    '3. Sau khi thống nhất, nhân viên sẽ hướng dẫn anh/chị hoàn tất đăng ký.',
+  ].join('\n\n');
+  return [
+    'Anh/chị gửi yêu cầu đăng ký theo 3 bước nhé:',
+    '1. Điền họ tên và số điện thoại hoặc email vào form bên dưới.',
+    `2. Ghi ${course} ở mục “Bổ sung nhu cầu (tuỳ chọn)”, rồi bấm “Gửi cho nhân viên”.`,
+    '3. Nhân viên phụ trách sẽ liên hệ xác nhận nội dung, lịch học và học phí trước khi hướng dẫn hoàn tất đăng ký.',
+  ].join('\n\n');
+}
+
 export function requestsLandingPageContact(text: string): boolean {
+  if (requestsLandingPageRegistration(text)) return true;
   if (declinesLandingPageContact(text)) return false;
   const t = norm(text);
   return /(?:tu van|lien he|gui|nhan|tra loi|ho tro|goi)(?:\s+\w+){0,6}\s+(?:qua|bang|vao|theo)\s+(?:email|gmail|mail|dien thoai|sdt|so dien thoai|zalo)|(?:nhan vien|nguoi that|chuyen vien)\s+(?:tu van|lien he|goi|ho tro)|(?:gap|noi chuyen voi|chuyen (?:cho|sang))\s+(?:nhan vien|nguoi that)|(?:goi (?:lai )?(?:cho )?(?:toi|minh|em)|de lai (?:email|gmail|sdt|so dien thoai))/.test(t);
@@ -30,6 +59,7 @@ type Params = {
   history: Array<{role:string;message:string}>; settings: OrgSettings; usageAllowed: boolean;
   knowledgeSourceIds?: string[]; customGreeting?: string;
   conversationState?: unknown;
+  enableHandoff?: boolean;
   openAiChat?: (input:{model:string;systemPrompt:string;history:Array<{role:string;content:string}>;userText:string;temperature:number})=>Promise<string>;
 };
 export interface LandingPageReplyResult extends AiReplyResult {
@@ -41,8 +71,8 @@ export async function generateLandingPageChatbotReply(p: Params): Promise<Landin
   const state = updateLandingPageConversationState(p.conversationState, p.history, p.userText);
   let declined = readLandingPageConversationState(p.conversationState).declinedContact || false;
   for (const message of [...p.history.filter(t=>t.role==='user').map(t=>t.message),p.userText]) {
-    if (declinesLandingPageContact(message)) declined=true;
-    else if (requestsLandingPageContact(message)) declined=false;
+    if (requestsLandingPageContact(message)) declined=false;
+    else if (declinesLandingPageContact(message)) declined=true;
   }
   state.declinedContact=declined;
   const result=await generateConversationalReply(p,state);
@@ -56,11 +86,12 @@ async function generateConversationalReply(p:Params,state:LandingPageConversatio
   const handoff=(code?:string):AiReplyResult & {answerMode:'handoff'}=>({reply:declined?'Dạ, em chưa có thông tin xác nhận về nội dung riêng này. Anh/chị muốn tìm hiểu thêm phần nào?':LANDING_PAGE_HANDOFF_REPLY,usedAi:false,showLead:!declined,noData:true,blockedCode:code,evidence:[],answerMode:'handoff'});
   if(detectPromptInjection(text))return handoff('prompt_injection');
   if(greeting(text))return {reply:'Em chào anh/chị! Anh/chị đang muốn tìm hiểu nội dung gì ạ?',usedAi:false,showLead:false,noData:false};
+  if(requestsLandingPageRegistration(text))return {reply:landingPageRegistrationGuide(state,p.bot,p.enableHandoff!==false),usedAi:false,showLead:p.enableHandoff!==false,noData:false,answerMode:'handoff'};
   if(requestsLandingPageContact(text))return {reply:'Anh/chị vui lòng để lại email hoặc số điện thoại trong biểu mẫu bên dưới để nhân viên phụ trách liên hệ tư vấn.',usedAi:false,showLead:true,noData:false};
   if(declinesLandingPageContact(text)&&terms(text).filter(w=>!['dien','dang','ky','de','lai','email','gmail','so','thoai','thoi'].includes(w)).length===0)return {reply:DECLINED_REPLY,usedAi:false,showLead:false,noData:false};
   if(!p.usageAllowed)return handoff('limit_exceeded');
 
-  let query=resolveLandingPageKnowledgeQuery(text,p.history);
+  let query=resolveLandingPageKnowledgeQuery(text,p.history,state.topic);
   if(isLearnerProfileStatement(text)&&state.topic&&!knowledgeTopic(query)) {
     const labels={'seo-course':'Khóa học SEO','seo-service':'Dịch vụ SEO','entity':'Dịch vụ Entity','website':'Thiết kế website','digital-course':'Khóa Digital Marketing'};
     query=`${labels[state.topic]}: ${text}`;
@@ -68,6 +99,9 @@ async function generateConversationalReply(p:Params,state:LandingPageConversatio
   const chunks=findLandingPageKnowledge(p.sources,query,p.knowledgeSourceIds);
   const evidence=chunks.map(c=>({sourceId:c.sourceId,title:c.title,nodeTitle:c.heading,excerpt:c.content.slice(0,480),score:c.score}));
   const businessFact=isBusinessFactRequest(text);
+  if (knowledgeIntent(query)==='price' && !knowledgeTopic(query) && new Set(chunks.map(c=>c.topic).filter(Boolean)).size>1) {
+    return {reply:'Anh/chị đang hỏi học phí khóa học hay giá dịch vụ nào ạ? Cho em tên khóa học hoặc dịch vụ để em cung cấp đúng thông tin.',usedAi:false,showLead:false,noData:false,evidence:[],answerMode:'advice'};
+  }
   const direct=!isGeneralAdviceRequest(text)?directLandingPageKnowledgeAnswer(chunks,query):undefined;
   if(direct)return {reply:direct,usedAi:false,showLead:false,noData:false,evidence,answerMode:'knowledge'};
   if(businessFact&&!chunks.length) {

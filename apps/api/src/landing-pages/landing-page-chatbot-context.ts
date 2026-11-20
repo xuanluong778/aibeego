@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { knowledgeTopic, normalizeKnowledgeText, type KnowledgeTopic } from './landing-page-knowledge-retrieval';
+import { knowledgeTopic, knowledgeIntent, normalizeKnowledgeText, type KnowledgeTopic } from './landing-page-knowledge-retrieval';
 
 export type LandingPageConversationState = {
   version: 1;
@@ -73,13 +73,15 @@ export function conversationStatePrompt(state:LandingPageConversationState):stri
 }
 
 export function isGeneralAdviceRequest(text:string):boolean {
-  return isLearnerProfileStatement(text)||/nen |lo trinh|tu hoc|moi ngay|bat dau|co kho khong|kho hoc|hoc.*\bkho\b|lam sao|cach |kinh nghiem|so sanh|phu hop|dang hoc|ly do|vi sao|tai sao|ke hoach/.test(normalizeKnowledgeText(text));
+  return /^(?:hoc phi|chi phi|tuition)(?: nghia)? la gi[?.! ]*$|khai niem|y nghia/.test(normalizeKnowledgeText(text))||isLearnerProfileStatement(text)||/nen |lo trinh|tu hoc|moi ngay|bat dau|co kho khong|kho hoc|hoc.*\bkho\b|lam sao|cach |kinh nghiem|so sanh|phu hop|dang hoc|ly do|vi sao|tai sao|ke hoach/.test(normalizeKnowledgeText(text));
 }
 
 export function isBusinessFactRequest(text:string):boolean {
   const t=normalizeKnowledgeText(text);
   if (/la gi|y nghia|khai niem/.test(t) && !/ben (?:ban|em)|cua (?:ban|ben)|cong ty/.test(t)) return false;
-  return /hoc phi|gia (?:khoa|goi|dich vu)|phi (?:khoa|dich vu)|dia chi|hotline|so dien thoai|email (?:cua|ben)|gio (?:lam viec|mo cua)|lich (?:hoc|khai giang)|khai giang|thoi luong khoa|may buoi|bao nhieu buoi|chung chi (?:cua|khoa)|hoan (?:phi|tien)|chinh sach|bao hanh|khuyen mai/.test(t);
+  const intent=knowledgeIntent(text);
+  if (['price','address','contact','hours'].includes(intent)) return true;
+  return /lich (?:hoc|khai giang)|khai giang|thoi luong khoa|may buoi|bao nhieu buoi|chung chi (?:cua|khoa)|hoan (?:phi|tien)|chinh sach|bao hanh|khuyen mai/.test(t);
 }
 
 export function removeAnsweredQuestions(answer:string,state:LandingPageConversationState):string {

@@ -460,6 +460,7 @@ export class LandingPageChatbotService {
       openAiChat,
       knowledgeSourceIds: page.chatbot.knowledgeSourceIds,
       customGreeting: page.chatbot.greeting,
+      enableHandoff: page.chatbot.enableHandoff,
     });
 
     await this.prisma.chatbotMessage.create({
