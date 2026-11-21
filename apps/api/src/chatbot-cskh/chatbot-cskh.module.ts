@@ -10,15 +10,18 @@ import { EventsModule } from '../events/events.module';
 import { AttributionModule } from '../attribution/attribution.module';
 import { LeadsModule } from '../leads/leads.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { RagKbModule } from '../rag-kb/rag-kb.module';
+import { ChatbotZaloKnowledgeService } from './chatbot-zalo-knowledge.service';
 
 @Module({
-  imports: [EventsModule, AttributionModule, LeadsModule, MessagingModule],
+  imports: [EventsModule, AttributionModule, LeadsModule, MessagingModule, RagKbModule],
   controllers: [
     ChatbotCskhController,
     ChatbotCskhPublicController,
     ChatbotFacebookWebhookController,
   ],
   providers: [
+    ChatbotZaloKnowledgeService,
     ChatbotCskhService,
     ChatbotCskhPublicService,
     ChatbotSuggestService,

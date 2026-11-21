@@ -1,0 +1,14 @@
+{
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "typeRoots": ["../../apps/web/node_modules/@types"],
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": [
+    "../../apps/web/src/components/knowledge-base/knowledge-source-panel.tsx",
+    "../../apps/web/src/components/knowledge-base/knowledge-markdown-export-button.tsx",
+    "../../apps/web/src/components/knowledge-base/knowledge-markdown-editor.tsx"
+  ]
+}

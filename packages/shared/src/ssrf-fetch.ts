@@ -21,7 +21,7 @@ export class SsrfValidationError extends Error {
 
 export class FetchPublicError extends Error {
   code: string;
-  constructor(message: string, code = 'FETCH_FAILED') {
+  constructor(message: string, code = 'FETCH_FAILED', public statusCode?: number) {
     super(message);
     this.name = 'FetchPublicError';
     this.code = code;
@@ -372,6 +372,70 @@ function fetchPinnedOnce(
   });
 }
 
+/** Authenticated integrations: HTTPS only, pinned public IP, no redirects, bounded JSON.
+ * Never forwards credentials via redirects or includes remote bodies/errors in exceptions.
+ */
+export async function fetchPublicAuthenticatedJson(
+  rawUrl: string,
+  authorization: string,
+  timeoutMs = 12000,
+): Promise<{ data: unknown; headers: http.IncomingHttpHeaders }> {
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== 'https:') throw new FetchPublicError('Kết nối yêu cầu HTTPS.', 'BAD_SCHEME');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const asserted = await Promise.race([
+      assertPublicHttpUrlDetailed(rawUrl),
+      new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () =>
+        reject(new FetchPublicError('Hết thời gian kết nối.', 'TIMEOUT')), { once: true })),
+    ]);
+    const response = await fetchPinnedOnce(asserted.url, pickPinnedIp(asserted.resolvedIps), {
+      timeoutMs, maxBytes: 4_000_000, signal: controller.signal,
+      headers: { Authorization: authorization, Accept: 'application/json', 'Accept-Encoding': 'identity' },
+    });
+    if (response.status < 200 || response.status >= 300)
+      throw new FetchPublicError(`WooCommerce trả HTTP ${response.status}. Kiểm tra URL, quyền đọc và khóa API; không hỗ trợ chuyển hướng.`, 'HTTP_ERROR', response.status);
+    if (!String(response.headers['content-type'] || '').toLowerCase().includes('application/json'))
+      throw new FetchPublicError('Website không trả JSON WooCommerce.', 'UNSUPPORTED_CONTENT');
+    try { return { data: JSON.parse(response.body.toString('utf8')), headers: response.headers }; }
+    catch { throw new FetchPublicError('JSON từ website không hợp lệ.', 'UNSUPPORTED_CONTENT'); }
+  } catch (error) {
+    if (error instanceof FetchPublicError || error instanceof SsrfValidationError) throw error;
+    if (controller.signal.aborted) throw new FetchPublicError('Hết thời gian kết nối.', 'TIMEOUT');
+    throw new FetchPublicError('Không kết nối được WooCommerce. Kiểm tra HTTPS hoặc thử lại.', 'FETCH_FAILED');
+  } finally { clearTimeout(timer); }
+}
+
+/** WordPress advertises its REST root on ordinary product/category pages.
+ * Discover without credentials; never accept a different origin or follow redirects.
+ * A null result lets callers retain an explicit WordPress subdirectory URL.
+ */
+export async function discoverPublicWordPressWebsite(rawUrl: string): Promise<string | null> {
+  const original = new URL(rawUrl);
+  if (original.protocol !== 'https:') throw new FetchPublicError('Kết nối yêu cầu HTTPS.', 'BAD_SCHEME');
+  const { finalUrl, response } = await fetchPublicBufferSafe(rawUrl, {
+    timeoutMs: 8000, maxBytes: 1_500_000, maxRedirects: 0,
+  });
+  const linkHeader = response.headers.link;
+  const links = Array.isArray(linkHeader) ? linkHeader.join(',') : linkHeader || '';
+  let href = links.match(/<([^>]+)>;\s*rel=["']https:\/\/api\.w\.org\/["']/i)?.[1];
+  if (!href) {
+    const html = response.body.toString('utf8');
+    for (const tag of html.match(/<link\b[^>]*>/gi) || []) {
+      if (!/\brel\s*=\s*["']https:\/\/api\.w\.org\/["']/i.test(tag)) continue;
+      href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+      if (href) break;
+    }
+  }
+  if (!href) return null;
+  let api: URL;
+  try { api = new URL(href, finalUrl); } catch { return null; }
+  if (api.origin !== original.origin || api.username || api.password || api.search || api.hash || !api.pathname.endsWith('/wp-json/')) return null;
+  api.pathname = api.pathname.slice(0, -'wp-json/'.length);
+  return api.href;
+}
+
 function stripHtml(html: string): { title: string; text: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = (titleMatch?.[1] || '')
@@ -416,12 +480,13 @@ async function fetchPublicBufferSafe(
     skipCommerceHostBlock?: boolean;
     /** Include truncated HTML (scripts already stripped) for richer parsers. */
     includeHtml?: boolean;
+    allowHost?: (hostname: string) => boolean;
   },
 ): Promise<{ finalUrl: string; response: PinnedResponse; contentType: string }> {
   const timeoutMs = opts?.timeoutMs ?? AD_URL_ANALYZE_LIMITS.fetchTimeoutMs;
   const maxBytes = opts?.maxBytes ?? AD_URL_ANALYZE_LIMITS.maxHtmlBytes;
   const maxRedirects = opts?.maxRedirects ?? AD_URL_ANALYZE_LIMITS.maxRedirects;
-  const ssrfOpts = { skipCommerceHostBlock: opts?.skipCommerceHostBlock === true };
+  const ssrfOpts = { skipCommerceHostBlock: opts?.skipCommerceHostBlock === true, allowHost: opts?.allowHost };
 
   const deadline = Date.now() + timeoutMs;
   const bounded = async <T>(operation: Promise<T>): Promise<T> => {
@@ -531,6 +596,7 @@ export async function fetchPublicHtmlSafe(
     maxRedirects?: number;
     skipCommerceHostBlock?: boolean;
     includeHtml?: boolean;
+    allowHost?: (hostname: string) => boolean;
   },
 ): Promise<PublicHtmlFetchResult> {
   const { finalUrl, response, contentType } = await fetchPublicBufferSafe(rawUrl, opts);

@@ -48,6 +48,10 @@ export type LandingPageInlineAiFieldProps = {
   pageGoal?: 'lead' | 'sales' | 'signup' | 'consult' | 'event';
   blockContext?: string;
   disabled?: boolean;
+  directSuggest?: boolean;
+  maxLength?: number;
+  inputId?: string;
+  placeholder?: string;
 };
 
 type SuggestResponse = {
@@ -71,6 +75,10 @@ export function LandingPageInlineAiField({
   pageGoal = 'lead',
   blockContext,
   disabled,
+  directSuggest,
+  maxLength,
+  inputId,
+  placeholder,
 }: LandingPageInlineAiFieldProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -86,6 +94,7 @@ export function LandingPageInlineAiField({
   const requestSnapshotRef = useRef<{ hash: string; value: string } | null>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
+  const suggestionContextKey = directSuggest ? blockContext : undefined;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -104,8 +113,9 @@ export function LandingPageInlineAiField({
     setMenuOpen(false);
     setOptionsOpen(false);
     setStale(false);
+    setMsg('');
     requestSnapshotRef.current = null;
-  }, [requestKey]);
+  }, [requestKey, suggestionContextKey]);
 
   // If user edits while suggestions are open → mark stale (still viewable).
   useEffect(() => {
@@ -158,7 +168,7 @@ export function LandingPageInlineAiField({
                 (res.source === 'ai' ? 'Chọn 1 trong 3 gợi ý' : 'Gợi ý fallback — chọn 1 phiên bản'),
         );
       } catch (e) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || ac.signal.aborted) return;
         if (e instanceof DOMException && e.name === 'AbortError') return;
         if (e instanceof ApiError && e.message.toLowerCase().includes('abort')) return;
         setMsg(e instanceof Error ? e.message : 'AI tạm lỗi — thử lại');
@@ -212,6 +222,7 @@ export function LandingPageInlineAiField({
   return (
     <div
       className="space-y-1.5"
+      data-lp-inline-ai-field={fieldKind}
       data-inspector-field={
         fieldKind === 'headline' ||
         fieldKind === 'subheadline' ||
@@ -223,9 +234,9 @@ export function LandingPageInlineAiField({
             : undefined
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-1.5">
-        <Label className="text-xs">{label}</Label>
-        <div className="relative flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={inputId} className="min-w-0 shrink text-xs">{label}</Label>
+        <div className="relative flex shrink-0 items-center gap-1">
           {loading ? (
             <Button type="button" size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" onClick={cancel}>
               Hủy
@@ -235,12 +246,12 @@ export function LandingPageInlineAiField({
             type="button"
             size="sm"
             variant="outline"
-            className="h-6 px-2 text-[10px]"
+            className="h-7 shrink-0 border-emerald-400/45 bg-emerald-500/20 px-2 text-[10px] font-medium text-emerald-50 hover:border-emerald-300/60 hover:bg-emerald-500/35 hover:text-white"
             disabled={disabled || loading}
             data-lp-inline-ai-trigger
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => directSuggest ? void runSuggest('suggest_3') : setMenuOpen((v) => !v)}
           >
-            {loading ? '…' : '✨ AI'}
+            {loading ? (directSuggest ? 'Đang tạo…' : '…') : directSuggest ? '✨ Gợi ý AI' : '✨ AI'}
           </Button>
           {menuOpen ? (
             <div className="absolute right-0 top-7 z-30 w-48 rounded-md border border-white/15 bg-zinc-950 p-1 shadow-lg">
@@ -261,17 +272,29 @@ export function LandingPageInlineAiField({
 
       {multiline ? (
         <Textarea
+          id={inputId}
+          maxLength={maxLength}
+          placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
           disabled={disabled}
+          className="border-white/10 bg-zinc-900/80 text-xs text-white placeholder:text-white/35"
         />
       ) : (
-        <Input value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+        <Input
+          id={inputId}
+          maxLength={maxLength}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          className="border-white/10 bg-zinc-900/80 text-xs text-white placeholder:text-white/35"
+        />
       )}
 
       {msg ? (
-        <p className={cn('text-[10px]', stale ? 'text-amber-300' : 'text-emerald-400/90')}>{msg}</p>
+        <p role="status" className={cn('text-[10px]', stale ? 'text-amber-300' : 'text-emerald-400/90')}>{msg}</p>
       ) : null}
 
       {optionsOpen && options.length > 0 ? (

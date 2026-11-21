@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import {
   ChatbotBotStatus,
+  ChatbotSourceType,
+  type ChatbotKnowledgeSource,
   LandingPageDomainStatus,
   LandingPageStatus,
 } from '@marketingspa/database';
@@ -238,20 +240,73 @@ export class LandingPageChatbotService {
 
     const scope = cfg.knowledgeSourceIds?.length ? cfg.knowledgeSourceIds : undefined;
     const ready = await this.chatbot.getReadyKnowledge(organizationId, bot.id);
-    const sources = scope ? ready.filter(source => scope.includes(source.id)) : ready;
-    if (strict && !sources.length) {
+    const legacy = scope ? ready.filter(source => scope.includes(source.id)) : ready;
+    const sharedKb = bot.knowledgeBaseId
+      ? await this.loadSharedKbKnowledgeSources(organizationId, bot.knowledgeBaseId, bot.id)
+      : [];
+    let sources = bot.knowledgeBaseId ? sharedKb : legacy;
+    let effectiveScope = scope;
+    if (scope?.length) {
+      const scoped = sources.filter(source => scope.includes(source.id));
+      if (scoped.length) sources = scoped;
+      else effectiveScope = undefined;
+    }
+    const sharedCount = bot.knowledgeBaseId
+      ? await this.prisma.ragKbDocument.count({
+          where: {
+            organizationId,
+            knowledgeBaseId: bot.knowledgeBaseId,
+            knowledgeBase: { organizationId },
+            status: { in: ['ready', 'active'] },
+            OR: [{ sourceId: null }, { source: { is: { enabled: true, deletedAt: null } } }],
+          },
+        })
+      : 0;
+    const knowledgeCount = bot.knowledgeBaseId ? Math.max(sharedCount, sources.length) : sources.length;
+    if (strict && !knowledgeCount) {
       throw new BadRequestException(
         'Chatbot: không có nguồn tri thức sẵn sàng trong phạm vi đã chọn.',
       );
     }
-  const local = validateLandingPageChatbotConfigLocal(cfg, {
+    const local = validateLandingPageChatbotConfigLocal(cfg, {
       requireKnowledge: strict,
-      knowledgeCount: sources.length,
+      knowledgeCount,
     });
     if (strict && !local.ok) {
       throw new BadRequestException(local.errors.join('; '));
     }
-    return { bot, sources };
+    return { bot, sources, knowledgeSourceIds: effectiveScope };
+  }
+
+  /** Map shared RAG KB markdown into the LP knowledge parser (id prefix `rag:`). */
+  private async loadSharedKbKnowledgeSources(
+    organizationId: string,
+    knowledgeBaseId: string,
+    botId: string,
+  ): Promise<ChatbotKnowledgeSource[]> {
+    const docs = await this.prisma.ragKbDocument.findMany({
+      where: {
+        organizationId,
+        knowledgeBaseId,
+        status: { in: ['ready', 'active'] },
+        OR: [{ sourceId: null }, { source: { is: { enabled: true, deletedAt: null } } }],
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, title: true, content: true, status: true, updatedAt: true },
+    });
+    return docs.map(doc => ({
+      id: `rag:${doc.id}`,
+      organizationId,
+      botId,
+      sourceType: ChatbotSourceType.MANUAL,
+      title: doc.title,
+      url: null,
+      content: doc.content,
+      status: doc.status,
+      crawlError: null,
+      createdAt: doc.updatedAt,
+      updatedAt: doc.updatedAt,
+    }));
   }
 
   async getPublicConfig(
@@ -375,7 +430,7 @@ export class LandingPageChatbotService {
     if (!bind) {
       return { ok: false, message: 'Chatbot chưa sẵn sàng.', reply: 'Chatbot chưa sẵn sàng.' };
     }
-    const { bot, sources } = bind;
+    const { bot, sources, knowledgeSourceIds } = bind;
 
     const usage = await this.chatbot.getUsageSnapshot(page.organizationId);
     if (!usage.allowed && !page.preview) {
@@ -431,12 +486,13 @@ export class LandingPageChatbotService {
           history: Array<{ role: string; content: string }>;
           userText: string;
           temperature: number;
+          responseFormat?: 'json_object';
         }) =>
           this.openAi.chatCompletion({
             model: input.model,
             temperature: input.temperature,
             maxTokens: 500,
-            responseFormat: 'json_object',
+            responseFormat: input.responseFormat || 'json_object',
             messages: [
               { role: 'system', content: input.systemPrompt },
               ...input.history.slice(-12),
@@ -449,19 +505,22 @@ export class LandingPageChatbotService {
       const meta = message.metadata as { landingPageId?: string; conversationState?: unknown } | null;
       return message.role === 'assistant' && meta?.landingPageId === page.id && Boolean(meta.conversationState);
     })?.metadata as { conversationState?: unknown } | undefined;
-    const aiResult = await generateLandingPageChatbotReply({
+    const knowledge = await this.chatbot.getReplyKnowledge(page.organizationId, bot.id, userText, [...history].reverse());
+    let aiResult = await generateLandingPageChatbotReply({
       bot,
       userText,
       sources,
+      knowledge,
       history: history.reverse(),
       conversationState: readLandingPageConversationState(previousState?.conversationState),
       settings,
       usageAllowed: usage.allowed || page.preview,
       openAiChat,
-      knowledgeSourceIds: page.chatbot.knowledgeSourceIds,
+      knowledgeSourceIds: knowledgeSourceIds ?? page.chatbot.knowledgeSourceIds,
       customGreeting: page.chatbot.greeting,
       enableHandoff: page.chatbot.enableHandoff,
     });
+    aiResult = await this.chatbot.guardReplyKnowledge(page.organizationId, bot.id, knowledge, aiResult);
 
     await this.prisma.chatbotMessage.create({
       data: {

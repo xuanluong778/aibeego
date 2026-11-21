@@ -31,6 +31,7 @@ export interface OpenAiChatParams {
   messages: OpenAiChatMessage[];
   maxTokens?: number;
   temperature?: number;
+  responseFormat?: 'json_object' | 'text';
   /** Abort fetch after N ms (default 20s). */
   timeoutMs?: number;
 }
@@ -99,6 +100,7 @@ export class OpenAiService {
           messages: params.messages,
           max_tokens: params.maxTokens ?? 500,
           temperature: params.temperature ?? 0.4,
+          ...(params.responseFormat ? { response_format: { type: params.responseFormat } } : {}),
         }),
         signal: controller.signal,
       });
@@ -144,6 +146,9 @@ export class OpenAiService {
       max_tokens: params.maxTokens ?? 500,
       temperature: params.temperature ?? 0.4,
     };
+    if (params.responseFormat) {
+      body.response_format = { type: params.responseFormat };
+    }
     if (params.tools?.length) {
       body.tools = params.tools;
       body.tool_choice = params.toolChoice ?? 'auto';

@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { KnowledgeSourcePanel } from './knowledge-source-panel';
+import { KnowledgeMarkdownExportButton } from './knowledge-markdown-export-button';
+import { KnowledgeMarkdownEditor } from './knowledge-markdown-editor';
 import { FileText, Upload, Plus, Trash2, Pencil, Download, Info, Search, RefreshCw, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,7 +125,7 @@ export function KnowledgeBasePage() {
           </form>
           {search.data ? <div className="space-y-3" aria-live="polite">
             <p className="text-sm text-muted-foreground">{search.data.results.length} kết quả cho “{search.data.query}”</p>
-            {search.data.results.length ? search.data.results.map(hit => <article key={hit.documentId} className="rounded-xl border bg-muted/20 p-4"><p className="font-semibold">{hit.title}</p><p className="mt-1 text-xs text-emerald-400">{hit.knowledgeBaseName}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{hit.excerpt}</p></article>) : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Chưa tìm thấy nội dung phù hợp. Thử từ khóa khác hoặc Import thêm tài liệu.</p>}
+            {search.data.results.length ? search.data.results.map(hit => <article key={hit.chunkId || hit.documentId} className="rounded-xl border bg-muted/20 p-4"><p className="font-semibold">{hit.title}</p><p className="mt-1 text-xs text-emerald-400">{hit.knowledgeBaseName}</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{hit.excerpt}</p>{hit.url && /^https?:\/\//i.test(hit.url) ? <a className="mt-2 block break-all text-xs underline" href={hit.url} target="_blank" rel="noopener noreferrer">{hit.url}</a> : null}{hit.updatedAt ? <p className="mt-1 text-xs text-muted-foreground">Cập nhật: {new Date(hit.updatedAt).toLocaleString('vi-VN')}</p> : null}</article>) : <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Chưa tìm thấy nội dung phù hợp. Thử từ khóa khác hoặc Import thêm tài liệu.</p>}
           </div> : null}
         </section>
       ) : view === 'chatbots' ? (
@@ -185,7 +188,7 @@ export function KnowledgeBasePage() {
         </div>
       ) : (
         <div className="space-y-4" data-shared-knowledge-documents>
-          {!bases.length ? <div className="rounded-lg border border-dashed p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8" /><p>Chưa có kho tri thức. Tạo kho đầu tiên để tải TXT/MD lên.</p></div> : null}
+          {!bases.length ? <div className="rounded-lg border border-dashed p-8 text-center"><FileText className="mx-auto mb-3 h-8 w-8" /><p>Chưa có kho tri thức. Tạo kho để thêm Website, Fanpage hoặc tài liệu.</p></div> : null}
           {bases.map(kb => (
             <article key={kb.id} className="space-y-4 rounded-2xl border border-emerald-500/40 p-4 sm:p-5" data-knowledge-base={kb.id}>
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -208,10 +211,15 @@ export function KnowledgeBasePage() {
                 {[
                   ['Tài liệu', kb.stats.documentCount],
                   ['Chunks', kb.stats.chunkCount],
-                  ['Embeddings', `${kb.stats.embeddingCount}/${kb.stats.embeddingTotal}`],
+                  ['Tìm kiếm', 'Văn bản · PostgreSQL'],
                   ['Tokens', kb.stats.tokenLabel || kb.stats.tokenCount],
                 ].map(([label, value]) => <div key={label} className="rounded-xl border bg-muted/20 px-3 py-3 text-center"><p className="text-lg font-bold tabular-nums text-foreground">{value}</p><p className="mt-1 text-[11px] font-medium text-muted-foreground">{label}</p></div>)}
               </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <KnowledgeMarkdownExportButton kbId={kb.id} onError={fail} />
+                <span className="text-xs text-muted-foreground">Tìm đoạn bằng chỉ mục văn bản; chưa sử dụng vector embedding.</span>
+              </div>
+              <KnowledgeSourcePanel kbId={kb.id} />
               <div className="space-y-2 border-t pt-4">
                 {!kb.documents.length ? <div className="flex min-h-28 flex-col items-center justify-center gap-3 py-4 text-center text-muted-foreground"><Archive className="h-8 w-8 opacity-50" /><p className="text-sm">Chưa có tài liệu nào. Nhấn <button type="button" className="font-semibold text-foreground underline-offset-4 hover:underline" onClick={() => addTo(kb)}>Import</button> để thêm.</p></div> : null}
                 {kb.documents.map(doc => (
@@ -237,7 +245,7 @@ export function KnowledgeBasePage() {
           <Label htmlFor="shared-kb-description">Mô tả (tuỳ chọn)</Label><Textarea id="shared-kb-description" maxLength={1000} value={description} onChange={event => setDescription(event.target.value)} />
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter><Button variant="outline" onClick={() => setEditingKb(null)}>Hủy</Button><Button disabled={!name.trim() || create.isPending || update.isPending} onClick={() => {
-            if (editingKb === 'new') create.mutate({ name: name.trim(), description: description.trim() }, { onSuccess: kb => { setEditingKb(null); addTo(kb); }, onError: fail });
+            if (editingKb === 'new') create.mutate({ name: name.trim(), description: description.trim() }, { onSuccess: () => { setEditingKb(null); setView('documents'); success('Đã tạo kho. Bạn có thể thêm Website, Fanpage hoặc tài liệu.'); }, onError: fail });
             else if (editingKb) update.mutate({ id: editingKb.id, name: name.trim(), description: description.trim() }, { onSuccess: () => { setEditingKb(null); success('Đã cập nhật kho tri thức.'); }, onError: fail });
           }}>Lưu kho</Button></DialogFooter>
         </DialogContent>
@@ -272,11 +280,11 @@ export function KnowledgeBasePage() {
       </Dialog>
 
       <Dialog open={!!document} onOpenChange={open => { if (!open) setDocument(null); }}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader><DialogTitle>Xem và sửa tài liệu</DialogTitle></DialogHeader>
           {detail.isPending ? <LoadingState message="Đang đọc tài liệu…" /> : detail.isError ? <ErrorState onRetry={detail.refetch} /> : <>
             <Label htmlFor="shared-doc-title">Tiêu đề tài liệu</Label><Input id="shared-doc-title" maxLength={200} value={docTitle} onChange={event => setDocTitle(event.target.value)} />
-            <Label htmlFor="shared-doc-content">Nội dung tài liệu</Label><Textarea id="shared-doc-content" className="min-h-[300px] font-mono text-sm" maxLength={200000} value={docContent} onChange={event => setDocContent(event.target.value)} />
+            <KnowledgeMarkdownEditor key={document?.doc.id} value={docContent} onChange={setDocContent} title={docTitle} />
             <p className="text-xs text-muted-foreground">Lưu thay đổi sẽ cập nhật nguồn trả lời cho mọi chatbot dùng kho này.</p>
           </>}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

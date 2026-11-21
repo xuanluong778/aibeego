@@ -8,6 +8,7 @@ export interface RagKbStats {
   embeddingTotal: number;
   tokenCount: number;
   tokenLabel: string;
+  retrievalMode?: 'text';
 }
 
 export interface RagKbDocument {
@@ -36,6 +37,14 @@ export interface RagKnowledgeBase {
 }
 
 const KEY = ['rag-kb'];
+
+export function useExportRagKbMarkdown() {
+  return useMutation({ mutationFn: async (kbId: string) => {
+    const { blob, filename } = await apiDownload(`/rag-kb/${kbId}/export.md`);
+    const url = URL.createObjectURL(blob), anchor = document.createElement('a');
+    anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  } });
+}
 
 function invalidateKnowledge(qc: ReturnType<typeof useQueryClient>) {
   return Promise.all([
@@ -195,6 +204,9 @@ export function useRagKbSearch() {
           knowledgeBaseId: string;
           knowledgeBaseName: string;
           documentId: string;
+          chunkId?: string;
+          url?: string | null;
+          updatedAt?: string;
           title: string;
           score: number;
           excerpt: string;

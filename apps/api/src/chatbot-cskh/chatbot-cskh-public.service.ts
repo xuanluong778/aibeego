@@ -91,7 +91,7 @@ export class ChatbotCskhPublicService {
     const sessionId = this.normalizeSession(dto.sessionId);
     const conversation = await this.getOrCreateConversation(bot.organizationId, bot.id, sessionId);
 
-    await this.prisma.chatbotMessage.create({
+    const userMessage = await this.prisma.chatbotMessage.create({
       data: {
         conversationId: conversation.id,
         role: 'user',
@@ -131,12 +131,12 @@ export class ChatbotCskhPublicService {
     }
 
     const [sources, history, settings, usage] = await Promise.all([
-      this.prisma.chatbotKnowledgeSource.findMany({
-        where: { botId: bot.id, status: { in: ['active', 'ready'] } },
+      bot.knowledgeBaseId ? Promise.resolve([]) : this.prisma.chatbotKnowledgeSource.findMany({
+        where: { organizationId: bot.organizationId, botId: bot.id, status: { in: ['active', 'ready'] } },
       }),
       this.prisma.chatbotMessage.findMany({
-        where: { conversationId: conversation.id },
-        orderBy: { createdAt: 'asc' },
+        where: { conversationId: conversation.id, id: { not: userMessage.id } },
+        orderBy: { createdAt: 'desc' },
         take: 20,
       }),
       this.chatbot.getSettings(bot.organizationId),
@@ -150,11 +150,13 @@ export class ChatbotCskhPublicService {
           history: Array<{ role: string; content: string }>;
           userText: string;
           temperature: number;
+          responseFormat?: 'json_object';
         }) =>
           this.openAi.chatCompletion({
             model: input.model,
             temperature: input.temperature,
             maxTokens: 500,
+            responseFormat: input.responseFormat,
             messages: [
               { role: 'system', content: input.systemPrompt },
               ...input.history.slice(-8),
@@ -163,21 +165,26 @@ export class ChatbotCskhPublicService {
           })
       : undefined;
 
-    const aiResult = await generateAiReply({
+    history.reverse();
+    const knowledge = await this.chatbot.getReplyKnowledge(bot.organizationId, bot.id, dto.message, history);
+    let aiResult = await generateAiReply({
       bot,
       userText: dto.message,
       sources,
+      knowledge,
       history,
       settings,
       usageAllowed: usage.allowed,
       openAiChat,
     });
+    aiResult = await this.chatbot.guardReplyKnowledge(bot.organizationId, bot.id, knowledge, aiResult);
 
     await this.prisma.chatbotMessage.create({
       data: {
         conversationId: conversation.id,
         role: 'assistant',
         message: aiResult.reply,
+        metadata: { retrievalMode: knowledge?.mode || 'legacy', evidence: aiResult.evidence || [], blockedCode: aiResult.blockedCode || null } as object,
       },
     });
 
@@ -197,6 +204,7 @@ export class ChatbotCskhPublicService {
       show_lead: aiResult.showLead,
       no_data: aiResult.noData,
       used_ai: aiResult.usedAi,
+      evidence: aiResult.evidence || [],
     };
   }
 

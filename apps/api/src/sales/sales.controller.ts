@@ -24,7 +24,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
-import { SALES_PERMISSIONS } from './sales.rbac';
+import { SALES_PERMISSIONS, assertSalesWritePermission, assertSalesReadPermission } from './sales.rbac';
 import {
   CreateCategoryDto,
   CreatePurchaseOrderDto,
@@ -177,19 +177,28 @@ export class SalesController {
   @Get('products/lookup')
   @RequirePermissions(SALES_PERMISSIONS.read)
   lookupProduct(@CurrentUser() user: AuthUser, @Query() query: ProductLookupDto) {
+    assertSalesReadPermission(user);
     return this.inventory.lookupProduct(user.organizationId, query.q);
   }
 
   @Get('products')
   @RequirePermissions(SALES_PERMISSIONS.read)
   listProducts(@CurrentUser() user: AuthUser, @Query() query: SalesProductQueryDto) {
+    assertSalesReadPermission(user);
     return this.service.listProducts(user.organizationId, query);
   }
 
   @Post('products')
   @RequirePermissions(SALES_PERMISSIONS.write)
   createProduct(@CurrentUser() user: AuthUser, @Body() dto: CreateSalesProductDto) {
+    assertSalesWritePermission(user);
     return this.service.createProduct(user.organizationId, dto, user.id);
+  }
+  @Get('products/:id')
+  @RequirePermissions(SALES_PERMISSIONS.read)
+  getProduct(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertSalesReadPermission(user);
+    return this.service.getProduct(user.organizationId, id);
   }
 
   @Patch('products/:id')
@@ -199,6 +208,7 @@ export class SalesController {
     @Param('id') id: string,
     @Body() dto: UpdateSalesProductDto,
   ) {
+    assertSalesWritePermission(user);
     return this.service.updateProduct(user.organizationId, id, dto, user.id);
   }
 
@@ -211,6 +221,7 @@ export class SalesController {
   @Post('categories')
   @RequirePermissions(SALES_PERMISSIONS.write)
   createCategory(@CurrentUser() user: AuthUser, @Body() dto: CreateCategoryDto) {
+    assertSalesWritePermission(user);
     return this.service.createCategory(user.organizationId, dto.name);
   }
 
@@ -284,6 +295,7 @@ export class SalesController {
   @Post('stock/reconcile/fix')
   @RequirePermissions(SALES_PERMISSIONS.write)
   reconcileFix(@CurrentUser() user: AuthUser) {
+    assertSalesWritePermission(user);
     return this.inventory.reconcile(user.organizationId, {
       fix: true,
       performedById: user.id,
@@ -293,18 +305,21 @@ export class SalesController {
   @Post('stock/inbound')
   @RequirePermissions(SALES_PERMISSIONS.write)
   inbound(@CurrentUser() user: AuthUser, @Body() dto: StockInboundDto) {
+    assertSalesWritePermission(user);
     return this.inventory.inbound(user.organizationId, dto, user.id);
   }
 
   @Post('stock/outbound')
   @RequirePermissions(SALES_PERMISSIONS.write)
   outbound(@CurrentUser() user: AuthUser, @Body() dto: StockOutboundDto) {
+    assertSalesWritePermission(user);
     return this.inventory.outbound(user.organizationId, dto, user.id);
   }
 
   @Post('stock/adjust')
   @RequirePermissions(SALES_PERMISSIONS.write)
   adjust(@CurrentUser() user: AuthUser, @Body() dto: StockAdjustDto) {
+    assertSalesWritePermission(user);
     return this.inventory.adjust(user.organizationId, dto, user.id);
   }
 

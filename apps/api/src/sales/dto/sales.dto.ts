@@ -1,17 +1,20 @@
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   MinLength,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type, type TransformFnParams } from 'class-transformer';
 import { SalesOrderStatus } from '@marketingspa/database';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
@@ -175,18 +178,40 @@ export class SalesOrderQueryDto extends PaginationDto {
   to?: string;
 }
 
+// Read the original input: implicit conversion must not turn blanks/booleans into 0
+// or numeric identifiers into strings before validation.
+const productText = ({ obj, key }: TransformFnParams) => {
+  const raw = obj[key];
+  return typeof raw === 'string' ? raw.trim() : raw;
+};
+const productNumber = ({ obj, key }: TransformFnParams) => {
+  const raw = obj[key];
+  if (raw === undefined || typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw.trim()))
+    return Number(raw);
+  return Number.NaN;
+};
+
 export class CreateSalesProductDto {
+  @IsOptional()
+  @Transform(productText)
+  @IsString()
+  @MaxLength(120)
+  model?: string;
+  @Transform(productText)
   @IsString()
   @MinLength(1)
   @MaxLength(255)
   name!: string;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(64)
   sku?: string;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(64)
   barcode?: string;
@@ -196,36 +221,42 @@ export class CreateSalesProductDto {
   categoryId?: string;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(32)
   unit?: string;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsNumber()
   @Min(0)
+  @Max(9999999999.99)
   price?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsNumber()
   @Min(0)
+  @Max(9999999999.99)
   costPrice?: number;
 
   /** Tồn đầu kỳ — tạo lô OPENING (chỉ lúc tạo) */
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   stockQty?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   minStockQty?: number;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(1000)
   note?: string;
@@ -233,17 +264,25 @@ export class CreateSalesProductDto {
 
 export class UpdateSalesProductDto {
   @IsOptional()
+  @Transform(productText)
+  @IsString()
+  @MaxLength(120)
+  model?: string;
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(productText)
   @IsString()
   @MinLength(1)
   @MaxLength(255)
   name?: string;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(64)
   sku?: string;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(64)
   barcode?: string;
@@ -253,32 +292,39 @@ export class UpdateSalesProductDto {
   categoryId?: string | null;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(32)
   unit?: string;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsNumber()
   @Min(0)
+  @Max(9999999999.99)
   price?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsNumber()
   @Min(0)
+  @Max(9999999999.99)
   costPrice?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(productNumber)
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   minStockQty?: number;
 
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(({ obj, key }) => obj[key])
+  @IsBoolean()
   isActive?: boolean;
 
   @IsOptional()
+  @Transform(productText)
   @IsString()
   @MaxLength(1000)
   note?: string;

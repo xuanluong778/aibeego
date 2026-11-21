@@ -786,6 +786,8 @@ model Organization {
   payments          Payment[]
   expenses          Expense[]
   salesProducts     SalesProduct[]
+  salesProductImports SalesProductImport[]
+  wooCommerceConnections WooCommerceConnection[]
   salesOrders       SalesOrder[]
   salesProductCategories SalesProductCategory[]
   salesStockBatches SalesStockBatch[]
@@ -2554,11 +2556,62 @@ model SalesProductCategory {
   @@map("sales_product_categories")
 }
 
+model SalesProductImport {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  clientToken    String   @map("client_token")
+  fileName       String   @map("file_name")
+  fileHash       String   @map("file_hash")
+  sheetMeta      Json     @map("sheet_meta")
+  workbook       Json?
+  sheetIndex     Int?     @map("sheet_index")
+  mapping        Json?
+  options        Json?
+  status         String   @default("DRAFT")
+  previewVersion Int      @default(0) @map("preview_version")
+  createdById    String   @map("created_by_id")
+  wooConnectionId String? @map("woo_connection_id")
+  wooConnection WooCommerceConnection? @relation(fields: [wooConnectionId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "sales_import_woo_connection_fkey")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rows           SalesProductImportRow[]
+
+  @@unique([organizationId, clientToken])
+  @@unique([id, organizationId])
+  @@index([organizationId, createdAt])
+  @@map("sales_product_imports")
+}
+
+model SalesProductImportRow {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  importId       String    @map("import_id")
+  rowNumber      Int       @map("row_number")
+  cells          Json
+  source         Json?
+  status         String
+  action         String
+  targetId       String?   @map("target_id")
+  productId      String?   @map("product_id")
+  errors         Json
+  warnings       Json
+  message        String?
+  attempts       Int       @default(0)
+  completedAt    DateTime? @map("completed_at")
+  import         SalesProductImport @relation(fields: [importId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([importId, rowNumber])
+  @@index([organizationId, importId, status])
+  @@map("sales_product_import_rows")
+}
+
 model SalesProduct {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
   categoryId     String?  @map("category_id")
   sku            String?
+  model          String?  @db.VarChar(120)
   barcode        String?
   name           String
   unit           String?  @default("cái")
@@ -2580,15 +2633,49 @@ model SalesProduct {
   stocktakeLines SalesStocktakeLine[]
   purchaseOrderItems SalesPurchaseOrderItem[]
   reconciliationLines SalesStockReconciliationLine[]
+  websiteSources WooCommerceProduct[]
 
   @@unique([organizationId, sku])
+  @@unique([id, organizationId])
   @@unique([organizationId, barcode])
   @@index([organizationId, name])
+  @@index([organizationId, model])
   @@index([organizationId, isActive])
   @@index([organizationId, stockQty, minStockQty])
   @@index([organizationId, updatedAt])
   @@index([categoryId])
   @@map("sales_products")
+}
+
+model WooCommerceConnection {
+  id String @id @default(uuid())
+  organizationId String @map("organization_id")
+  websiteUrl String @map("website_url")
+  credentials String
+  currency String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  imports SalesProductImport[]
+  products WooCommerceProduct[]
+  @@unique([id, organizationId])
+  @@unique([organizationId, websiteUrl])
+  @@map("woocommerce_connections")
+}
+
+model WooCommerceProduct {
+  id String @id @default(uuid())
+  organizationId String @map("organization_id")
+  connectionId String @map("connection_id")
+  externalId String @map("external_id")
+  productId String @map("product_id")
+  snapshot Json
+  syncedAt DateTime @default(now()) @map("synced_at")
+  connection WooCommerceConnection @relation(fields: [connectionId, organizationId], references: [id, organizationId], onDelete: Cascade, map: "woo_product_connection_fkey")
+  product SalesProduct @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Cascade, map: "woo_product_product_fkey")
+  @@unique([connectionId, externalId])
+  @@index([organizationId, productId])
+  @@map("woocommerce_products")
 }
 
 /// Lô / batch — FEFO theo expiryDate rồi importedAt
@@ -4423,18 +4510,22 @@ model ChatbotBot {
   greeting         String?          @db.VarChar(500)
   allowedDomains   String?          @map("allowed_domains") @db.VarChar(2000)
   status           ChatbotBotStatus @default(DRAFT)
+  knowledgeBaseId  String?          @map("knowledge_base_id")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  knowledge     ChatbotKnowledgeSource[]
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeBase   RagKnowledgeBase?       @relation("BotUsesSharedKb", fields: [knowledgeBaseId], references: [id], onDelete: SetNull)
+  knowledge       ChatbotKnowledgeSource[]
   channels      ChatbotChannel[]
   conversations ChatbotConversation[]
   leads         ChatbotLead[]
   usage         ChatbotUsage[]
   facebookPages ChatbotFacebookPage[]
+  ownedKnowledgeBases RagKnowledgeBase[] @relation("KbDedicatedOwner")
 
   @@index([organizationId, status])
+  @@index([knowledgeBaseId])
   @@map("chatbot_bots")
   funnelRecommendations FunnelRecommendation[]
 }
@@ -4647,6 +4738,7 @@ model ChatbotMessage {
   externalMessageId String? @map("external_message_id") @db.VarChar(128)
   /// Machine-readable error: MISSING_SCOPE | TOKEN_EXPIRED | OPENAI_ERROR | MESSENGER_SEND_FAILED | …
   errorCode      String?  @map("error_code") @db.VarChar(64)
+  metadata       Json?
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation ChatbotConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -5551,13 +5643,20 @@ model RagKnowledgeBase {
   name           String
   description    String?  @db.VarChar(1000)
   isDefault      Boolean  @default(false) @map("is_default")
+  botId          String?  @map("bot_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerBot     ChatbotBot?     @relation("KbDedicatedOwner", fields: [botId], references: [id], onDelete: SetNull)
+  linkedBots   ChatbotBot[]    @relation("BotUsesSharedKb")
   documents    RagKbDocument[]
+  sources      RagKbSource[]
 
+  @@unique([id, organizationId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, botId])
+  @@index([botId])
   @@map("rag_knowledge_bases")
 }
 
@@ -5575,12 +5674,68 @@ model RagKbDocument {
   status          String   @default("ready")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
+  sourceId        String?  @map("source_id")
+  externalId      String?  @map("external_id") @db.VarChar(2000)
+  contentHash     String?  @map("content_hash") @db.VarChar(64)
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  syncedAt        DateTime? @map("synced_at")
+  manualEditedAt  DateTime? @map("manual_edited_at")
+  source          RagKbSource? @relation(fields: [sourceId, knowledgeBaseId, organizationId], references: [id, knowledgeBaseId, organizationId], onDelete: Cascade)
+  chunks          RagKbChunk[]
 
   knowledgeBase RagKnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
 
+  @@unique([sourceId, externalId])
+  @@unique([id, knowledgeBaseId, organizationId])
   @@index([knowledgeBaseId])
   @@index([organizationId])
   @@map("rag_kb_documents")
+}
+
+model RagKbChunk {
+  id              String @id
+  documentId      String @map("document_id")
+  knowledgeBaseId String @map("knowledge_base_id")
+  organizationId  String @map("organization_id")
+  chunkIndex      Int @map("chunk_index")
+  startOffset     Int @map("start_offset")
+  content         String @db.Text
+  searchVector    Unsupported("tsvector") @map("search_vector")
+  document RagKbDocument @relation(fields: [documentId, knowledgeBaseId, organizationId], references: [id, knowledgeBaseId, organizationId], onDelete: Cascade, map: "rag_kb_chunks_document_scope_fkey")
+  @@unique([documentId, chunkIndex])
+  @@index([organizationId, knowledgeBaseId])
+  @@index([searchVector], type: Gin)
+  @@map("rag_kb_chunks")
+}
+
+model RagKbSource {
+  id              String @id @default(uuid())
+  organizationId  String @map("organization_id")
+  knowledgeBaseId String @map("knowledge_base_id")
+  kind            String
+  sourceKey       String @map("source_key") @db.VarChar(2000)
+  url             String? @db.VarChar(2000)
+  facebookPageId  String? @map("facebook_page_id")
+  enabled         Boolean @default(true)
+  status          String @default("queued")
+  runId           String? @map("run_id")
+  processed       Int @default(0)
+  succeeded       Int @default(0)
+  failed          Int @default(0)
+  errors          Json @default("[]")
+  websitePages    Json @default("[]") @map("website_pages")
+  lastError       String? @map("last_error") @db.VarChar(500)
+  lastAttemptAt   DateTime? @map("last_attempt_at")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  knowledgeBase RagKnowledgeBase @relation(fields: [knowledgeBaseId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  documents RagKbDocument[]
+  @@unique([organizationId, knowledgeBaseId, sourceKey])
+  @@unique([id, knowledgeBaseId, organizationId])
+  @@index([organizationId, knowledgeBaseId, status])
+  @@map("rag_kb_sources")
 }
 
 // =============================================================================

@@ -1,4 +1,6 @@
 import type { ChatbotBot, ChatbotKnowledgeSource } from '@marketingspa/database';
+import { replyFromRag, isLiveBusinessQuestion } from '../../rag-kb/rag-grounded-reply';
+import type { RagPacket } from '../../rag-kb/rag-retrieval.service';
 import {
   AI_FRIENDLY_ERROR,
   CREDIT_EXHAUSTED_MESSAGE,
@@ -15,12 +17,30 @@ export interface KnowledgeChunk {
   score: number;
 }
 
+export type AiEvidenceItem = {
+  sourceId: string;
+  title: string;
+  nodeTitle?: string;
+  excerpt?: string;
+  score?: number;
+  url?: string;
+  updatedAt?: string;
+};
+
 export interface AiReplyResult {
   reply: string;
   usedAi: boolean;
   showLead: boolean;
   noData: boolean;
   blockedCode?: string;
+  evidence?: AiEvidenceItem[];
+}
+
+export function detectPromptInjection(text: string): boolean {
+  const t = text.toLowerCase();
+  return /(?:ignore|bypass|forget)\s+(?:all\s+)?(?:previous|above)\s+instructions|jailbreak|system\s+prompt|bạn\s+là\s+giờ\s+hãy/i.test(
+    t,
+  );
 }
 
 export interface OrgSettings {
@@ -153,12 +173,14 @@ export async function generateAiReply(params: {
   history: Array<{ role: string; message: string }>;
   settings: OrgSettings;
   usageAllowed: boolean;
+  knowledge?: RagPacket;
   openAiChat?: (input: {
     model: string;
     systemPrompt: string;
     history: Array<{ role: string; content: string }>;
     userText: string;
     temperature: number;
+    responseFormat?: 'json_object';
   }) => Promise<string>;
   /** Số lần retry OpenAI sau lần đầu (0–2). */
   maxRetries?: number;
@@ -175,6 +197,10 @@ export async function generateAiReply(params: {
   }
 
   const profileText = botProfileContext(bot);
+  if (isLiveBusinessQuestion(text) || params.knowledge) {
+    if (!usageAllowed) return { reply: CREDIT_EXHAUSTED_MESSAGE, usedAi: false, showLead: true, noData: false, blockedCode: 'limit_exceeded' };
+    return replyFromRag({ packet: params.knowledge || { mode: 'text', knowledgeBaseId: '', hits: [] }, text, history, settings, chat: openAiChat });
+  }
   const chunks = searchKnowledge(sources, text);
   const hasContext = chunks.length > 0 || profileMatchesQuery(profileText, text);
 

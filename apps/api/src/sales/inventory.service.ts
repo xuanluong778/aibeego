@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -1074,12 +1075,12 @@ export class InventoryService {
   }
 
   /**
-   * Tra cứu SP theo SKU hoặc barcode (scan) — scoped organizationId.
+   * Exact SKU/barcode first; names/models only when unambiguous. Never pick an arbitrary product.
    */
   async lookupProduct(organizationId: string, q: string) {
     const code = q.trim();
-    if (!code) throw new BadRequestException('Thiếu mã SKU/barcode');
-    const product = await this.prisma.salesProduct.findFirst({
+    if (!code) throw new BadRequestException('Nhập tên, model, SKU hoặc barcode');
+    let products = await this.prisma.salesProduct.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -1089,8 +1090,18 @@ export class InventoryService {
         ],
       },
       include: { category: { select: { id: true, name: true } } },
+      take: 2,
     });
-    if (!product) throw new NotFoundException('Không tìm thấy sản phẩm theo SKU/barcode');
+    if (!products.length) products = await this.prisma.salesProduct.findMany({ where: {
+      organizationId, isActive: true, OR: [
+        { name: { contains: code, mode: 'insensitive' } },
+        { model: { contains: code, mode: 'insensitive' } },
+        { sku: { contains: code, mode: 'insensitive' } },
+      ],
+    }, include: { category: { select: { id: true, name: true } } }, take: 2 });
+    if (!products.length) throw new NotFoundException('Không tìm thấy sản phẩm theo tên/model/SKU/barcode');
+    if (products.length > 1) throw new ConflictException('Có nhiều sản phẩm phù hợp. Chọn sản phẩm cụ thể trong danh sách tìm kiếm.');
+    const product = products[0]!;
     const stock = await this.stockBreakdown(this.prisma, organizationId, product.id);
     return {
       ...product,

@@ -140,7 +140,6 @@ import { LandingPageTemplateContentDialog } from './landing-page-template-conten
 import { applyTemplateContent } from '@marketingspa/shared';
 import { useCurrentUser, hasPermission } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
-import { LandingPageHeaderMenuInspector } from './landing-page-header-menu-inspector';
 import {
   LandingPageMediaModal,
   type LpMediaItem,

@@ -23,6 +23,8 @@ export type MessagingWebhookJobData = {
 export class MessagingWebhookIngressService {
   private readonly logger = new Logger(MessagingWebhookIngressService.name);
   private chatbotPageHandler: ((payload: unknown) => void) | null = null;
+  private chatbotZaloHandler: ((connectionId: string, organizationId: string, payload: unknown) => void) | null = null;
+  registerChatbotZaloHandler(handler: (connectionId: string, organizationId: string, payload: unknown) => void) { this.chatbotZaloHandler = handler; }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -179,6 +181,7 @@ export class MessagingWebhookIngressService {
     const provider = this.providers.get(MessagingProviderKind.ZALO_OA);
     const events = provider.normalizeWebhook(payload, oaId);
     await this.enqueueEvents(connection, events, payload);
+    this.chatbotZaloHandler?.(connection.id, connection.organizationId, payload);
   }
 
   private async enqueueEvents(

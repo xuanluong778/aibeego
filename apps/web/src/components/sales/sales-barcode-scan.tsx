@@ -9,7 +9,7 @@ import { formatMutationError } from '@/lib/format-mutation-error';
 import { useT } from '@/i18n/i18n-provider';
 import type { SalesProduct } from '@/types/sales';
 
-/** Scan / gõ SKU hoặc barcode → Enter → lookup product */
+/** Exact codes first; ambiguous names/models require the product picker. */
 export function SalesBarcodeScan({
   onFound,
   disabled,
@@ -49,7 +49,7 @@ export function SalesBarcodeScan({
             className="pl-8"
             value={code}
             disabled={disabled || lookup.isPending}
-            placeholder={placeholder || t('sales.scanPlaceholder')}
+            placeholder={placeholder || 'Nhập tên, model, SKU hoặc barcode'}
             onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

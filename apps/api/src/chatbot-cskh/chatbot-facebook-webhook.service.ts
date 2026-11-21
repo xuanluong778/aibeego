@@ -1207,12 +1207,12 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
     });
 
     const [sources, history, settings] = await Promise.all([
-      this.prisma.chatbotKnowledgeSource.findMany({
-        where: { botId: fbPage.botId, status: { in: ['active', 'ready'] } },
+      fbPage.bot.knowledgeBaseId ? Promise.resolve([]) : this.prisma.chatbotKnowledgeSource.findMany({
+        where: { organizationId: fbPage.organizationId, botId: fbPage.botId, status: { in: ['active', 'ready'] } },
       }),
       this.prisma.chatbotMessage.findMany({
         where: { conversationId, id: { not: processingMsg.id } },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
         take: 20,
       }),
       this.chatbot.getSettings(fbPage.organizationId),
@@ -1225,11 +1225,13 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
           history: Array<{ role: string; content: string }>;
           userText: string;
           temperature: number;
+          responseFormat?: 'json_object';
         }) =>
           this.openAi.chatCompletion({
             model: input.model,
             temperature: input.temperature,
             maxTokens: 500,
+            responseFormat: input.responseFormat,
             timeoutMs: 12_000,
             messages: [
               { role: 'system', content: input.systemPrompt },
@@ -1245,18 +1247,24 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
       showLead: boolean;
       noData: boolean;
       blockedCode?: string;
+      evidence?: import('./utils/chatbot-ai.util').AiEvidenceItem[];
     };
     try {
+      history.reverse();
+      if (history.at(-1)?.role === 'user' && history.at(-1)?.message === text) history.pop();
+      const knowledge = await this.chatbot.getReplyKnowledge(fbPage.organizationId, fbPage.botId, text, history);
       aiResult = await generateAiReply({
         bot: fbPage.bot,
         userText: text,
         sources,
+        knowledge,
         history,
         settings,
         usageAllowed: usage.allowed,
         openAiChat,
         maxRetries: 1,
       });
+      aiResult = await this.chatbot.guardReplyKnowledge(fbPage.organizationId, fbPage.botId, knowledge, aiResult);
     } catch (err) {
       this.logger.warn(`FB AI error: ${(err as Error).message}`);
       this.lastWebhookError = `${CSKH_FB_ERROR.OPENAI_ERROR}:${(err as Error).message}`.slice(0, 160);
@@ -1334,6 +1342,7 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
       where: { id: processingMsg.id },
       data: {
         message: aiResult.reply.slice(0, 2000),
+        metadata: { evidence: aiResult.evidence || [], blockedCode: aiResult.blockedCode || null } as object,
         status: sent ? 'SENT' : 'FAILED',
         direction: 'OUTBOUND',
         senderType: 'BOT',

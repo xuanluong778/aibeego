@@ -1,4 +1,6 @@
 import type { ChatbotBot, ChatbotKnowledgeSource } from '@marketingspa/database';
+import type { RagPacket } from '../rag-kb/rag-retrieval.service';
+import { replyFromRag, isLiveBusinessQuestion } from '../rag-kb/rag-grounded-reply';
 import type { AiReplyResult, OrgSettings } from '../chatbot-cskh/utils/chatbot-ai.util';
 import { detectPromptInjection } from '../chatbot-cskh/utils/chatbot-ai.util';
 import { updateLandingPageConversationState, readLandingPageConversationState, conversationStatePrompt, isLearnerProfileStatement, isGeneralAdviceRequest, isBusinessFactRequest, removeAnsweredQuestions, repeatsPreviousAnswer, lastQuestion, type LandingPageConversationState } from './landing-page-chatbot-context';
@@ -60,7 +62,8 @@ type Params = {
   knowledgeSourceIds?: string[]; customGreeting?: string;
   conversationState?: unknown;
   enableHandoff?: boolean;
-  openAiChat?: (input:{model:string;systemPrompt:string;history:Array<{role:string;content:string}>;userText:string;temperature:number})=>Promise<string>;
+  knowledge?: RagPacket;
+  openAiChat?: (input:{model:string;systemPrompt:string;history:Array<{role:string;content:string}>;userText:string;temperature:number;responseFormat?:'json_object'})=>Promise<string>;
 };
 export interface LandingPageReplyResult extends AiReplyResult {
   conversationState: LandingPageConversationState;
@@ -90,6 +93,18 @@ async function generateConversationalReply(p:Params,state:LandingPageConversatio
   if(requestsLandingPageContact(text))return {reply:'Anh/chị vui lòng để lại email hoặc số điện thoại trong biểu mẫu bên dưới để nhân viên phụ trách liên hệ tư vấn.',usedAi:false,showLead:true,noData:false};
   if(declinesLandingPageContact(text)&&terms(text).filter(w=>!['dien','dang','ky','de','lai','email','gmail','so','thoai','thoi'].includes(w)).length===0)return {reply:DECLINED_REPLY,usedAi:false,showLead:false,noData:false};
   if(!p.usageAllowed)return handoff('limit_exceeded');
+  if (p.knowledge || isLiveBusinessQuestion(text)) {
+    const result = await replyFromRag({
+      packet: p.knowledge || { mode: 'text', knowledgeBaseId: '', hits: [] },
+      text,
+      history: p.history,
+      settings: p.settings,
+      chat: p.openAiChat,
+    });
+    if (!result.noData) {
+      return { ...result, answerMode: 'knowledge' };
+    }
+  }
 
   let query=resolveLandingPageKnowledgeQuery(text,p.history,state.topic);
   if(isLearnerProfileStatement(text)&&state.topic&&!knowledgeTopic(query)) {

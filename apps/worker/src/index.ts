@@ -9,6 +9,8 @@ if (!process.env.DATABASE_CONNECTION_LIMIT) {
   process.env.DATABASE_CONNECTION_LIMIT = '8';
 }
 import { Worker } from 'bullmq';
+import { RAG_SOURCE_QUEUE } from '@marketingspa/shared/dist/rag-source-collect';
+import { processRagSourceSync } from './processors/rag-source-sync';
 import { hostname } from 'os';
 import { prisma } from '@marketingspa/database';
 import { AD_URL_ANALYZE_LIMITS, BULLMQ_JOB_RETENTION, QUEUE_NAMES } from '@marketingspa/shared';
@@ -172,6 +174,7 @@ async function start() {
   };
 
   workers.push(
+    new Worker(RAG_SOURCE_QUEUE, processRagSourceSync, { ...opts, concurrency: 1, lockDuration: 60_000 }),
     new Worker(QUEUE_NAMES.CAMPAIGN_SEND, (job) => processCampaignSend(job), opts),
     new Worker(QUEUE_NAMES.LEAD_ALERT, () => processLeadAlertScan(redis), {
       ...opts,

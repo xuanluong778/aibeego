@@ -48,6 +48,9 @@ import { sendZaloOaHttp, WS_EVENTS } from '@marketingspa/shared';
 import { pickBetterZaloDisplayName } from '@marketingspa/shared';
 import { ChannelConnectionsService } from '../messaging/channel-connections.service';
 import { EventsGateway } from '../events/events.gateway';
+import { RagRetrievalService } from '../rag-kb/rag-retrieval.service';
+import type { RagPacket } from '../rag-kb/rag-retrieval.service';
+import type { AiReplyResult } from './utils/chatbot-ai.util';
 
 const MAX_BOTS = 10;
 const MAX_SOURCES = 50;
@@ -64,6 +67,7 @@ export class ChatbotCskhService {
     private readonly facebookWebhook: ChatbotFacebookWebhookService,
     private readonly channelConnections: ChannelConnectionsService,
     private readonly events: EventsGateway,
+    private readonly ragRetrieval: RagRetrievalService,
   ) {}
 
   private appBaseUrl(): string {
@@ -2069,6 +2073,35 @@ export class ChatbotCskhService {
       failed: results.filter((r) => !r.ok).length,
       results,
     };
+  }
+
+  async getReadyKnowledge(organizationId: string, botId: string) {
+    return this.prisma.chatbotKnowledgeSource.findMany({
+      where: {
+        organizationId,
+        botId,
+        status: { in: ['ready', 'active'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  getReplyKnowledge(organizationId: string, botId: string, text: string, history: Array<{ role: string; message: string }> = []) {
+    return this.ragRetrieval.forBot(organizationId, botId, text, history);
+  }
+
+  async guardReplyKnowledge<T extends AiReplyResult>(organizationId: string, botId: string, packet: RagPacket | undefined, result: T): Promise<T> {
+    if (!packet || await this.ragRetrieval.isCurrent(organizationId, botId, packet)) return result;
+    return { ...result, reply: 'Nguồn tri thức vừa được cập nhật hoặc tắt/gỡ. Vui lòng hỏi lại để sử dụng dữ liệu hiện hành.', noData: true, showLead: false, blockedCode: 'knowledge_changed', evidence: [] };
+  }
+
+  async recordAiReplyUsage(organizationId: string, botId: string) {
+    const month = new Date().toISOString().slice(0, 7);
+    await this.prisma.chatbotUsage.upsert({
+      where: { organizationId_month_botId: { organizationId, month, botId } },
+      create: { organizationId, botId, month, aiReplies: 1 },
+      update: { aiReplies: { increment: 1 } },
+    });
   }
 
   async getUsageSnapshot(organizationId: string) {

@@ -4,6 +4,7 @@ import type {
   OpenAiChatWithToolsParams,
   OpenAiService,
 } from '../openai/openai.service';
+import { RAG_DATA_RULES } from './rag-grounded-reply';
 
 export type RagPromptMode = 'chat' | 'content';
 
@@ -12,6 +13,8 @@ export type RagPromptHit = {
   content: string;
   sourceType?: string;
   score?: number;
+  url?: string;
+  updatedAt?: string;
 };
 
 /** Ghép các field DTO thành query search KB. */
@@ -30,16 +33,17 @@ export function formatRagForPrompt(
 ): string {
   if (!hits.length) return '';
   const body = hits
-    .map((h, i) => `[KB ${i + 1}: ${h.title}]\n${h.content.slice(0, 3500)}`)
+    .map((h, i) => `[KB ${i + 1}: ${h.title}] URL: ${h.url || 'Tài liệu nhập tay'}; Cập nhật: ${h.updatedAt || 'chưa rõ'}\n${h.content.slice(0, 2100)}`)
     .join('\n\n')
     .slice(0, 10000);
 
+  const safety = `${RAG_DATA_RULES}\nBEGIN_UNTRUSTED_KNOWLEDGE\n${body}\nEND_UNTRUSTED_KNOWLEDGE`;
   if (mode === 'chat') {
     return `=== AI KNOWLEDGE BASE (ưu tiên tuyệt đối) ===
 Chỉ dùng sự thật từ block dưới khi trả lời khách. Không bịa giá/chính sách/cam kết.
 Nếu không có thông tin liên quan trong KB, nói rõ chưa có dữ liệu / dùng fallback hiện có.
 
-${body}`;
+${safety}`;
   }
 
   return `=== AI KNOWLEDGE BASE (ưu tiên sự thật doanh nghiệp) ===
@@ -47,7 +51,7 @@ Khi viết content/caption/quảng cáo/tin nhắn, ưu tiên thông tin thật 
 Không bịa giá, cam kết, chứng nhận hay chi tiết kỹ thuật không có trong KB.
 Nếu KB không đề cập, viết chung chung và tránh khẳng định sai.
 
-${body}`;
+${safety}`;
 }
 
 /** Chèn knowledge block vào đầu messages (system). */

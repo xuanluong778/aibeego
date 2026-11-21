@@ -87,7 +87,6 @@ import {
   lpChatbotPublicDenyCode,
 } from './landing-page-chatbot-rollout.util';
 import { LandingPagePlatformDomains, isPlatformDomainKey } from './landing-page-platform-domain';
-import { domainMethods } from './landing-page-domain-manager';
 import { CreditService, isInsufficientCredits } from '../credit/credit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { isPlatformAdmin, TEMPLATE_PACK_MANAGED_TAG } from './template-pack';
@@ -381,6 +380,13 @@ export class LandingPagesService implements OnModuleInit {
 
     this.templatesSyncedForVersion = LANDING_PAGE_TEMPLATE_CATALOG_VERSION;
     return { synced: catalog.length, skipped: false as const };
+  }
+
+  private creationTemplateSpec(
+    template: { definition?: unknown; publishedDefinition?: unknown },
+    raw?: unknown,
+  ): LandingPageSpec {
+    return this.parseSpec(raw ?? template.publishedDefinition ?? template.definition);
   }
 
   private parseSpec(raw: unknown): LandingPageSpec {
@@ -800,7 +806,7 @@ export class LandingPagesService implements OnModuleInit {
         // Clone a copy with fresh ids. User pages never share the template row's JSON.
         const source = admin ? tpl.definition : (tpl.publishedDefinition ?? tpl.definition);
         spec = this.editableCopyFromImportedHtml(
-          cloneLandingPageSpecWithNewIds(this.parseSpec(source), { stripChatbotOrgBindings: true }),
+          cloneLandingPageSpecWithNewIds(this.parseSpec(source)),
         );
       }
 

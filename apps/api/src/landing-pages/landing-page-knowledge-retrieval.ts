@@ -110,7 +110,13 @@ const instruction = (text: string) => /^(?:\d+[.)]\s*)?(?:khong tu tao|khong bia
 export function parseLandingPageKnowledge(sources: ChatbotKnowledgeSource[], sourceIds?: string[]): LandingPageKnowledgeChunk[] {
   const chunks: LandingPageKnowledgeChunk[] = [];
   for (const source of sources) {
-    if (!['ready','active'].includes(source.status) || (sourceIds?.length && !sourceIds.includes(source.id))) continue;
+    const sharedKbDoc = String(source.id).startsWith('rag:');
+    if (
+      !['ready', 'active'].includes(source.status) ||
+      (sourceIds?.length && !sourceIds.includes(source.id) && !sharedKbDoc)
+    ) {
+      continue;
+    }
     const headings: string[] = [];
     let paragraph: string[] = [];
     let question = '';

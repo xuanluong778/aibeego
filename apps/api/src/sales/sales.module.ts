@@ -7,11 +7,17 @@ import { SalesPaymentService } from './payment.service';
 import { SalesReturnService } from './return.service';
 import { SalesPurchaseService } from './purchase.service';
 import { SalesReportsService } from './reports.service';
+import { ProductImportController } from './product-import.controller';
+import { ProductImportService } from './product-import.service';
+import { WooCommerceController } from './woocommerce.controller';
+import { WooCommerceService } from './woocommerce.service';
 
 @Module({
-  controllers: [SalesController],
+  controllers: [SalesController, ProductImportController, WooCommerceController],
   providers: [
     SalesService,
+    ProductImportService,
+    WooCommerceService,
     InventoryService,
     StocktakeService,
     SalesPaymentService,

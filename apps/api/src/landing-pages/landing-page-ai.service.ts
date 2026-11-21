@@ -391,6 +391,7 @@ export class LandingPageAiService {
             currentContent: req.currentContent,
             blockType: req.blockType,
             brandName: brand,
+            blockContext: req.blockContext,
           }),
           mode: 'fallback',
           fieldKind: req.fieldKind,

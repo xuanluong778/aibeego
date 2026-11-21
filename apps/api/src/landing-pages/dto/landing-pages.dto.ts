@@ -389,6 +389,7 @@ export class InlineAiSuggestFieldDto {
 
   @IsIn([
     'seo.title',
+    'chatbot.greeting',
     'seo.metaDescription',
     'headline',
     'subheadline',

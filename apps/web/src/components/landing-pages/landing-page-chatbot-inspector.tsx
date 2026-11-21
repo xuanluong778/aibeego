@@ -10,9 +10,11 @@ import {
   type LandingPageSpec,
 } from '@marketingspa/shared';
 import { useChatbotBots, useChatbotKnowledge } from '@/hooks/use-chatbot-cskh';
+import { useRagKnowledgeBases, useSharedKnowledgeBots } from '@/hooks/use-rag-kb';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LandingPageChatbotWidget } from '@/components/landing-pages/landing-page-chatbot-widget';
+import { LandingPageInlineAiField } from '@/components/landing-pages/landing-page-inline-ai-field';
 
 type Props = {
   spec: LandingPageSpec;
@@ -29,6 +31,8 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
     [spec.chatbot],
   );
   const bots = useChatbotBots({ refetchOnWindowFocus: 'always' });
+  const sharedBots = useSharedKnowledgeBots();
+  const ragBases = useRagKnowledgeBases();
   const knowledge = useChatbotKnowledge(cfg.botId, { refetchOnWindowFocus: 'always' });
 
   const readySources = useMemo(
@@ -42,9 +46,16 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
     return readySources.filter((s) => allow.has(s.id));
   }, [cfg.knowledgeSourceIds, readySources]);
 
+  const sharedKbReadyCount = useMemo(() => {
+    const kbId = sharedBots.data?.find((bot) => bot.id === cfg.botId)?.knowledgeBaseId;
+    if (!kbId) return 0;
+    const kb = ragBases.data?.find((row) => row.id === kbId);
+    return (kb?.documents ?? []).filter((doc) => ['ready', 'active'].includes(doc.status)).length;
+  }, [cfg.botId, sharedBots.data, ragBases.data]);
+
   const validation = validateLandingPageChatbotConfigLocal(cfg, {
     requireKnowledge: cfg.enabled,
-    knowledgeCount: scopedReady.length,
+    knowledgeCount: scopedReady.length + sharedKbReadyCount,
   });
 
   const patch = (partial: Partial<LandingPageChatbotConfig>) => {
@@ -59,6 +70,29 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
   };
 
   const selectedBot = bots.data?.find((bot) => bot.id === cfg.botId);
+  const heroBlock = spec.blocks.find((block) => block.type === 'Hero');
+  const hero = heroBlock?.type === 'Hero' ? heroBlock : undefined;
+  // Bound each part so the bot setup and page context both reach the AI prompt.
+  const greetingContextData = {
+    displayName: cfg.displayName?.slice(0, 80),
+    businessName: selectedBot?.businessName?.slice(0, 100),
+    botName: selectedBot?.botName?.slice(0, 80),
+    industry: selectedBot?.industry?.slice(0, 80),
+    mainServices: selectedBot?.mainServices?.slice(0, 220),
+    consultationTone: selectedBot?.consultationTone?.slice(0, 80),
+    botGreeting: selectedBot?.greeting?.slice(0, 160),
+    knowledge: scopedReady.slice(0, 3).map((source) => ({
+      title: source.title.slice(0, 50),
+      content: source.content?.replace(/\s+/g, ' ').slice(0, 80),
+    })),
+    pageTitle: spec.seo.title?.slice(0, 100),
+    pageDescription: spec.seo.metaDescription?.slice(0, 160),
+    headline: hero?.headline?.slice(0, 100),
+    subheadline: hero?.subheadline?.slice(0, 160),
+  };
+  const fullGreetingContext = JSON.stringify(greetingContextData);
+  const greetingContext = fullGreetingContext.length <= 2000 ? fullGreetingContext
+    : JSON.stringify(greetingContextData, (_key, value) => typeof value === 'string' ? value.slice(0, 40) : value);
   const createBotUrl = '/chatbot-cskh?action=create';
   const knowledgeUrl = `/settings?tab=knowledge${cfg.botId ? `&botId=${encodeURIComponent(cfg.botId)}` : ''}`;
   const selectedBotUrl = selectedBot ? `/chatbot-cskh?botId=${encodeURIComponent(selectedBot.id)}` : null;
@@ -70,7 +104,12 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
         ? { label: 'Thêm tri thức', href: knowledgeUrl, action: 'knowledge' }
         : { label: 'Chỉnh sửa chatbot', href: `${selectedBotUrl}&action=edit`, action: 'edit' };
 
-  const readyForPreview = selectedBot?.status === 'ACTIVE' && scopedReady.length > 0 && !knowledge.isFetching;
+  const readyForPreview =
+    selectedBot?.status === 'ACTIVE' &&
+    scopedReady.length + sharedKbReadyCount > 0 &&
+    !knowledge.isFetching &&
+    !sharedBots.isFetching &&
+    !ragBases.isFetching;
   const errors = [...validation.errors];
   if (cfg.enabled && selectedBot && selectedBot.status !== 'ACTIVE') {
     errors.push('Bot đang ở trạng thái nháp hoặc tạm dừng. Kích hoạt bot tại Chatbot CSKH trước khi xuất bản.');
@@ -227,14 +266,21 @@ export function LandingPageChatbotInspector({ spec, pageId, slug, previewToken, 
         />
       </div>
 
-      <div>
-        <Label htmlFor={`${fieldId}-greeting`} className="text-xs">Lời chào</Label>
-        <Input
-          className="mt-1 h-8 text-xs"
-          id={`${fieldId}-greeting`}
-          maxLength={500}
+      <div data-lp-chatbot-greeting-ai>
+        <LandingPageInlineAiField
+          pageId={pageId}
+          label="Lời chào"
+          inputId={`${fieldId}-greeting`}
+          fieldKind="chatbot.greeting"
+          blockType="Hero"
+          requestKey={`${pageId}:chatbot:${cfg.botId || 'none'}:greeting`}
           value={cfg.greeting || ''}
-          onChange={(e) => patch({ greeting: e.target.value })}
+          onChange={(greeting) => patch({ greeting })}
+          blockContext={greetingContext}
+          directSuggest
+          multiline
+          rows={3}
+          maxLength={500}
           placeholder="Xin chào! Tôi có thể giúp gì?"
         />
       </div>

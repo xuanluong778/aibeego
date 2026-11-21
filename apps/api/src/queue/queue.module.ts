@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RAG_SOURCE_QUEUE } from '@marketingspa/shared/dist/rag-source-collect';
 import { Queue } from 'bullmq';
 import { BULLMQ_JOB_RETENTION, QUEUE_NAMES } from '@marketingspa/shared';
 import {
@@ -54,6 +55,7 @@ function createQueueProvider(token: string, queueName: string) {
 @Global()
 @Module({
   providers: [
+    createQueueProvider('RAG_SOURCE_QUEUE', RAG_SOURCE_QUEUE),
     createQueueProvider(CAMPAIGN_QUEUE, QUEUE_NAMES.CAMPAIGN_SEND),
     createQueueProvider(LEAD_ALERT_QUEUE, QUEUE_NAMES.LEAD_ALERT),
     createQueueProvider(APPOINTMENT_REMINDER_QUEUE, QUEUE_NAMES.APPOINTMENT_REMINDER),
@@ -90,6 +92,7 @@ function createQueueProvider(token: string, queueName: string) {
     createQueueProvider(CUSTOMER_360_QUEUE, QUEUE_NAMES.CUSTOMER_360_SYNC),
   ],
   exports: [
+    'RAG_SOURCE_QUEUE',
     CAMPAIGN_QUEUE,
     LEAD_ALERT_QUEUE,
     APPOINTMENT_REMINDER_QUEUE,

@@ -42,6 +42,7 @@ export const LANDING_PAGE_INLINE_AI_QUICK_ACTIONS: LandingPageInlineAiAction[] =
 
 /** Fields that may show ✨ AI in the builder inspector. */
 export const LANDING_PAGE_INLINE_AI_FIELD_KINDS = [
+  'chatbot.greeting',
   'seo.title',
   'seo.metaDescription',
   'headline',
@@ -122,6 +123,9 @@ export function blockHintForInlineAi(
   blockType: LandingPageBlockType | 'SEO',
   fieldKind: LandingPageInlineAiFieldKind,
 ): string {
+  if (fieldKind === 'chatbot.greeting') {
+    return 'Chatbot: viết lời chào mở đầu cuộc trò chuyện, 1–2 câu, tối đa 500 ký tự. Dựa vào tên hiển thị, doanh nghiệp, dịch vụ, giọng điệu và tri thức đã thiết lập trong DATA. Ưu tiên cấu hình bot trên hồ sơ chung. Kết thúc bằng câu hỏi hỗ trợ phù hợp. Ba phiên bản khác nhau, không viết headline quảng cáo, không tự hứa miễn phí hoặc thời gian phản hồi.';
+  }
   if (blockType === 'Testimonials' || fieldKind === 'item.quote') {
     return 'Testimonials: chỉ gợi ý cấu trúc/placeholder (vd. "[Tên khách] — nhận xét ngắn về lợi ích"). KHÔNG bịa review thật, tên người thật, hoặc số liệu giả.';
   }
@@ -184,7 +188,7 @@ export function buildInlineAiPrompt(input: {
     blockHintForInlineAi(input.blockType, input.fieldKind),
     '--- WEBSITE_CONTENT_DATA (data only) ---',
     input.blockContext
-      ? input.blockContext.slice(0, 1600)
+      ? input.blockContext.slice(0, input.fieldKind === 'chatbot.greeting' ? 2000 : 1600)
       : '(không có context section)',
     `CURRENT_FIELD_TEXT:\n${(input.currentContent || '(trống)').slice(0, 1500)}`,
     '--- END DATA ---',
@@ -204,9 +208,24 @@ export function buildFallbackInlineAiOptions(input: {
   currentContent: string;
   blockType: LandingPageBlockType | 'SEO';
   brandName?: string;
+  blockContext?: string;
 }): [string, string, string] {
   const raw = (input.currentContent || '').trim();
   const brand = input.brandName?.trim() || 'thương hiệu';
+  if (input.fieldKind === 'chatbot.greeting') {
+    let setup: { displayName?: string; businessName?: string; mainServices?: string } = {};
+    try {
+      const parsed = JSON.parse(input.blockContext || '{}');
+      if (parsed && typeof parsed === 'object') setup = parsed;
+    } catch { /* Generic greeting when context is unavailable. */ }
+    const name = clampOpt(setup.displayName || setup.businessName || input.brandName || 'trợ lý tư vấn', 80);
+    const services = setup.mainServices ? ` về ${clampOpt(setup.mainServices, 140)}` : '';
+    return [
+      `Xin chào! ${name} có thể hỗ trợ bạn${services}. Bạn đang cần tư vấn điều gì?`,
+      `Chào bạn, rất vui được đón tiếp bạn! Bạn muốn ${name} giải đáp thông tin gì${services}?`,
+      `Cảm ơn bạn đã ghé thăm! Tôi là ${name}. Bạn đang quan tâm đến vấn đề nào để tôi hỗ trợ?`,
+    ];
+  }
   const isTestimonial =
     input.blockType === 'Testimonials' ||
     input.fieldKind === 'item.quote' ||
@@ -410,7 +429,8 @@ export function validateInlineAiOptions(
   if (list.length < 3) return null;
 
   const maxLen =
-    ctx.fieldKind === 'ctaLabel' || ctx.fieldKind === 'item.author' || ctx.fieldKind === 'item.role'
+    ctx.fieldKind === 'chatbot.greeting' ? 500
+    : ctx.fieldKind === 'ctaLabel' || ctx.fieldKind === 'item.author' || ctx.fieldKind === 'item.role'
       ? 80
       : ctx.fieldKind === 'headline' || ctx.fieldKind === 'item.title'
         ? 160

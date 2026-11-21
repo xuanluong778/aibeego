@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,20 +17,25 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/page-state';
 import {
-  useSalesProducts,
+  useSalesProduct,
   useStockAdjust,
   useStockInbound,
   useStockMovements,
   useStockOutbound,
 } from '@/hooks/use-sales';
-import { SalesBarcodeScan } from '@/components/sales/sales-barcode-scan';
+import { SalesProductPicker } from '@/components/sales/product-picker';
+import type { SalesProduct } from '@/types/sales';
 import { formatDateTime } from '@/lib/format';
 import { formatMutationError } from '@/lib/format-mutation-error';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
 import { useT } from '@/i18n/i18n-provider';
 
 export default function SalesStockMovementsPage() {
   const t = useT();
+  const { data: user } = useCurrentUser();
+  const canWrite = hasPermission(user, 'order.write');
   const [productId, setProductId] = useState('');
+  const [pickedProduct, setPickedProduct] = useState<SalesProduct | null>(null);
   const [batchCode, setBatchCode] = useState('');
   const [qty, setQty] = useState('1');
   const [expiryDate, setExpiryDate] = useState('');
@@ -41,7 +46,7 @@ export default function SalesStockMovementsPage() {
   const [err, setErr] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
 
-  const products = useSalesProducts({ active: 'true', page: 1 });
+  const products = useSalesProduct(productId || null);
   const movements = useStockMovements({
     page: 1,
     type: typeFilter === 'all' ? undefined : typeFilter,
@@ -50,74 +55,20 @@ export default function SalesStockMovementsPage() {
   const outbound = useStockOutbound();
   const adjust = useStockAdjust();
 
-  const productItems = products.data?.items ?? [];
   const rows = movements.data?.items ?? [];
-  const selectedProduct = useMemo(
-    () => productItems.find((p) => p.id === productId) ?? null,
-    [productItems, productId],
-  );
+  const selectedProduct = products.data ?? pickedProduct;
 
   const resetFlash = () => {
     setMsg('');
     setErr('');
   };
 
-  const onPickProduct = (id: string) => {
-    setProductId(id);
-    const p = productItems.find((x) => x.id === id);
-    if (p && !unitCost) setUnitCost(String(p.costPrice ?? 0));
+  const onPickProduct = (product: SalesProduct | null) => {
+    setProductId(product?.id || '');
+    setPickedProduct(product);
+    if (product?.id !== productId) setUnitCost(product ? String(product.costPrice) : '');
+    resetFlash();
   };
-
-  const ProductPicker = ({ id }: { id: string }) => (
-    <div className="space-y-1 sm:col-span-2">
-      <Label htmlFor={id}>{t('sales.product')} *</Label>
-      <SalesBarcodeScan
-        onFound={(p) => {
-          onPickProduct(p.id);
-          if (p.costPrice != null && !unitCost) setUnitCost(String(p.costPrice));
-        }}
-      />
-      {products.isLoading ? (
-        <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-      ) : null}
-      {products.isError ? (
-        <p className="text-xs text-amber-200">
-          {t('sales.loadProductsFailed')}{' '}
-          <button type="button" className="underline" onClick={() => void products.refetch()}>
-            {t('common.retry')}
-          </button>
-        </p>
-      ) : null}
-      {!products.isLoading && !productItems.length ? (
-        <p className="text-xs text-amber-200">
-          {t('sales.needProductFirst')}{' '}
-          <Link href="/sales/products" className="underline text-[#F97316]">
-            {t('sales.addProduct')}
-          </Link>
-        </p>
-      ) : null}
-      <select
-        id={id}
-        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        value={productId}
-        onChange={(e) => onPickProduct(e.target.value)}
-        required
-      >
-        <option value="">{t('sales.pickProduct')}</option>
-        {productItems.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {p.sku ? ` (${p.sku})` : ''} · {t('sales.stock')} {p.stockQty}
-          </option>
-        ))}
-      </select>
-      {selectedProduct ? (
-        <p className="text-xs text-muted-foreground">
-          {selectedProduct.name} · {t('sales.stock')}: {selectedProduct.stockQty}
-        </p>
-      ) : null}
-    </div>
-  );
 
   return (
     <div className="space-y-6 pb-8">
@@ -142,17 +93,19 @@ export default function SalesStockMovementsPage() {
         </TabsList>
 
         <TabsContent value="inbound" className="mt-4">
+          <fieldset disabled={!canWrite} className="min-w-0">
           <form
             className="grid max-w-2xl gap-3 rounded-xl border border-white/10 p-4 sm:grid-cols-2"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!canWrite) return;
               resetFlash();
               if (!productId) {
                 setErr(t('sales.pickProductRequired'));
                 return;
               }
-              const quantity = Math.floor(Number(qty) || 0);
-              if (quantity < 1) {
+              const quantity = Number(qty);
+              if (!Number.isInteger(quantity) || quantity < 1) {
                 setErr(t('sales.qtyRequired'));
                 return;
               }
@@ -183,7 +136,7 @@ export default function SalesStockMovementsPage() {
               );
             }}
           >
-            <ProductPicker id="inbound-product" />
+            <div className="sm:col-span-2"><SalesProductPicker value={selectedProduct} onChange={onPickProduct} disabled={inbound.isPending || outbound.isPending || adjust.isPending} /></div>
             <div className="space-y-1">
               <Label htmlFor="inbound-batch">{t('sales.batchCode')} *</Label>
               <Input
@@ -236,25 +189,28 @@ export default function SalesStockMovementsPage() {
             <Button
               type="submit"
               className="bg-[#F97316] text-white sm:col-span-2"
-              disabled={inbound.isPending || products.isLoading}
+              disabled={inbound.isPending || (!!productId && products.isFetching)}
             >
               {inbound.isPending ? t('common.saving') : t('sales.inbound')}
             </Button>
           </form>
+          </fieldset>
         </TabsContent>
 
         <TabsContent value="outbound" className="mt-4">
+          <fieldset disabled={!canWrite} className="min-w-0">
           <form
             className="grid max-w-xl gap-3 rounded-xl border border-white/10 p-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!canWrite) return;
               resetFlash();
               if (!productId) {
                 setErr(t('sales.pickProductRequired'));
                 return;
               }
-              const quantity = Math.floor(Number(qty) || 0);
-              if (quantity < 1) {
+              const quantity = Number(qty);
+              if (!Number.isInteger(quantity) || quantity < 1) {
                 setErr(t('sales.qtyRequired'));
                 return;
               }
@@ -275,7 +231,7 @@ export default function SalesStockMovementsPage() {
               );
             }}
           >
-            <ProductPicker id="outbound-product" />
+            <div className="sm:col-span-2"><SalesProductPicker value={selectedProduct} onChange={onPickProduct} disabled={inbound.isPending || outbound.isPending || adjust.isPending} /></div>
             <div className="space-y-1">
               <Label htmlFor="outbound-qty">{t('sales.qty')} * (FEFO)</Label>
               <Input
@@ -300,18 +256,21 @@ export default function SalesStockMovementsPage() {
             <Button
               type="submit"
               className="bg-[#F97316] text-white"
-              disabled={outbound.isPending || products.isLoading}
+              disabled={outbound.isPending || (!!productId && products.isFetching)}
             >
               {outbound.isPending ? t('common.saving') : t('sales.outbound')}
             </Button>
           </form>
+          </fieldset>
         </TabsContent>
 
         <TabsContent value="adjust" className="mt-4">
+          <fieldset disabled={!canWrite} className="min-w-0">
           <form
             className="grid max-w-xl gap-3 rounded-xl border border-white/10 p-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!canWrite) return;
               resetFlash();
               if (!productId) {
                 setErr(t('sales.pickProductRequired'));
@@ -343,7 +302,7 @@ export default function SalesStockMovementsPage() {
               );
             }}
           >
-            <ProductPicker id="adjust-product" />
+            <div className="sm:col-span-2"><SalesProductPicker value={selectedProduct} onChange={onPickProduct} disabled={inbound.isPending || outbound.isPending || adjust.isPending} /></div>
             <div className="space-y-1">
               <Label htmlFor="adjust-delta">{t('sales.adjustDelta')} *</Label>
               <Input
@@ -366,11 +325,12 @@ export default function SalesStockMovementsPage() {
             <Button
               type="submit"
               className="bg-[#F97316] text-white"
-              disabled={adjust.isPending || products.isLoading}
+              disabled={adjust.isPending || (!!productId && products.isFetching)}
             >
               {adjust.isPending ? t('common.saving') : t('sales.adjust')}
             </Button>
           </form>
+          </fieldset>
         </TabsContent>
       </Tabs>
 

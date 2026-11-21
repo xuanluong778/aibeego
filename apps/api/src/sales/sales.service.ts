@@ -1,9 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, SalesOrderStatus } from '@marketingspa/database';
+import { sourceDescriptionMarkdown, sourceImages, sourceProductModel } from '@marketingspa/shared/dist/sales-product-source';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from './inventory.service';
@@ -106,13 +110,13 @@ export class SalesService {
     }
   }
 
-  private async assertCategoryInOrg(organizationId: string, categoryId: string | null | undefined) {
+  private async assertCategoryInOrg(organizationId: string, categoryId: string | null | undefined, db: Prisma.TransactionClient = this.prisma) {
     if (!categoryId) return;
-    const cat = await this.prisma.salesProductCategory.findFirst({
+    const cat = await db.salesProductCategory.findFirst({
       where: { id: categoryId, organizationId },
       select: { id: true },
     });
-    if (!cat) throw new BadRequestException('Danh mục không thuộc tổ chức');
+    if (!cat) throw new BadRequestException({ message: ['categoryId: Danh mục không thuộc tổ chức.'] });
   }
 
   private serializeOrder<
@@ -616,7 +620,7 @@ export class SalesService {
 
   async listProducts(organizationId: string, query: SalesProductQueryDto) {
     const { page, pageSize, skip, take } = getPaginationParams(query);
-    const cacheName = `list:sprod:${page}:${pageSize}:${JSON.stringify({
+    const cacheName = `list:sprod:v2:${page}:${pageSize}:${JSON.stringify({
       s: query.search,
       a: query.active,
       c: query.categoryId,
@@ -630,6 +634,7 @@ export class SalesService {
         { name: { contains: q, mode: 'insensitive' } },
         { sku: { contains: q, mode: 'insensitive' } },
         { barcode: { contains: q, mode: 'insensitive' } },
+        { model: { contains: q, mode: 'insensitive' } },
       ];
     }
     if (query.active === 'true') where.isActive = true;
@@ -641,10 +646,11 @@ export class SalesService {
         where,
         skip,
         take,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         include: {
           category: { select: { id: true, name: true } },
           _count: { select: { batches: true } },
+          websiteSources: { select: { externalId: true, syncedAt: true, snapshot: true, connection: { select: { websiteUrl: true } } } },
         },
       }),
       this.prisma.salesProduct.count({ where }),
@@ -661,6 +667,19 @@ export class SalesService {
         const stock = stockMap.get(p.id) || { physicalQty: 0, sellableQty: 0, expiredQty: 0 };
         return {
           ...p,
+          imageUrl: p.websiteSources.flatMap(source => sourceImages(source.snapshot as Record<string, unknown>))[0] || null,
+          websitePriceMissing: p.websiteSources.length > 0 && p.websiteSources.every(source => {
+            const snapshot = source.snapshot as Record<string, unknown>;
+            return !snapshot.regularPrice && !snapshot.salePrice;
+          }),
+          websiteSources: p.websiteSources.map(source => {
+            const snapshot = source.snapshot as Record<string, unknown>;
+            return { externalId: source.externalId, syncedAt: source.syncedAt, connection: source.connection,
+              snapshot: { url: snapshot.url, stockQuantity: snapshot.stockQuantity, stockStatus: snapshot.stockStatus,
+                stockScope: snapshot.stockScope, fetchedAt: snapshot.fetchedAt,
+                images: Array.isArray(snapshot.images) ? snapshot.images.slice(0, 1) : [],
+                description: String(snapshot.description || '').replace(/<[^>]*>/g, ' ').slice(0, 1000) } };
+          }),
           price: Number(p.price),
           costPrice: Number(p.costPrice),
           physicalQty: stock.physicalQty,
@@ -684,11 +703,40 @@ export class SalesService {
       orderBy: { name: 'asc' },
     });
   }
+  async getProduct(organizationId: string, id: string) {
+    const product = await this.prisma.salesProduct.findFirst({ where: { id, organizationId },
+      include: { category: { select: { id: true, name: true } }, websiteSources: {
+        select: { externalId: true, syncedAt: true, snapshot: true, connection: { select: { websiteUrl: true } } },
+        orderBy: { syncedAt: 'desc' },
+      } },
+    });
+    if (!product) throw new NotFoundException('Không tìm thấy sản phẩm');
+    const stock = await this.inventory.stockBreakdown(this.prisma, organizationId, id);
+    const sources = product.websiteSources.map(source => {
+      const snapshot = source.snapshot as Record<string, unknown>;
+      let url = '';
+      try { const parsed = new URL(String(snapshot.url || '')); if (['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password) url = parsed.href; } catch { /* Missing source URL. */ }
+      return { externalId: source.externalId, websiteUrl: source.connection.websiteUrl, syncedAt: source.syncedAt,
+        url, images: sourceImages(snapshot), model: sourceProductModel(snapshot),
+        description: sourceDescriptionMarkdown(snapshot.description), shortDescription: sourceDescriptionMarkdown(snapshot.shortDescription),
+        attributes: Array.isArray(snapshot.attributes) ? snapshot.attributes.map(a => ({ name: String(a.name || ''), option: String(a.option || '') })) : [],
+        stockQuantity: typeof snapshot.stockQuantity === 'number' ? snapshot.stockQuantity : null,
+        stockStatus: String(snapshot.stockStatus || ''), stockScope: String(snapshot.stockScope || ''),
+        status: String(snapshot.status || ''), regularPrice: String(snapshot.regularPrice || ''), salePrice: String(snapshot.salePrice || ''),
+      };
+    });
+    const { websiteSources, ...base } = product;
+    return { ...base, price: Number(product.price), costPrice: Number(product.costPrice),
+      physicalQty: stock.physicalQty, sellableQty: stock.sellableQty, expiredQty: stock.expiredQty,
+      isOutOfStock: stock.sellableQty <= 0, isLowStock: stock.sellableQty > 0 && stock.sellableQty <= product.minStockQty,
+      imageUrl: sources.flatMap(s => s.images)[0] || null, sources,
+    };
+  }
 
-  async createCategory(organizationId: string, name: string) {
+  async createCategory(organizationId: string, name: string, db: Prisma.TransactionClient = this.prisma) {
     const trimmed = name.trim();
     if (!trimmed) throw new BadRequestException('Tên danh mục trống');
-    return this.prisma.salesProductCategory.upsert({
+    return db.salesProductCategory.upsert({
       where: {
         organizationId_name: { organizationId, name: trimmed },
       },
@@ -697,22 +745,24 @@ export class SalesService {
     });
   }
 
-  async createProduct(organizationId: string, dto: CreateSalesProductDto, userId?: string) {
-    const initialStock = Math.max(0, Math.floor(dto.stockQty ?? 0));
-    await this.assertCategoryInOrg(organizationId, dto.categoryId);
-    const product = await this.prisma.$transaction(async (tx) => {
+  async createProduct(organizationId: string, dto: CreateSalesProductDto, userId?: string, tx?: Prisma.TransactionClient) {
+    dto = this.validateProduct(CreateSalesProductDto, dto);
+    const initialStock = dto.stockQty ?? 0;
+    await this.assertCategoryInOrg(organizationId, dto.categoryId, tx);
+    const write = async (tx: Prisma.TransactionClient) => {
       const created = await tx.salesProduct.create({
         data: {
           organizationId,
           name: dto.name.trim(),
           sku: dto.sku?.trim() || null,
+          model: dto.model?.trim() || null,
           barcode: dto.barcode?.trim() || null,
           categoryId: dto.categoryId || null,
           unit: dto.unit?.trim() || 'cái',
-          price: this.decimal(dto.price ?? 0),
-          costPrice: this.decimal(dto.costPrice ?? 0),
+          price: new Prisma.Decimal(dto.price ?? 0),
+          costPrice: new Prisma.Decimal(dto.costPrice ?? 0),
           stockQty: 0,
-          minStockQty: Math.max(0, Math.floor(dto.minStockQty ?? 0)),
+          minStockQty: dto.minStockQty ?? 0,
           note: dto.note?.trim() || null,
         },
       });
@@ -727,7 +777,7 @@ export class SalesService {
             quantity: initialStock,
             remainingQuantity: initialStock,
             importedAt: new Date(),
-            unitCost: this.decimal(dto.costPrice ?? 0),
+            unitCost: new Prisma.Decimal(dto.costPrice ?? 0),
           },
         });
         await tx.salesStockMovement.create({
@@ -752,15 +802,18 @@ export class SalesService {
         where: { id: created.id },
         include: { category: { select: { id: true, name: true } } },
       });
-    });
+    };
+    const product = await (tx ? write(tx) : this.prisma.$transaction(write))
+      .catch((error: unknown) => this.productConflict(error));
 
+    if (!tx) await this.invalidateProductCache(organizationId);
     await this.audit.log({
       organizationId,
       userId,
       action: 'SALES_PRODUCT_CREATED',
       entityType: 'SALES_PRODUCT',
       entityId: product.id,
-    });
+    }, tx || this.prisma);
     return {
       ...product,
       price: Number(product.price),
@@ -773,45 +826,84 @@ export class SalesService {
     id: string,
     dto: UpdateSalesProductDto,
     userId?: string,
+    tx?: Prisma.TransactionClient,
   ) {
-    const existing = await this.prisma.salesProduct.findFirst({
+    dto = this.validateProduct(UpdateSalesProductDto, dto);
+    const db = tx || this.prisma;
+    const existing = await db.salesProduct.findFirst({
       where: { id, organizationId },
     });
     if (!existing) throw new NotFoundException('Không tìm thấy sản phẩm');
 
     // stockQty không chỉnh trực tiếp — dùng phiếu nhập/xuất/điều chỉnh
     if (dto.categoryId !== undefined) {
-      await this.assertCategoryInOrg(organizationId, dto.categoryId);
+      await this.assertCategoryInOrg(organizationId, dto.categoryId, db);
     }
-    const product = await this.prisma.salesProduct.update({
+    const product = await db.salesProduct.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.sku !== undefined ? { sku: dto.sku?.trim() || null } : {}),
+        ...(dto.model !== undefined ? { model: dto.model?.trim() || null } : {}),
         ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
         ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId || null } : {}),
         ...(dto.unit !== undefined ? { unit: dto.unit?.trim() || 'cái' } : {}),
-        ...(dto.price !== undefined ? { price: this.decimal(dto.price) } : {}),
-        ...(dto.costPrice !== undefined ? { costPrice: this.decimal(dto.costPrice) } : {}),
+        ...(dto.price !== undefined ? { price: new Prisma.Decimal(dto.price) } : {}),
+        ...(dto.costPrice !== undefined ? { costPrice: new Prisma.Decimal(dto.costPrice) } : {}),
         ...(dto.minStockQty !== undefined
-          ? { minStockQty: Math.max(0, Math.floor(dto.minStockQty)) }
+          ? { minStockQty: dto.minStockQty }
           : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.note !== undefined ? { note: dto.note?.trim() || null } : {}),
       },
       include: { category: { select: { id: true, name: true } } },
-    });
+    }).catch((error: unknown) => this.productConflict(error));
+    if (!tx) await this.invalidateProductCache(organizationId);
     await this.audit.log({
       organizationId,
       userId,
       action: 'SALES_PRODUCT_UPDATED',
       entityType: 'SALES_PRODUCT',
       entityId: id,
-    });
+    }, db);
     return {
       ...product,
       price: Number(product.price),
       costPrice: Number(product.costPrice),
     };
+  }
+
+  async invalidateProductCache(organizationId: string) {
+    await this.kpiCache?.bump(organizationId);
+  }
+
+  validateProduct<T extends object>(type: new () => T, input: T): T {
+    const dto = plainToInstance(type, input);
+    const errors = validateSync(dto, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length)
+      throw new BadRequestException({
+        message: errors.flatMap((error) =>
+          Object.values(error.constraints || {}).map((message) => `${error.property}: ${message}`),
+        ),
+      });
+    return dto;
+  }
+
+  private productConflict(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const target = error.meta?.target;
+      const fields = Array.isArray(target) ? target.map(String) : [String(target || '')];
+      const messages = [
+        ...(fields.some((field) => /(?:^|_)sku(?:_|$)/i.test(field))
+          ? ['sku: Mã SKU đã được dùng trong tổ chức.']
+          : []),
+        ...(fields.some((field) => /(?:^|_)barcode(?:_|$)/i.test(field))
+          ? ['barcode: Barcode đã được dùng trong tổ chức.']
+          : []),
+      ];
+      if (messages.length)
+        throw new ConflictException({ message: messages, code: 'SALES_PRODUCT_DUPLICATE' });
+    }
+    throw error;
   }
 }

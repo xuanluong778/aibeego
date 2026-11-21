@@ -1,10 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, apiDownload, apiUpload } from '@/lib/api-client';
+import type {
+  ProductImportOptions,
+  ProductImportSession,
+  ProductImportRow,
+  ProductImportField,
+} from '@/types/sales-product-import';
 import type { PaginatedResult } from '@/types/api';
 import type {
   SalesOrder,
   SalesOrderStatus,
   SalesProduct,
+  SalesProductDetail,
   SalesProductCategory,
   SalesStockAlerts,
   SalesStockBatch,
@@ -18,6 +25,91 @@ function qs(params: Record<string, string | number | undefined>) {
     if (v !== undefined && v !== '') sp.set(k, String(v));
   });
   return sp.toString();
+}
+
+export function useProductImportHistory(page: number) {
+  return useQuery({
+    queryKey: ['sales', 'product-imports', 'history', page],
+    queryFn: () =>
+      apiClient<PaginatedResult<ProductImportSession>>(
+        `/sales/product-imports?page=${page}&pageSize=10`,
+      ),
+  });
+}
+export function useProductImport(id: string | null) {
+  return useQuery({
+    queryKey: ['sales', 'product-imports', id],
+    queryFn: () => apiClient<ProductImportSession>(`/sales/product-imports/${id}`),
+    enabled: !!id,
+  });
+}
+export function useProductImportRows(id: string | null, page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['sales', 'product-imports', id, 'rows', page],
+    queryFn: () =>
+      apiClient<PaginatedResult<ProductImportRow>>(
+        `/sales/product-imports/${id}/rows?page=${page}&pageSize=25`,
+      ),
+    enabled: !!id && enabled,
+  });
+}
+export function useUploadProductImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      file,
+      clientToken,
+      delimiter,
+    }: {
+      file: File;
+      clientToken: string;
+      delimiter: string;
+    }) => {
+      const data = new FormData();
+      data.append('file', file);
+      return apiUpload<ProductImportSession>(
+        `/sales/product-imports?${new URLSearchParams({ clientToken, delimiter })}`,
+        data,
+      );
+    },
+    onSuccess: async (session) => {
+      qc.setQueryData(['sales', 'product-imports', session.id], session);
+      await qc.invalidateQueries({ queryKey: ['sales', 'product-imports', 'history'] });
+    },
+  });
+}
+export function useProductImportCommand() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      action,
+      body,
+    }: {
+      id: string;
+      action: 'preview' | 'confirm' | 'process' | 'retry';
+      body?:
+        | {
+            sheetIndex: number;
+            mapping: Partial<Record<ProductImportField, number>>;
+            options: ProductImportOptions;
+          }
+        | { previewVersion: number };
+    }) =>
+      apiClient<ProductImportSession>(`/sales/product-imports/${id}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+      }),
+    onSuccess: async (session) => {
+      qc.setQueryData(['sales', 'product-imports', session.id], session);
+      await qc.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+export function useDownloadProductImport() {
+  return useMutation({
+    mutationFn: (path: string) => apiDownload(`/sales/product-imports/${path}`),
+  });
 }
 
 export type SalesOrderInput = {
@@ -115,6 +207,7 @@ export function useExportSalesOrder() {
 
 export function useSalesProducts(params?: {
   page?: number;
+  pageSize?: number;
   search?: string;
   active?: string;
   categoryId?: string;
@@ -125,7 +218,7 @@ export function useSalesProducts(params?: {
       apiClient<PaginatedResult<SalesProduct>>(
         `/sales/products?${qs({
           page: params?.page ?? 1,
-          pageSize: 50,
+          pageSize: params?.pageSize ?? 50,
           search: params?.search,
           active: params?.active ?? 'true',
           categoryId: params?.categoryId,
@@ -140,6 +233,11 @@ export function useSalesCategories() {
     queryFn: () => apiClient<SalesProductCategory[]>('/sales/categories'),
   });
 }
+export function useSalesProduct(id?: string | null) {
+  return useQuery({ queryKey: ['sales', 'product', id], enabled: !!id,
+    queryFn: () => apiClient<SalesProductDetail>(`/sales/products/${id}`),
+  });
+}
 
 export function useCreateSalesCategory() {
   const qc = useQueryClient();
@@ -149,31 +247,46 @@ export function useCreateSalesCategory() {
         method: 'POST',
         body: JSON.stringify({ name }),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales', 'categories'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sales', 'categories'] }),
   });
 }
+
+export type SalesProductInput = {
+  name: string;
+  sku?: string;
+  barcode?: string;
+  categoryId?: string | null;
+  unit?: string;
+  price?: number;
+  costPrice?: number;
+  minStockQty?: number;
+  note?: string;
+};
 
 export function useCreateSalesProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<SalesProduct> & { name: string; stockQty?: number }) =>
+    mutationFn: (body: SalesProductInput & { stockQty?: number }) =>
       apiClient<SalesProduct>('/sales/products', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sales'] }),
   });
 }
 
 export function useUpdateSalesProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<SalesProduct> & { id: string }) =>
+    mutationFn: ({
+      id,
+      ...body
+    }: Partial<SalesProductInput> & { id: string; isActive?: boolean }) =>
       apiClient<SalesProduct>(`/sales/products/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sales'] }),
   });
 }
 
@@ -252,9 +365,7 @@ export function useStockAdjust() {
 export function useProductLookup() {
   return useMutation({
     mutationFn: (q: string) =>
-      apiClient<SalesProduct & { sellableQty?: number }>(
-        `/sales/products/lookup?${qs({ q })}`,
-      ),
+      apiClient<SalesProduct & { sellableQty?: number }>(`/sales/products/lookup?${qs({ q })}`),
   });
 }
 
@@ -282,8 +393,7 @@ export function useStockReconcile(enabled = true) {
 export function useStockReconcileFix() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiClient('/sales/stock/reconcile/fix', { method: 'POST', body: '{}' }),
+    mutationFn: () => apiClient('/sales/stock/reconcile/fix', { method: 'POST', body: '{}' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales'] }),
   });
 }
@@ -459,8 +569,7 @@ export function useCreateSupplier() {
       address?: string;
       taxCode?: string;
       note?: string;
-    }) =>
-      apiClient('/sales/suppliers', { method: 'POST', body: JSON.stringify(body) }),
+    }) => apiClient('/sales/suppliers', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales', 'suppliers'] }),
   });
 }
@@ -495,8 +604,7 @@ export function useCreatePurchaseOrder() {
       supplierId: string;
       note?: string;
       items: Array<{ productId: string; quantity: number; unitCost: number }>;
-    }) =>
-      apiClient('/sales/purchase-orders', { method: 'POST', body: JSON.stringify(body) }),
+    }) => apiClient('/sales/purchase-orders', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales'] }),
   });
 }

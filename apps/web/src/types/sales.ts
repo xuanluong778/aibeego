@@ -96,6 +96,13 @@ export interface SalesProductCategory {
 }
 
 export interface SalesProduct {
+  model?: string | null;
+  imageUrl?: string | null;
+  websitePriceMissing?: boolean;
+  websiteSources?: Array<{ externalId: string; syncedAt: string; connection: { websiteUrl: string }; snapshot: {
+    url: string; stockQuantity: number | null; stockStatus: string; stockScope: string; fetchedAt: string;
+    images: string[]; description: string;
+  } }>;
   id: string;
   sku?: string | null;
   barcode?: string | null;
@@ -115,6 +122,13 @@ export interface SalesProduct {
   isLowStock?: boolean;
   isOutOfStock?: boolean;
 }
+
+export type SalesProductDetail = SalesProduct & { sources: Array<{
+  externalId: string; websiteUrl: string; syncedAt: string; url: string; images: string[];
+  model: string | null; description: string; shortDescription: string;
+  attributes: Array<{ name: string; option: string }>; stockQuantity: number | null;
+  stockStatus: string; stockScope: string; status: string; regularPrice: string; salePrice: string;
+}> };
 
 export interface SalesStockBatch {
   id: string;
