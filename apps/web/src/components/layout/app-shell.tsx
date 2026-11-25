@@ -1,17 +1,16 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Menu } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Sidebar } from './sidebar';
+import { useCurrentUser } from '@/hooks/use-auth';
 import { Topbar } from './topbar';
 import { cn } from '@/lib/utils';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
 
-const SIDEBAR_EXPANDED = '16rem';
-const SIDEBAR_COLLAPSED = '3.5rem'; // 56px — within 48–60px rail
+const SIDEBAR_EXPANDED = '15rem';
+const SIDEBAR_COLLAPSED = '4rem';
 /** Floating LP toolbar (and others) listen for this to track the website sidebar edge. */
 export const MAIN_SIDEBAR_WIDTH_EVENT = 'mkspa:main-sidebar-width';
 
@@ -28,27 +27,72 @@ function isLandingPageBuilderPath(pathname: string | null): boolean {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [mainSidebarCollapsedPref, setMainSidebarCollapsed] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const { data: currentUser } = useCurrentUser();
+  const storageKey = currentUser?.id ? `aibeego.sidebar.collapsed:${currentUser.id}` : null;
+  const [sidebarPreference, setSidebarPreference] = useState<{
+    key: string | null;
+    collapsed: boolean;
+  }>({ key: null, collapsed: false });
+  const mainSidebarCollapsedPref =
+    sidebarPreference.key === storageKey && sidebarPreference.collapsed;
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      setSidebarPreference({
+        key: storageKey,
+        collapsed: localStorage.getItem(storageKey) === '1',
+      });
+    } catch {
+      setSidebarPreference({ key: storageKey, collapsed: false });
+    }
+    const sync = (event: StorageEvent) => {
+      if (event.key === storageKey || event.key === null) {
+        setSidebarPreference({ key: storageKey, collapsed: event.newValue === '1' });
+      }
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, [storageKey]);
+
+  const toggleSidebarPreference = () => {
+    const collapsed = !mainSidebarCollapsedPref;
+    setSidebarPreference({ key: storageKey, collapsed });
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, collapsed ? '1' : '0');
+      } catch {
+        /* Browser storage may be disabled. */
+      }
+    }
+  };
   const [builderLeftExpanded, setBuilderLeftExpanded] = useState(false);
   const [lpPreviewMode, setLpPreviewMode] = useState(false);
   // Pathname is authoritative on first paint (body attribute arrives after useEffect).
   const lpBuilderActive = isLandingPageBuilderPath(pathname);
   const lockViewport = lpBuilderActive || lpPreviewMode;
-  // Overview / Trang của tôi / every other tab: left nav stays expanded.
-  // Only the landing-page design canvas (`/landing-pages/builder/…`) starts collapsed.
   const mainSidebarCollapsed = lpBuilderActive ? !builderLeftExpanded : mainSidebarCollapsedPref;
 
   useLayoutEffect(() => {
-    if (lpBuilderActive) {
-      setBuilderLeftExpanded(false);
-      return;
-    }
-    setMainSidebarCollapsed(false);
+    if (lpBuilderActive) setBuilderLeftExpanded(false);
   }, [pathname, lpBuilderActive]);
 
   useEffect(() => {
-    const sync = () =>
-      setLpPreviewMode(document.body.getAttribute('data-lp-preview-mode') === '1');
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const closeDrawer = () => {
+      if (desktop.matches) setOpen(false);
+    };
+    desktop.addEventListener('change', closeDrawer);
+    return () => desktop.removeEventListener('change', closeDrawer);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setLpPreviewMode(document.body.getAttribute('data-lp-preview-mode') === '1');
     sync();
     const mo = new MutationObserver(sync);
     mo.observe(document.body, {
@@ -105,13 +149,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         'flex',
-        lockViewport
-          ? 'h-[100dvh] max-h-[100dvh] overflow-hidden'
-          : 'min-h-screen',
+        lockViewport ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen',
       )}
       style={{ ['--app-sidebar-width' as string]: sidebarWidth }}
       data-main-sidebar-collapsed={mainSidebarCollapsed ? '1' : '0'}
-      data-lp-builder-sidebar-policy="collapse-on-builder-only"
+      data-lp-builder-sidebar-policy="builder-default-with-user-preference"
       data-lp-app-preview={lpPreviewMode ? '1' : undefined}
       data-lp-viewport-locked={lockViewport ? '1' : undefined}
     >
@@ -131,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           collapsed={mainSidebarCollapsed}
           onToggleCollapsed={() => {
             if (lpBuilderActive) setBuilderLeftExpanded((v) => !v);
-            else setMainSidebarCollapsed((v) => !v);
+            else toggleSidebarPreference();
           }}
         />
       </aside>
@@ -146,24 +188,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         data-app-shell-main-col="1"
       >
         <div
-          className={cn(
-            'sticky top-0 z-30 flex h-16 shrink-0 items-center gap-4 border-b bg-background px-4 lg:px-6',
-            lpPreviewMode && 'hidden',
-          )}
+          className={cn('sticky top-0 z-30 shrink-0', lpPreviewMode && 'hidden')}
           data-app-shell-header="1"
           aria-hidden={lpPreviewMode || undefined}
         >
           <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 border-[#0A3D30]/20 bg-[#0A3D30] p-0 text-white">
-              <Sidebar onNavigate={() => setOpen(false)} />
+            <SheetContent
+              side="left"
+              aria-describedby={undefined}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                menuButtonRef.current?.focus();
+              }}
+              className="w-[min(18rem,85vw)] overflow-hidden border-[#0A3D30]/20 bg-[#0A3D30] p-0 text-white"
+            >
+              <SheetTitle className="sr-only">Ai Bee Go — Menu chính</SheetTitle>
+              <Sidebar mobile onNavigate={() => setOpen(false)} />
             </SheetContent>
           </Sheet>
-          <Topbar />
+          <Topbar onMenuClick={() => setOpen(true)} menuOpen={open} menuButtonRef={menuButtonRef} />
         </div>
         <main
           className={cn(

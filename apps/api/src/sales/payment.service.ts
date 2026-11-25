@@ -10,6 +10,12 @@ import {
 } from '@marketingspa/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  loadSalesIdempotentResult,
+  requireIdempotencyKey,
+  saveSalesIdempotentResult,
+  stablePayloadHash,
+} from './sales-idempotency.util';
 
 @Injectable()
 export class SalesPaymentService {
@@ -70,12 +76,20 @@ export class SalesPaymentService {
       transactionRef?: string;
       paidAt?: string;
       note?: string;
-      idempotencyKey?: string;
+      idempotencyKey: string;
     },
     userId?: string,
   ) {
     const amount = Math.round((Number(dto.amount) || 0) * 100) / 100;
     if (amount <= 0) throw new BadRequestException('Số tiền thu phải > 0');
+    const key = requireIdempotencyKey(dto.idempotencyKey);
+    const paymentPayloadHash = stablePayloadHash({
+      orderId,
+      amount,
+      method: dto.method?.trim() || null,
+      paidAt: dto.paidAt ?? null,
+      note: dto.note?.trim() || null,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
@@ -94,22 +108,18 @@ export class SalesPaymentService {
       if (!locked.length) throw new NotFoundException('Không tìm thấy đơn hàng');
       const row = locked[0]!;
 
-      if (dto.idempotencyKey) {
-        const existing = await tx.salesPayment.findFirst({
-          where: {
-            organizationId,
-            orderId,
-            kind: SalesPaymentKind.PAYMENT,
-            transactionRef: dto.idempotencyKey,
-          },
+      const cached = await loadSalesIdempotentResult<{ orderId: string }>(tx, {
+        organizationId,
+        operation: 'PAYMENT',
+        idempotencyKey: key,
+        payloadHash: paymentPayloadHash,
+      });
+      if (cached) {
+        const order = await tx.salesOrder.findFirstOrThrow({
+          where: { id: orderId, organizationId },
+          include: { payments: true, items: true, customer: { select: { id: true, name: true, phone: true } } },
         });
-        if (existing) {
-          const order = await tx.salesOrder.findFirstOrThrow({
-            where: { id: orderId, organizationId },
-            include: { payments: true, items: true },
-          });
-          return this.serializeOrderMoney(order);
-        }
+        return this.serializeOrderMoney(order);
       }
 
       const total = Number(row.total);
@@ -123,7 +133,7 @@ export class SalesPaymentService {
 
       const method = dto.method?.trim() || null;
       const paidAt = dto.paidAt ? new Date(dto.paidAt) : new Date();
-      const txRef = dto.idempotencyKey?.trim() || dto.transactionRef?.trim() || null;
+      const txRef = key || dto.transactionRef?.trim() || null;
 
       await tx.salesPayment.create({
         data: {
@@ -168,7 +178,16 @@ export class SalesPaymentService {
         tx,
       );
 
-      return this.serializeOrderMoney(updated);
+      const serialized = this.serializeOrderMoney(updated);
+      await saveSalesIdempotentResult(tx, {
+        organizationId,
+        operation: 'PAYMENT',
+        idempotencyKey: key,
+        payloadHash: paymentPayloadHash,
+        resourceId: orderId,
+        resultJson: { orderId },
+      });
+      return serialized;
     });
   }
 
@@ -181,12 +200,20 @@ export class SalesPaymentService {
       transactionRef?: string;
       paidAt?: string;
       note?: string;
-      idempotencyKey?: string;
+      idempotencyKey: string;
     },
     userId?: string,
   ) {
     const amount = Math.round((Number(dto.amount) || 0) * 100) / 100;
     if (amount <= 0) throw new BadRequestException('Số tiền hoàn phải > 0');
+    const key = requireIdempotencyKey(dto.idempotencyKey);
+    const refundPayloadHash = stablePayloadHash({
+      orderId,
+      amount,
+      method: dto.method?.trim() || null,
+      paidAt: dto.paidAt ?? null,
+      note: dto.note?.trim() || null,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
@@ -205,31 +232,28 @@ export class SalesPaymentService {
       const row = locked[0]!;
       const total = Number(row.total);
       const prevPaid = Number(row.amount_paid);
+
+      const cached = await loadSalesIdempotentResult<{ orderId: string }>(tx, {
+        organizationId,
+        operation: 'REFUND',
+        idempotencyKey: key,
+        payloadHash: refundPayloadHash,
+      });
+      if (cached) {
+        const order = await tx.salesOrder.findFirstOrThrow({
+          where: { id: orderId, organizationId },
+          include: { payments: true, items: true, customer: { select: { id: true, name: true, phone: true } } },
+        });
+        return this.serializeOrderMoney(order);
+      }
+
       if (amount > prevPaid + 0.009) {
         throw new BadRequestException(`Hoàn vượt số đã thu (${prevPaid})`);
       }
 
-      if (dto.idempotencyKey) {
-        const existing = await tx.salesPayment.findFirst({
-          where: {
-            organizationId,
-            orderId,
-            kind: SalesPaymentKind.REFUND,
-            transactionRef: dto.idempotencyKey,
-          },
-        });
-        if (existing) {
-          const order = await tx.salesOrder.findFirstOrThrow({
-            where: { id: orderId, organizationId },
-            include: { payments: true, items: true },
-          });
-          return this.serializeOrderMoney(order);
-        }
-      }
-
       const nextPaid = Math.round((prevPaid - amount) * 100) / 100;
       const paidAt = dto.paidAt ? new Date(dto.paidAt) : new Date();
-      const txRef = dto.idempotencyKey?.trim() || dto.transactionRef?.trim() || null;
+      const txRef = key || dto.transactionRef?.trim() || null;
 
       await tx.salesPayment.create({
         data: {
@@ -274,7 +298,16 @@ export class SalesPaymentService {
         tx,
       );
 
-      return this.serializeOrderMoney(updated);
+      const serialized = this.serializeOrderMoney(updated);
+      await saveSalesIdempotentResult(tx, {
+        organizationId,
+        operation: 'REFUND',
+        idempotencyKey: key,
+        payloadHash: refundPayloadHash,
+        resourceId: orderId,
+        resultJson: { orderId },
+      });
+      return serialized;
     });
   }
 

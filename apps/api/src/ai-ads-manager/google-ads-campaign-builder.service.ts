@@ -470,7 +470,6 @@ export class GoogleAdsCampaignBuilderService {
           referenceId: `ads.campaign-draft:${user.organizationId}:${randomUUID()}`,
           reason: 'Google Ads AI campaign draft',
           fn: async (ctx) => {
-            ctx.markProviderStarted();
             const raw = await this.openAi.chatCompletion({
               messages: [
                 {

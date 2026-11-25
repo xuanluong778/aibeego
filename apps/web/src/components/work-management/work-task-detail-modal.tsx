@@ -27,7 +27,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WorkTaskCustomFields } from './work-task-custom-fields';
-import { WorkTaskTimePanel } from './work-task-time-panel';
 import { useCurrentUser } from '@/hooks/use-auth';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -269,7 +268,7 @@ export function WorkTaskDetailDialog({
     setLabels([...(t.labels ?? [])]);
     setStartDate(t.startDate || '');
     setDeadline(t.deadline || '');
-    setAssigneeIds(t.assignees?.map((a) => a.id) ?? []);
+    setAssigneeIds((t.assignees ?? []).filter((a) => a?.id).map((a) => a.id));
     setChecklist(toChecklistDraft(t.checklist));
     setShowChecklist((t.checklist?.length ?? 0) > 0);
     setHideCompletedChecklist(false);
@@ -828,10 +827,6 @@ export function WorkTaskDetailDialog({
               />
 
               <SelectedLabelChips labels={labels} />
-              <details className="rounded-xl border p-3 sm:ml-9">
-                <summary className="min-h-[44px] cursor-pointer text-sm font-medium">Theo dõi thời gian làm việc</summary>
-                <WorkTaskTimePanel key={task.id} taskId={task.id} open={open} />
-              </details>
 
               {customFieldsMsg && (
                 <div className="space-y-2 sm:ml-9">

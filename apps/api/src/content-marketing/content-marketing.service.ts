@@ -90,22 +90,15 @@ export class ContentMarketingService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Hook trừ credit content — chưa bật billing content */
-  private async tryDebitContentCredit(_organizationId?: string): Promise<void> {
-    // Placeholder: tích hợp CreditWallet khi billing content được bật
-  }
-
   industrySuggestions(dto: IndustrySuggestionsDto) {
     return buildIndustrySuggestions(dto, this.openai);
   }
 
   async generateAdvanced(dto: GenerateAdvancedArticleDto, organizationId?: string) {
-    await this.tryDebitContentCredit(organizationId);
     return generateAdvancedArticle(dto, this.openai);
   }
 
   async rewriteAdvanced(dto: RewriteAdvancedArticleDto, organizationId?: string) {
-    await this.tryDebitContentCredit(organizationId);
     return rewriteAdvancedArticle(dto, this.openai);
   }
 

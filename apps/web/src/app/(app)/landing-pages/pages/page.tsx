@@ -19,7 +19,10 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { apiClient } from '@/lib/api-client';
-import { revalidatePublicLandingPage } from '@/components/landing-pages/revalidate-public-landing-page';
+import {
+  revalidatePublicLandingPage,
+  retryPublicLandingPageCache,
+} from '@/components/landing-pages/revalidate-public-landing-page';
 import { formatLandingPageDisplayName } from '@/components/landing-pages/landing-page-name-translator';
 import { useT } from '@/i18n/i18n-provider';
 import { Button } from '@/components/ui/button';
@@ -171,17 +174,36 @@ function LandingPagesListInner() {
     setBusyActionId(id);
     try {
       if (action === 'delete') {
-        await apiClient(`/landing-pages/${id}`, { method: 'DELETE' });
+        const del = await apiClient<{
+          publicCacheRefresh?: { ok?: boolean };
+          cacheRetryToken?: string | null;
+        }>(`/landing-pages/${id}`, { method: 'DELETE' });
         setSelectedIds((prev) => prev.filter((item) => item !== id));
-      } else {
-        await apiClient(`/landing-pages/${id}/${action}`, { method: 'POST', body: '{}' });
-      }
-      await reload();
-      if ((action === 'unpublish' || action === 'delete') && row?.slug) {
-        const fresh = await revalidatePublicLandingPage(row.slug);
-        if (!fresh && action === 'unpublish') {
-          setError('Đã gỡ publish. Cache trang công khai chưa làm mới — tải lại sau ít phút');
+        await reload();
+        if (!del.publicCacheRefresh?.ok && del.cacheRetryToken) {
+          const retried = await retryPublicLandingPageCache(del.cacheRetryToken);
+          if (!retried) {
+            setError(
+              'Đã xóa. Cache chưa làm mới — dùng token retry từ phản hồi xóa (hoặc đợi tối đa ~60s).',
+            );
+          }
         }
+        return;
+      }
+      const updated = await apiClient<{ publicCacheRefresh?: { ok?: boolean } }>(
+        `/landing-pages/${id}/${action}`,
+        { method: 'POST', body: '{}' },
+      );
+      await reload();
+      if (action === 'unpublish' && row?.slug) {
+        const fresh =
+          updated.publicCacheRefresh?.ok === true || (await revalidatePublicLandingPage(id));
+        if (!fresh) {
+          setError('Đã gỡ publish. Cache trang công khai chưa làm mới — thử lại hoặc đợi ~60s.');
+        }
+      }
+      if (action === 'archive' && !updated.publicCacheRefresh?.ok && row?.status === 'PUBLISHED') {
+        setError('Đã lưu trữ. Cache có thể chưa làm mới ngay.');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Thao tác không thành công');

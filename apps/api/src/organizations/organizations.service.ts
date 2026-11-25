@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
@@ -40,13 +41,16 @@ export class OrganizationsService {
   }
 
   async createBranch(organizationId: string, dto: CreateBranchDto) {
-    return this.prisma.branch.create({
+    return new PlanPolicy(this.prisma).resource(organizationId, 'branches', (tx) => tx.branch.count({ where: { organizationId, isActive: true } }), (tx) => tx.branch.create({
       data: { ...dto, organizationId },
-    });
+    }));
   }
 
   async updateBranch(organizationId: string, branchId: string, dto: UpdateBranchDto) {
-    await this.ensureBranch(organizationId, branchId);
+    const before = await this.ensureBranch(organizationId, branchId);
+    if (dto.isActive && !before.isActive) return new PlanPolicy(this.prisma).resource(organizationId, 'branches',
+      (tx) => tx.branch.count({ where: { organizationId, isActive: true } }),
+      (tx) => tx.branch.update({ where: { id: branchId }, data: dto }));
     return this.prisma.branch.update({ where: { id: branchId }, data: dto });
   }
 

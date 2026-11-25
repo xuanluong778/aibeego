@@ -809,6 +809,7 @@ export class AutoPostService {
     userId: string,
     organizationId: string,
     post: {
+      id: string;
       fanpageId: string | null;
       caption: string;
       linkUrl: string | null;
@@ -824,6 +825,7 @@ export class AutoPostService {
       post.fanpageId,
     );
 
+    await new PlanPolicy(this.prisma).consume(organizationId, 'posts', `post:${post.id}`);
     const result = await this.meta.publishPagePost(pageId, accessToken, {
       message: post.caption.trim(),
       link: post.linkUrl ?? undefined,
@@ -974,3 +976,4 @@ export class AutoPostService {
     };
   }
 }
+import { PlanPolicy } from '@marketingspa/database';

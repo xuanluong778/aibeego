@@ -1,3 +1,4 @@
+import { writePlanFile } from '../common/uploads/plan-storage';
 import {
   BadRequestException,
   ForbiddenException,
@@ -354,7 +355,7 @@ export class WorkCollabService {
     if (existsSync(absPath)) {
       throw new BadRequestException('Xung đột tên file lưu trữ, thử lại');
     }
-    writeFileSync(absPath, file.buffer);
+    await writePlanFile(this.prisma, organizationId, absPath, file.buffer.length, async () => writeFileSync(absPath, file.buffer!));
 
     const fileKey = `work/${organizationId}/${storedName}`;
     const row = await this.prisma.workAttachment.create({

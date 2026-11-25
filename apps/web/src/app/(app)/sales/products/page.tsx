@@ -60,7 +60,8 @@ const numericPattern = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 export default function SalesProductsPage() {
   const t = useT();
   const { data: user } = useCurrentUser();
-  const canWrite = hasPermission(user, 'order.write');
+  const canWrite = hasPermission(user, 'sales.inventory.write');
+  const canSeeCost = hasPermission(user, 'sales.cost.view');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -428,7 +429,7 @@ export default function SalesProductsPage() {
                 ) : null}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {input('costPrice', t('sales.costPrice'), true)}
+                {canSeeCost ? input('costPrice', t('sales.costPrice'), true) : null}
                 {input('price', t('sales.price'), true)}
                 {!editing ? (
                   input('stockQty', t('sales.openingStock'), true)

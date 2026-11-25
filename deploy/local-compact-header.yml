@@ -1,0 +1,3 @@
+services:
+  web:
+    image: aibeego-web:compact-header-20261122

@@ -1,0 +1,22 @@
+const req=require('node:module').createRequire('/app/package.json'),assert=require('node:assert/strict');
+process.env.DATABASE_URL='postgresql://planqa:planqa-local-only@subscription-postgres:5432/plan_tiers_qa_v2?schema=public';
+process.env.OPENAI_API_KEY='fixture';process.env.OPENAI_MODEL='gpt-4o-mini';
+const {prisma:db,CreditLedger}=req('@marketingspa/database');
+const {billingAnniversary,transcriptionCreditAmount}=req('@marketingspa/shared');
+const {analyzeAdUrlContent}=req('/app/dist/lib/ad-url-analyze-ai');
+const input=require('/fixtures/current.json'),realFetch=global.fetch;let calls=0;
+global.fetch=async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{content:'{"productName":"Fixture"}'}}]}));};
+(async()=>{
+  const ledger=new CreditLedger(db);
+  for(const row of input.pricing)assert.equal(await ledger.getFeatureCost(row.featureCode),Number(row.creditCost),row.featureCode);
+  const org=await db.organization.create({data:{name:'Configured worker QA',slug:`configured-worker-${Date.now()}`}}),start=new Date();
+  const plan=await db.subscriptionPlan.findUniqueOrThrow({where:{code:'abg-pro-1m'}});
+  await db.subscription.create({data:{organizationId:org.id,planId:plan.id,status:'ACTIVE',currentPeriodStart:start,currentPeriodEnd:billingAnniversary(start,1)}});
+  const before=await ledger.getBalance(org.id);
+  await analyzeAdUrlContent({organizationId:org.id,billingReference:`configured-ad:${Date.now()}`,adPostKind:'product',title:'Fixture',text:'Fixture product details',finalUrl:'https://example.invalid/'});
+  const after=await ledger.getBalance(org.id);assert.equal(before.balance-after.balance,30);assert.equal(calls,1);
+  const amount=transcriptionCreditAmount(await ledger.getFeatureCost('video.transcribe'),30);assert.equal(amount,25);
+  await ledger.runPaidFeature({organizationId:org.id,featureCode:'video.transcribe',amount,referenceId:`configured-stt:${Date.now()}`,fn:async c=>{c.markProviderStarted();return '30 seconds fixture';}});
+  assert.equal(after.balance-(await ledger.getBalance(org.id)).balance,25);
+  console.log('PASS: running worker billing code reads every configured rate; real URL analyzer debits 30 and 30-second transcription debit is 25 at 50/minute. No paid provider calls.');
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{global.fetch=realFetch;await db.$disconnect();});

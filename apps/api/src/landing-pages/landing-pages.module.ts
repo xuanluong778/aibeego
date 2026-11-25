@@ -11,6 +11,7 @@ import { ChatbotCskhModule } from '../chatbot-cskh/chatbot-cskh.module';
 import { OpenAiModule } from '../openai/openai.module';
 import { EventsModule } from '../events/events.module';
 import { LandingPageChatbotService } from './landing-page-chatbot.service';
+import { LandingPagePublicCacheService } from './landing-page-public-cache.service';
 
 @Module({
   imports: [LeadsModule, CrmModule, ChatbotCskhModule, OpenAiModule, EventsModule],
@@ -21,6 +22,7 @@ import { LandingPageChatbotService } from './landing-page-chatbot.service';
     LandingPageTemplatePackService,
     LandingPageChatbotService,
     LandingPageChatbotNotificationService,
+    LandingPagePublicCacheService,
   ],
   exports: [LandingPagesService, LandingPageAiService],
 })

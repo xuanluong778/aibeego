@@ -23,6 +23,11 @@ export class CreditController {
     return this.credit.listPackages();
   }
 
+  @Get('pricing')
+  pricing() {
+    return this.credit.listPricing();
+  }
+
   @Get('history')
   history(@CurrentUser() user: AuthUser, @Query() query: CreditHistoryQueryDto) {
     return this.credit.listHistory(user.organizationId, {

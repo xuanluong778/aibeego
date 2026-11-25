@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { CUSTOMER_360_TEST_TAG, type Customer, type Prisma } from '@marketingspa/database';
 import { listCustomerSources, normalizeCustomerSource } from '@marketingspa/shared';
@@ -195,7 +196,7 @@ export class CustomersService {
       if (dup) return dup;
     }
 
-    const row = await this.prisma.customer.create({
+    const row = await new PlanPolicy(this.prisma).resource(organizationId, 'customers', (tx) => tx.customer.count({ where: { organizationId, isActive: true } }), (tx) => tx.customer.create({
       data: {
         organizationId,
         name: dto.name,
@@ -210,7 +211,7 @@ export class CustomersService {
         branchId: dto.branchId,
       },
       include: { leadSource: true, branch: true },
-    });
+    }));
     await this.kpiCache?.bump(organizationId);
     return row;
   }

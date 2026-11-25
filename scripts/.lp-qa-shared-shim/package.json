@@ -1,0 +1,4 @@
+{
+  "name": "@marketingspa/shared",
+  "main": "./dist/index.js"
+}

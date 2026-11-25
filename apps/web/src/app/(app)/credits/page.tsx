@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { PageHeader } from '@/components/shared/page-header';
 import { ErrorState, LoadingState } from '@/components/shared/page-state';
-import { useCreditBalance, useCreditHistory, useCreditPackages } from '@/hooks/use-credit';
+import { useCreditBalance, useCreditHistory, useCreditPackages, useCreditPricing } from '@/hooks/use-credit';
 import {
   useCancelPaymentOrder,
   useCreateCreditOrder,
@@ -47,6 +47,7 @@ export default function CreditsPage() {
   const balance = useCreditBalance();
   const history = useCreditHistory({ page, pageSize: 20 });
   const packages = useCreditPackages();
+  const pricing = useCreditPricing();
   const createOrder = useCreateCreditOrder();
 
   if (balance.isLoading) return <LoadingState />;
@@ -113,6 +114,26 @@ export default function CreditsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Mức sử dụng AI credit</CardTitle></CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Chỉ trừ credit khi tạo Content AI thành công. Gợi ý và các thao tác khác trong phần Content miễn phí.
+            Các tác vụ khác có thể dùng nhiều credit hơn theo độ dài, mô hình hoặc số lần gọi AI.
+            Phiên âm tính theo phút; email Marketing tính theo người nhận. Xem, sửa dữ liệu và phản hồi theo luật không dùng AI credit.
+          </p>
+          {pricing.isError ? <p className="text-sm text-muted-foreground">Chưa tải được mức sử dụng credit.</p> : (
+            <div className="overflow-x-auto"><table className="w-full text-left text-sm">
+              <thead><tr className="border-b"><th className="py-2">Tác vụ</th><th className="py-2 text-right">Credit cơ bản</th></tr></thead>
+              <tbody>{pricing.data?.map(row => <tr key={row.featureCode} className="border-b last:border-0">
+                <td className="py-2 pr-3"><p>{row.name}</p><p className="text-xs text-muted-foreground">{row.description}</p></td>
+                <td className="py-2 text-right font-semibold">{formatCredit(row.creditCost)}</td>
+              </tr>)}</tbody>
+            </table></div>
+          )}
+        </CardContent>
+      </Card>
 
       <div>
         <h2 className="mb-3 text-base font-semibold">{t('creditsPage.buyMore')}</h2>

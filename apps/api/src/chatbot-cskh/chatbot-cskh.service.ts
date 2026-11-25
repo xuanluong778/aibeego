@@ -1,3 +1,5 @@
+import { planFanpageIds } from '@marketingspa/database';
+import { PlanPolicy } from '@marketingspa/database';
 import {
   BadRequestException,
   Inject,
@@ -145,7 +147,7 @@ export class ChatbotCskhService {
       throw new BadRequestException(`Tối đa ${MAX_BOTS} chatbot.`);
     }
 
-    const bot = await this.prisma.chatbotBot.create({
+    const bot = await new PlanPolicy(this.prisma).resource(organizationId, 'bots', (tx) => tx.chatbotBot.count({ where: { organizationId } }), (tx) => tx.chatbotBot.create({
       data: {
         organizationId,
         botName: dto.botName,
@@ -159,7 +161,7 @@ export class ChatbotCskhService {
         allowedDomains: dto.allowedDomains,
         status: dto.status ?? ChatbotBotStatus.DRAFT,
       },
-    });
+    }));
 
     await this.prisma.chatbotChannel.create({
       data: {
@@ -1806,7 +1808,9 @@ export class ChatbotCskhService {
       throw new NotFoundException('Không tìm thấy Fanpage');
     }
 
-    const page = await this.prisma.chatbotFacebookPage.upsert({
+    const page = await new PlanPolicy(this.prisma).resource(organizationId, 'fanpages', async (tx) => {
+          const ids = await planFanpageIds(tx, organizationId); return ids.size - (ids.has(pageId) ? 1 : 0);
+        }, (tx) => tx.chatbotFacebookPage.upsert({
       where: { pageId },
       create: {
         organizationId,
@@ -1828,7 +1832,7 @@ export class ChatbotCskhService {
         webhookSubscribed: subscribed,
       },
       include: { bot: { select: { id: true, botName: true } } },
-    });
+    }));
 
     // Chuẩn hóa channelRef cũ (từng lưu nhầm pageName) → pageId
     await this.prisma.chatbotConversation.updateMany({
@@ -2011,7 +2015,9 @@ export class ChatbotCskhService {
           continue;
         }
 
-        await this.prisma.chatbotFacebookPage.upsert({
+        await new PlanPolicy(this.prisma).resource(organizationId, 'fanpages', async (tx) => {
+          const ids = await planFanpageIds(tx, organizationId); return ids.size - (ids.has(page.pageId) ? 1 : 0);
+        }, (tx) => tx.chatbotFacebookPage.upsert({
           where: { pageId: page.pageId },
           create: {
             organizationId,
@@ -2031,7 +2037,7 @@ export class ChatbotCskhService {
             status: 'connected',
             webhookSubscribed: subscribed,
           },
-        });
+        }));
 
         try {
           await this.channelConnections.upsertMessengerFromChatbot(
@@ -2105,6 +2111,8 @@ export class ChatbotCskhService {
   }
 
   async getUsageSnapshot(organizationId: string) {
+    const planUsage = await new PlanPolicy(this.prisma).usage(organizationId, 'chatbotReplies');
+    if (planUsage) return planUsage;
     const settings = await this.ensureSettings(organizationId);
     const month = new Date().toISOString().slice(0, 7);
     const rows = await this.prisma.chatbotUsage.findMany({

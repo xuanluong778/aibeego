@@ -1,3 +1,5 @@
+import { planFanpageIds } from '@marketingspa/database';
+import { assertPlanResource } from '@marketingspa/database';
 import {
   BadRequestException,
   Inject,
@@ -1012,6 +1014,10 @@ export class AutoPostFacebookService {
       });
 
       for (const item of accepted) {
+        await assertPlanResource(tx, organizationId, 'fanpages', async () => {
+          const ids = await planFanpageIds(tx, organizationId);
+          return ids.size - (ids.has(item.page.id) ? 1 : 0);
+        });
         await tx.autoPostFacebookPage.upsert({
           where: {
             connectionId_pageId: { connectionId: newConn.id, pageId: item.page.id },

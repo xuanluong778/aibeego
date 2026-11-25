@@ -1621,6 +1621,7 @@ export function AdStudioTabPanel({
 }
 
 export function ContentMarketingStudio() {
+  const t = useT();
   const { data: user } = useCurrentUser();
   const [activeTab, setActiveTab] = useState<'ad' | 'personal' | 'advanced'>('ad');
   const [historyVersion, setHistoryVersion] = useState(0);

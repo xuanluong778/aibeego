@@ -4,21 +4,30 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SalesStockMovementType } from '@marketingspa/database';
+import { Prisma, SalesCostBasis, SalesStockMovementType } from '@marketingspa/database';
+import { resolveInboundUnitCost, snapshotFromBatchUnitCost } from './sales-cost-basis.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { buildPaginatedResult, getPaginationParams } from '../common/utils/pagination.util';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { SalesDocumentCodeService, SALES_DOC_TYPES } from './sales-document-code.service';
 
 export type StockTx = Prisma.TransactionClient;
 
-type AllocateResult = { batchId: string; batchCode: string; quantity: number };
+type AllocateResult = {
+  batchId: string;
+  batchCode: string;
+  quantity: number;
+  unitCost: number;
+  costBasis: SalesCostBasis;
+};
 
 @Injectable()
 export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly docCodes: SalesDocumentCodeService,
   ) {}
 
   private decimal(n: number) {
@@ -189,7 +198,17 @@ export class InventoryService {
         where: { id: batch.id },
         data: { remainingQuantity: nextRemaining },
       });
-      alloc.push({ batchId: batch.id, batchCode: batch.batchCode, quantity: take });
+      const snap = snapshotFromBatchUnitCost(Number(batch.unitCost));
+      const costBasis =
+        batch.costBasis ??
+        (snap.unitCost > 0 ? SalesCostBasis.CONFIRMED : snap.costBasis);
+      alloc.push({
+        batchId: batch.id,
+        batchCode: batch.batchCode,
+        quantity: take,
+        unitCost: snap.unitCost,
+        costBasis,
+      });
       left -= take;
     }
 
@@ -236,6 +255,10 @@ export class InventoryService {
           create: opts.allocations.map((a) => ({
             batchId: a.batchId,
             quantity: a.quantity,
+            unitCost: a.unitCost > 0 ? this.decimal(a.unitCost) : null,
+            costAmount:
+              a.unitCost > 0 ? this.decimal(a.unitCost * a.quantity) : null,
+            costBasis: a.costBasis,
           })),
         },
       },
@@ -329,6 +352,10 @@ export class InventoryService {
       });
       batchId = locked.id;
     } else {
+      const inboundCost = resolveInboundUnitCost({
+        dtoUnitCost: dto.unitCost,
+        productCostPrice: Number(product.costPrice),
+      });
       const created = await tx.salesStockBatch.create({
         data: {
           organizationId,
@@ -338,7 +365,8 @@ export class InventoryService {
           remainingQuantity: qty,
           importedAt: dto.importedAt ? new Date(dto.importedAt) : new Date(),
           expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
-          unitCost: this.decimal(dto.unitCost ?? Number(product.costPrice)),
+          unitCost: this.decimal(inboundCost.unitCost),
+          costBasis: inboundCost.costBasis,
         },
       });
       batchId = created.id;
@@ -357,7 +385,29 @@ export class InventoryService {
         performedById: userId ?? null,
         referenceType: dto.referenceType ?? 'MANUAL',
         referenceId: dto.referenceId ?? null,
-        lines: { create: [{ batchId, quantity: qty }] },
+        lines: {
+          create: [
+            (() => {
+              const inboundCost = resolveInboundUnitCost({
+                dtoUnitCost: dto.unitCost,
+                productCostPrice: Number(product.costPrice),
+              });
+              return {
+                batchId,
+                quantity: qty,
+                unitCost:
+                  inboundCost.unitCost > 0 ? this.decimal(inboundCost.unitCost) : inboundCost.unitCost === 0 && inboundCost.costBasis === SalesCostBasis.CONFIRMED ? this.decimal(0) : null,
+                costAmount:
+                  inboundCost.unitCost > 0
+                    ? this.decimal(inboundCost.unitCost * qty)
+                    : inboundCost.costBasis === SalesCostBasis.CONFIRMED
+                      ? this.decimal(0)
+                      : null,
+                costBasis: inboundCost.costBasis,
+              };
+            })(),
+          ],
+        },
       },
       include: {
         lines: { include: { batch: true } },
@@ -623,7 +673,12 @@ export class InventoryService {
     // Allocate restore qty across outbound lines after skipping `already`
     let skip = already;
     let need = want;
-    const alloc: Array<{ batchId: string; quantity: number }> = [];
+    const alloc: Array<{
+      batchId: string;
+      quantity: number;
+      unitCost: number;
+      costBasis: SalesCostBasis;
+    }> = [];
     for (const line of outbound.lines) {
       if (need <= 0) break;
       let available = line.quantity;
@@ -634,7 +689,16 @@ export class InventoryService {
       }
       if (available <= 0) continue;
       const take = Math.min(available, need);
-      alloc.push({ batchId: line.batchId, quantity: take });
+      const lineUnit =
+        line.unitCost != null ? Number(line.unitCost) : 0;
+      alloc.push({
+        batchId: line.batchId,
+        quantity: take,
+        unitCost: lineUnit,
+        costBasis:
+          line.costBasis ??
+          (lineUnit > 0 ? SalesCostBasis.CONFIRMED : SalesCostBasis.UNKNOWN),
+      });
       need -= take;
     }
     if (need > 0) {
@@ -684,6 +748,10 @@ export class InventoryService {
           create: alloc.map((l) => ({
             batchId: l.batchId,
             quantity: l.quantity,
+            unitCost: l.unitCost > 0 ? this.decimal(l.unitCost) : null,
+            costAmount:
+              l.unitCost > 0 ? this.decimal(l.unitCost * l.quantity) : null,
+            costBasis: l.costBasis,
           })),
         },
       },
@@ -747,34 +815,33 @@ export class InventoryService {
       organizationId: string;
       orderId: string;
       orderCode: string;
-      items: Array<{ productId: string | null; productName: string; quantity: number }>;
+      items: Array<{
+        orderItemId: string;
+        productId: string | null;
+        productName: string;
+        quantity: number;
+      }>;
       performedById?: string;
     },
   ) {
-    // Idempotent: đã có OUTBOUND gắn đơn → không trừ lại
-    const existingOut = await tx.salesStockMovement.findFirst({
-      where: {
-        organizationId: opts.organizationId,
-        type: SalesStockMovementType.OUTBOUND,
-        referenceType: 'SALES_ORDER',
-        referenceId: opts.orderId,
-      },
-    });
-    if (existingOut) {
-      return tx.salesStockMovement.findMany({
+    const movements = [];
+    for (const item of opts.items) {
+      if (!item.productId) continue;
+      const lineRef = `${opts.orderId}::${item.orderItemId}`;
+      const existingLine = await tx.salesStockMovement.findFirst({
         where: {
           organizationId: opts.organizationId,
           type: SalesStockMovementType.OUTBOUND,
           referenceType: 'SALES_ORDER',
-          referenceId: opts.orderId,
+          referenceId: lineRef,
         },
         include: { lines: true },
       });
-    }
+      if (existingLine) {
+        movements.push(existingLine);
+        continue;
+      }
 
-    const movements = [];
-    for (const item of opts.items) {
-      if (!item.productId) continue;
       const allocations = await this.allocateFefo(
         tx,
         opts.organizationId,
@@ -788,7 +855,7 @@ export class InventoryService {
         reason: `Xuất hàng đơn ${opts.orderCode}`,
         performedById: opts.performedById,
         referenceType: 'SALES_ORDER',
-        referenceId: opts.orderId,
+        referenceId: lineRef,
       });
       await this.audit.log(
         {
@@ -860,6 +927,7 @@ export class InventoryService {
     opts: {
       organizationId: string;
       orderId: string;
+      orderItemId: string;
       productId: string;
       quantity: number;
       performedById?: string;
@@ -868,17 +936,36 @@ export class InventoryService {
       referenceId: string;
     },
   ) {
-    const outbound = await tx.salesStockMovement.findFirst({
+    let outbound = await tx.salesStockMovement.findFirst({
       where: {
         organizationId: opts.organizationId,
         type: SalesStockMovementType.OUTBOUND,
         referenceType: 'SALES_ORDER',
-        referenceId: opts.orderId,
+        referenceId: `${opts.orderId}::${opts.orderItemId}`,
         productId: opts.productId,
       },
     });
     if (!outbound) {
-      throw new BadRequestException(`Không có phiếu xuất cho sản phẩm ${opts.productId}`);
+      const legacy = await tx.salesStockMovement.findMany({
+        where: {
+          organizationId: opts.organizationId,
+          type: SalesStockMovementType.OUTBOUND,
+          referenceType: 'SALES_ORDER',
+          referenceId: opts.orderId,
+          productId: opts.productId,
+        },
+      });
+      if (legacy.length > 1) {
+        throw new BadRequestException(
+          `Nhiều phiếu xuất legacy cho đơn ${opts.orderId} và SP ${opts.productId} — hoàn theo orderItemId hoặc làm rõ lô xuất`,
+        );
+      }
+      outbound = legacy[0] ?? null;
+    }
+    if (!outbound) {
+      throw new BadRequestException(
+        `Không có phiếu xuất cho dòng đơn ${opts.orderItemId} (SP ${opts.productId})`,
+      );
     }
     return this.returnInboundFromOutbound(tx, {
       organizationId: opts.organizationId,
@@ -1190,17 +1277,12 @@ export class InventoryService {
         };
       }
 
-      const day = new Date();
-      const y = day.getFullYear();
-      const m = String(day.getMonth() + 1).padStart(2, '0');
-      const d = String(day.getDate()).padStart(2, '0');
-      const prefix = `RC-${y}${m}${d}-`;
-      const count = await this.prisma.salesStockReconciliation.count({
-        where: { organizationId, code: { startsWith: prefix } },
-      });
-      const code = `${prefix}${String(count + 1).padStart(4, '0')}`;
-
       await this.prisma.$transaction(async (tx) => {
+        const code = await this.docCodes.nextInTransaction(
+          tx,
+          organizationId,
+          SALES_DOC_TYPES.STOCK_RECONCILE,
+        );
         const rec = await tx.salesStockReconciliation.create({
           data: {
             organizationId,

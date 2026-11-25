@@ -1,3 +1,5 @@
+import { planFanpageIds } from '@marketingspa/database';
+import { assertPlanResource } from '@marketingspa/database';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { encryptSecret, decryptSecret } from '../common/utils/encryption.util';
 import { AutoPostFacebookConnectionStatus } from '@marketingspa/database';
@@ -323,7 +325,11 @@ export async function selectOAuthPages(
 
     // Upsert only selected pages — do NOT delete pages user still keeps / previously connected
     for (const item of accepted) {
-      await tx.autoPostFacebookPage.upsert({
+      await assertPlanResource(tx, params.organizationId, 'fanpages', async () => {
+          const ids = await planFanpageIds(tx, params.organizationId);
+          return ids.size - (ids.has(item.page.id) ? 1 : 0);
+        });
+        await tx.autoPostFacebookPage.upsert({
         where: {
           connectionId_pageId: { connectionId: newConn.id, pageId: item.page.id },
         },

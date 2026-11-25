@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createSalesIdempotencyKey } from '@/lib/sales-idempotency';
 import { Plus } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
@@ -18,19 +19,24 @@ import {
   useCreatePurchaseOrder,
   useCreateSupplier,
   useReceivePurchaseOrder,
-  useSalesProducts,
   useSalesPurchaseOrders,
   useSalesSuppliers,
 } from '@/hooks/use-sales';
 import { formatCurrency } from '@/lib/format';
 import { formatMutationError } from '@/lib/format-mutation-error';
 import { useT } from '@/i18n/i18n-provider';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
+import { SalesProductPicker } from '@/components/sales/product-picker';
+import type { SalesProduct } from '@/types/sales';
 
 export default function SalesPurchasesPage() {
   const t = useT();
+  const { data: user } = useCurrentUser();
+  const canReceive = hasPermission(user, 'sales.receive.write');
+  const canSeeCost = hasPermission(user, 'sales.cost.view');
   const suppliers = useSalesSuppliers();
   const pos = useSalesPurchaseOrders();
-  const products = useSalesProducts({ active: 'true' });
+  const [picked, setPicked] = useState<SalesProduct | null>(null);
   const createSupplier = useCreateSupplier();
   const createPo = useCreatePurchaseOrder();
   const receive = useReceivePurchaseOrder();
@@ -42,13 +48,14 @@ export default function SalesPurchasesPage() {
   const [supplierId, setSupplierId] = useState('');
   const [productId, setProductId] = useState('');
   const [qty, setQty] = useState('10');
+  const [poErrors, setPoErrors] = useState<Record<string, string>>({});
   const [cost, setCost] = useState('0');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const receiveIdemKeys = useRef(new Map<string, string>());
 
   const supplierItems = suppliers.data?.items ?? [];
   const poItems = pos.data?.items ?? [];
-  const productItems = products.data?.items ?? [];
 
   return (
     <div className="space-y-6 pb-8">
@@ -106,7 +113,7 @@ export default function SalesPurchasesPage() {
                   {po.supplier?.name} · {po.status} · {formatCurrency(po.subtotal)}
                 </p>
               </div>
-              {po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? (
+              {canReceive && po.status !== 'RECEIVED' && po.status !== 'CANCELLED' ? (
                 <Button
                   type="button"
                   size="sm"
@@ -114,15 +121,24 @@ export default function SalesPurchasesPage() {
                   onClick={() => {
                     const lines = (po.items ?? [])
                       .map((it) => ({
+                        purchaseOrderItemId: it.id,
                         productId: it.productId,
-                        quantity: Math.max(0, it.quantity - it.receivedQty),
+                        quantity: Math.max(0, it.quantity - (it.receivedQty ?? 0)),
                       }))
                       .filter((it) => it.quantity > 0);
                     if (!lines.length) return;
+                    let idemKey = receiveIdemKeys.current.get(po.id);
+                    if (!idemKey) {
+                      idemKey = createSalesIdempotencyKey('po-receive', po.id);
+                      receiveIdemKeys.current.set(po.id, idemKey);
+                    }
                     receive.mutate(
-                      { id: po.id, items: lines },
+                      { id: po.id, items: lines, idempotencyKey: idemKey },
                       {
-                        onSuccess: () => setMsg(t('sales.poReceived')),
+                        onSuccess: () => {
+                          receiveIdemKeys.current.delete(po.id);
+                          setMsg(t('sales.poReceived'));
+                        },
                         onError: (e) => setErr(formatMutationError(e)),
                       },
                     );
@@ -190,29 +206,37 @@ export default function SalesPurchasesPage() {
                 </option>
               ))}
             </select>
-            <Label>{t('sales.product')}</Label>
-            <select
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-            >
-              <option value="">{t('sales.pickProduct')}</option>
-              {productItems.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            {poErrors.supplier ? <p role="alert" className="text-xs text-destructive">{poErrors.supplier}</p> : null}
+            <SalesProductPicker
+              value={picked}
+              onChange={(p) => {
+                setPicked(p);
+                setProductId(p?.id || '');
+              }}
+            />
+            {poErrors.product ? <p role="alert" className="text-xs text-destructive">{poErrors.product}</p> : null}
             <Label>{t('sales.quantity')}</Label>
             <Input value={qty} onChange={(e) => setQty(e.target.value)} type="number" />
+            {poErrors.qty ? <p role="alert" className="text-xs text-destructive">{poErrors.qty}</p> : null}
+            {canSeeCost ? (
+              <>
             <Label>{t('sales.costPrice')}</Label>
             <Input value={cost} onChange={(e) => setCost(e.target.value)} type="number" />
+              </>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
               type="button"
-              disabled={!supplierId || !productId || createPo.isPending}
+              disabled={createPo.isPending}
               onClick={() => {
+                const next: Record<string, string> = {};
+                if (!supplierId) next.supplier = 'Chọn nhà cung cấp';
+                if (!productId) next.product = 'Chọn sản phẩm';
+                const n = Number(qty);
+                if (!Number.isInteger(n) || n < 1) next.qty = 'Số lượng là số nguyên ≥ 1';
+                setPoErrors(next);
+                if (Object.keys(next).length) return;
                 createPo.mutate(
                   {
                     supplierId,

@@ -1,7 +1,9 @@
+import { writePlanFile } from '../common/uploads/plan-storage';
 import { domainMethods } from './landing-page-domain-manager';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -22,6 +24,7 @@ import {
   LandingPageTheme,
   Prisma,
 } from '@marketingspa/database';
+import { LandingPagePublicCacheService } from './landing-page-public-cache.service';
 import {
   LANDING_PAGE_SYSTEM_TEMPLATES,
   LANDING_PAGE_TEMPLATE_CATALOG_VERSION,
@@ -177,6 +180,7 @@ export class LandingPagesService implements OnModuleInit {
     private readonly ai: LandingPageAiService,
     private readonly credit: CreditService,
     private readonly landingChatbot: LandingPageChatbotService,
+    private readonly publicCache: LandingPagePublicCacheService,
     @Optional() @Inject(REDIS_CLIENT) private readonly redis?: Redis,
   ) {}
 
@@ -1130,6 +1134,8 @@ export class LandingPagesService implements OnModuleInit {
           where: { id: gate.id, organizationId: user.organizationId },
         });
         if (!row) throw new NotFoundException('Landing page not found');
+        if (row.status !== LandingPageStatus.PUBLISHED) await assertPlanResource(tx, user.organizationId, 'landingPages', () =>
+          tx.landingPage.count({ where: { organizationId: user.organizationId, status: LandingPageStatus.PUBLISHED } }));
         this.assertMutable(row.status);
         const storedRevision = readLandingPageRevision(row.draftSpec);
         const allowed = publishRevisionAllowed(storedRevision, expected);
@@ -1204,13 +1210,20 @@ export class LandingPagesService implements OnModuleInit {
         throw error;
       });
 
+    const serialized = this.serializePage(updated.saved);
+    const cache = await this.publicCache.refreshAfterPublication({
+      organizationId: user.organizationId,
+      pageId: updated.saved.id,
+      slug: updated.saved.slug,
+    });
     return {
-      ...this.serializePage(updated.saved),
+      ...serialized,
       publicUrl:
         updated.binding && process.env.LANDING_PAGE_PLATFORM_SUBDOMAINS_ENABLED === 'true'
           ? 'https://' + updated.binding.hostname + '/'
           : null,
       platformSubdomain: updated.binding?.label || null,
+      publicCacheRefresh: cache,
     };
   }
 
@@ -1223,7 +1236,48 @@ export class LandingPagesService implements OnModuleInit {
       where: { id: row.id },
       data: { status: LandingPageStatus.DRAFT },
     });
-    return this.serializePage(updated);
+    const cache = await this.publicCache.refreshAfterPublication({
+      organizationId: user.organizationId,
+      pageId: updated.id,
+      slug: updated.slug,
+    });
+    return { ...this.serializePage(updated), publicCacheRefresh: cache };
+  }
+
+  async refreshPublicCache(user: AuthUser, pageId: string) {
+    const row = await this.assertPage(user.organizationId, pageId);
+    const cache = await this.publicCache.refreshAfterPublication({
+      organizationId: user.organizationId,
+      pageId: row.id,
+      slug: row.slug,
+    });
+    return {
+      pageId: row.id,
+      slug: row.slug,
+      organizationId: user.organizationId,
+      cache,
+    };
+  }
+
+  /** Làm mới cache sau xóa — chỉ token do server ký lúc xóa (không nhận scope từ client). */
+  async retryPublicCacheWithToken(user: AuthUser, cacheRetryToken: string) {
+    const verified = this.publicCache.verifyRetryToken(cacheRetryToken);
+    if (!verified.ok) {
+      throw new BadRequestException(`Token làm mới cache không hợp lệ (${verified.reason})`);
+    }
+    if (verified.scope.organizationId !== user.organizationId) {
+      throw new ForbiddenException('Token không thuộc tổ chức hiện tại');
+    }
+    const cache = await this.publicCache.refreshAfterPublication({
+      organizationId: verified.scope.organizationId,
+      pageId: verified.scope.pageId,
+      slug: verified.scope.slug,
+    });
+    return { ...verified.scope, cache };
+  }
+
+  private wasPublicLandingStatus(status: LandingPageStatus): boolean {
+    return status === LandingPageStatus.PUBLISHED;
   }
 
   async duplicate(user: AuthUser, id: string) {
@@ -1254,6 +1308,7 @@ export class LandingPagesService implements OnModuleInit {
 
   async archive(user: AuthUser, id: string) {
     const row = await this.assertPage(user.organizationId, id);
+    const wasPublic = this.wasPublicLandingStatus(row.status);
     const updated = await this.prisma.landingPage.update({
       where: { id: row.id },
       data: {
@@ -1261,26 +1316,65 @@ export class LandingPagesService implements OnModuleInit {
         archivedAt: new Date(),
       },
     });
-    return this.serializePage(updated);
+    const publicCacheRefresh = wasPublic
+      ? await this.publicCache.refreshAfterPublication({
+          organizationId: user.organizationId,
+          pageId: row.id,
+          slug: row.slug,
+        })
+      : { ok: true, attempts: 0, skipped: true, reason: 'not_public' as const };
+    return { ...this.serializePage(updated), publicCacheRefresh };
   }
 
   async delete(user: AuthUser, id: string) {
     const row = await this.assertPage(user.organizationId, id);
+    const wasPublic = this.wasPublicLandingStatus(row.status);
+    const scope = {
+      organizationId: user.organizationId,
+      pageId: row.id,
+      slug: row.slug,
+    };
     await this.prisma.landingPage.delete({
       where: { id: row.id },
     });
-    return { success: true, id: row.id };
+    const publicCacheRefresh = wasPublic
+      ? await this.publicCache.refreshAfterPublication(scope)
+      : { ok: true, attempts: 0, skipped: true, reason: 'not_public' as const };
+    const cacheRetryToken = wasPublic ? this.publicCache.issueRetryToken(scope) : null;
+    return { success: true, id: row.id, publicCacheRefresh, cacheRetryToken };
   }
 
   async bulkDelete(user: AuthUser, ids: string[]) {
-    if (!Array.isArray(ids) || !ids.length) return { success: true, deletedCount: 0 };
+    if (!Array.isArray(ids) || !ids.length) {
+      return { success: true, deletedCount: 0, publicCacheRefreshes: [] as unknown[] };
+    }
+    const rows = await this.prisma.landingPage.findMany({
+      where: { organizationId: user.organizationId, id: { in: ids } },
+      select: { id: true, slug: true, status: true },
+    });
     const res = await this.prisma.landingPage.deleteMany({
       where: {
         organizationId: user.organizationId,
         id: { in: ids },
       },
     });
-    return { success: true, deletedCount: res.count };
+    const publicCacheRefreshes = [];
+    for (const row of rows) {
+      if (!this.wasPublicLandingStatus(row.status)) continue;
+      const scope = {
+        organizationId: user.organizationId,
+        pageId: row.id,
+        slug: row.slug,
+      };
+      const cache = await this.publicCache.refreshAfterPublication(scope);
+      publicCacheRefreshes.push({
+        pageId: row.id,
+        slug: row.slug,
+        cache,
+        cacheRetryToken: this.publicCache.issueRetryToken(scope),
+      });
+    }
+    return { success: true, deletedCount: res.count, publicCacheRefreshes };
   }
 
   async listDomains(organizationId: string) { return domainMethods.listDomains.call(this, organizationId); }
@@ -1561,8 +1655,6 @@ export class LandingPagesService implements OnModuleInit {
         const paid = await this.credit.runPaidFeature({
           organizationId: user.organizationId,
           featureCode: CREDIT_FEATURE_CODES.LANDING_PAGE_INLINE_AI,
-          // Matches seed default; DB CreditFeaturePricing overrides when present.
-          amount: 2,
           referenceId: `lp.inline-ai:${pageId}:${user.id}:${randomUUID()}`,
           reason: 'Landing page field AI suggest',
           metadata: {
@@ -1572,7 +1664,6 @@ export class LandingPagesService implements OnModuleInit {
             blockType: dto.blockType || 'Hero',
           },
           fn: async (ctx) => {
-            ctx.markProviderStarted();
             return this.ai.suggestFieldStrict(request, profile);
           },
         });
@@ -2515,7 +2606,18 @@ export class LandingPagesService implements OnModuleInit {
       customDomain: row.customDomain,
       customDomainStatus: row.customDomainStatus,
       publishedAt: row.publishedAt,
+      cacheScope: {
+        organizationId: row.organizationId,
+        pageId: row.id,
+        slug: row.slug,
+      },
     };
+  }
+
+  /** Scope ISR tin cậy cho Next (cùng nguồn với getPublicBySlug). */
+  async getPublicCacheScope(slug: string, organizationId?: string) {
+    const page = await this.getPublicBySlug(slug, organizationId);
+    return page.cacheScope;
   }
 
   private async buildPublicChatbotConfig(
@@ -2940,7 +3042,7 @@ export class LandingPagesService implements OnModuleInit {
     if (existsSync(absPath)) {
       throw new BadRequestException('Xung đột tên file — thử lại');
     }
-    writeFileSync(absPath, file.buffer);
+    await writePlanFile(this.prisma, user.organizationId, absPath, file.buffer.length, async () => writeFileSync(absPath, file.buffer!));
     const url = `/uploads/${relDir.replace(/\\/g, '/')}/${filename}`;
     return {
       ok: true,
@@ -2978,7 +3080,7 @@ export class LandingPagesService implements OnModuleInit {
     if (existsSync(absPath)) {
       throw new BadRequestException('Xung đột tên file — thử lại');
     }
-    writeFileSync(absPath, file.buffer);
+    await writePlanFile(this.prisma, user.organizationId, absPath, file.buffer.length, async () => writeFileSync(absPath, file.buffer!));
     const url = `/uploads/${relDir.replace(/\\/g, '/')}/${filename}`;
     return {
       ok: true,
@@ -3085,3 +3187,4 @@ function htmlPreviewPath(id: string, raw: unknown, updatedAt: Date): string | nu
   const v = updatedAt instanceof Date ? updatedAt.getTime() : Date.now();
   return `/landing-pages/public/template-html/${id}?v=${v}`;
 }
+import { assertPlanResource } from '@marketingspa/database';

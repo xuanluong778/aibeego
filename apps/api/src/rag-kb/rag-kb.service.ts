@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import {
   BadRequestException,
   Injectable,
@@ -135,7 +136,7 @@ export class RagKbService {
       });
     }
 
-    const kb = await this.prisma.ragKnowledgeBase.create({
+    const kb = await new PlanPolicy(this.prisma).resource(organizationId, 'knowledgeBases', (tx) => tx.ragKnowledgeBase.count({ where: { organizationId } }), (tx) => tx.ragKnowledgeBase.create({
       data: {
         organizationId,
         name: dto.name.trim(),
@@ -143,7 +144,7 @@ export class RagKbService {
         isDefault: dto.isDefault ?? count === 0,
       },
       include: { documents: true },
-    });
+    }));
     return this.serializeKb(kb);
   }
 
@@ -451,7 +452,7 @@ export class RagKbService {
       return { botId, knowledgeBaseId: bot.knowledgeBaseId, importedSourceCount: imported };
     }
 
-    const kb = await this.prisma.ragKnowledgeBase.create({
+    const kb = await new PlanPolicy(this.prisma).resource(organizationId, 'knowledgeBases', (tx) => tx.ragKnowledgeBase.count({ where: { organizationId } }), (tx) => tx.ragKnowledgeBase.create({
       data: {
         organizationId,
         name: `${bot.botName} — kho tri thức`,
@@ -459,7 +460,7 @@ export class RagKbService {
         isDefault: false,
         botId: bot.id,
       },
-    });
+    }));
     const imported = await this.importBotSourcesToKb(organizationId, botId, kb.id);
     await this.prisma.chatbotBot.update({
       where: { id: botId },

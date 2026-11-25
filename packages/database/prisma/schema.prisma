@@ -735,6 +735,8 @@ model Organization {
   email     String?
   address   String?
   isActive  Boolean  @default(true) @map("is_active")
+  /// IANA timezone cho báo cáo bán hàng (khoảng ngày theo giờ địa phương)
+  salesReportTimezone String @default("Asia/Ho_Chi_Minh") @map("sales_report_timezone") @db.VarChar(64)
   /// Mã affiliate đã khóa lúc đăng ký (immutable)
   referredByCode         String?   @map("referred_by_code")
   referredByAffiliateId  String?   @map("referred_by_affiliate_id")
@@ -797,7 +799,9 @@ model Organization {
   salesReturns    SalesReturn[]
   salesSuppliers  SalesSupplier[]
   salesPurchaseOrders SalesPurchaseOrder[]
+  salesOperationIdempotencies SalesOperationIdempotency[]
   salesStockReconciliations SalesStockReconciliation[]
+  salesDocumentSequences   SalesDocumentSequence[]
   adAccounts        AdAccount[]
   adCampaigns       AdCampaign[]
   adDailyStats      AdDailyStat[]
@@ -2689,6 +2693,7 @@ model SalesStockBatch {
   importedAt        DateTime  @default(now()) @map("imported_at")
   expiryDate        DateTime? @map("expiry_date") @db.Date
   unitCost          Decimal   @default(0) @map("unit_cost") @db.Decimal(12, 2)
+  costBasis         SalesCostBasis? @map("cost_basis")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -2708,6 +2713,12 @@ enum SalesStockMovementType {
   OUTBOUND
   ADJUST
   RETURN_IN
+}
+
+enum SalesCostBasis {
+  CONFIRMED
+  ESTIMATED
+  UNKNOWN
 }
 
 /// Lịch sử nhập/xuất/điều chỉnh — append-only (không sửa/xóa)
@@ -2740,6 +2751,10 @@ model SalesStockMovementLine {
   movementId String @map("movement_id")
   batchId    String @map("batch_id")
   quantity   Int
+  /// Snapshot giá vốn đơn vị lúc xuất/hoàn (không đổi khi sửa giá danh mục)
+  unitCost   Decimal?       @map("unit_cost") @db.Decimal(12, 2)
+  costAmount Decimal?       @map("cost_amount") @db.Decimal(14, 2)
+  costBasis  SalesCostBasis? @map("cost_basis")
 
   movement SalesStockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
   batch    SalesStockBatch    @relation(fields: [batchId], references: [id], onDelete: Restrict)
@@ -2854,6 +2869,8 @@ model SalesReturn {
   reason         String?
   note           String?
   refundAmount   Decimal             @default(0) @map("refund_amount") @db.Decimal(12, 2)
+  /// Phân bổ doanh thu đảo / CK / ship — tách khỏi hoàn tiền (policy v1)
+  allocationSnapshot Json?           @map("allocation_snapshot")
   processedById  String?             @map("processed_by_id")
   confirmedAt    DateTime?           @map("confirmed_at")
   createdAt      DateTime            @default(now()) @map("created_at")
@@ -2949,7 +2966,38 @@ model SalesPurchaseOrderItem {
   @@map("sales_purchase_order_items")
 }
 
+/// Idempotency ledger for sales writes (receive / return / refund) — per org + operation + key
+model SalesOperationIdempotency {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  operation      String   @db.VarChar(32)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(128)
+  payloadHash    String   @map("payload_hash") @db.VarChar(64)
+  resourceId     String?  @map("resource_id")
+  resultJson     Json     @map("result_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, operation, idempotencyKey])
+  @@index([organizationId, resourceId])
+  @@map("sales_operation_idempotencies")
+}
+
 /// Audit đối soát tồn — không âm thầm sửa stockQty
+/// Số chứng từ tăng dần theo ngày — cấp mã nguyên tử (không count+1)
+model SalesDocumentSequence {
+  organizationId String @map("organization_id")
+  docType        String @map("doc_type") @db.VarChar(32)
+  periodKey      String @map("period_key") @db.VarChar(16)
+  lastValue      Int    @default(0) @map("last_value")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, docType, periodKey])
+  @@map("sales_document_sequences")
+}
+
 model SalesStockReconciliation {
   id             String                     @id @default(uuid())
   organizationId String                     @map("organization_id")
@@ -4160,6 +4208,7 @@ model AuthSession {
   expiresAt      DateTime  @map("expires_at")
   revokedAt      DateTime? @map("revoked_at")
   lastUsedAt     DateTime? @map("last_used_at")
+  rotationRootId String?   @map("rotation_root_id")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -4168,6 +4217,7 @@ model AuthSession {
   @@index([userId])
   @@index([organizationId])
   @@index([expiresAt])
+  @@index([userId, rotationRootId])
   @@map("auth_sessions")
 }
 
@@ -4221,6 +4271,32 @@ model RegistrationOtp {
   @@index([email, createdAt])
   @@index([expiresAt])
   @@map("registration_otps")
+}
+
+/// Monthly quota admissions. Tenant identifiers are retained without customer payloads.
+model PlanStoredFile {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  path           String @unique
+  sizeBytes      BigInt @map("size_bytes")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("plan_stored_files")
+}
+
+model PlanUsage {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  resource       String
+  referenceId    String @map("reference_id")
+  periodKey      String @map("period_key")
+  amount         Int
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, resource, referenceId])
+  @@index([organizationId, resource, periodKey])
+  @@map("plan_usage")
 }
 
 model SubscriptionPlan {
@@ -4414,6 +4490,9 @@ model CreditWallet {
   balance         Decimal  @default(0) @db.Decimal(12, 2)
   /// Credit đang giữ chờ commit/release
   reservedBalance Decimal  @default(0) @map("reserved_balance") @db.Decimal(12, 2)
+  /// Unspent monthly plan credits included in balance; purchased credits never expire here.
+  planBalance     Decimal  @default(0) @map("plan_balance") @db.Decimal(12, 2)
+  planPeriodKey   String?  @map("plan_period_key")
   lifetimeEarned  Decimal  @default(0) @map("lifetime_earned") @db.Decimal(14, 2)
   lifetimeUsed    Decimal  @default(0) @map("lifetime_used") @db.Decimal(14, 2)
   createdAt       DateTime @default(now()) @map("created_at")

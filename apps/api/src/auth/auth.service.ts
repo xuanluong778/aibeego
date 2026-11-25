@@ -837,20 +837,6 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token không hợp lệ');
     }
 
-    const session = await this.prisma.authSession.findFirst({
-      where: {
-        id: payload.sid,
-        userId: payload.sub,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-        tokenHash: hashToken(refreshToken),
-      },
-    });
-
-    if (!session) {
-      throw new UnauthorizedException('Refresh token đã hết hạn hoặc bị thu hồi');
-    }
-
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { organization: true, role: true },
@@ -859,18 +845,52 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản không hợp lệ');
     }
 
-    await this.prisma.authSession.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
+    if (meta?.ip) {
+      this.rateLimit.assertWithinLimit(`auth:refresh:ip:${meta.ip}`, 120, 60_000);
+    }
+
+    const tokenHash = hashToken(refreshToken);
+    const { tokens, previousSessionId } = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`);
+      const rotated = await tx.authSession.updateMany({
+        where: {
+          id: payload.sid,
+          userId: payload.sub,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+          tokenHash,
+        },
+        data: { revokedAt: new Date(), lastUsedAt: new Date() },
+      });
+
+      if (rotated.count !== 1) {
+        const prior = await tx.authSession.findFirst({
+          where: { id: payload.sid, userId: payload.sub },
+          select: { id: true, revokedAt: true, expiresAt: true, tokenHash: true },
+        });
+        if (prior?.revokedAt && prior.tokenHash === tokenHash) {
+          throw new UnauthorizedException({
+            message: 'Refresh token đã được sử dụng',
+            code: 'REFRESH_ALREADY_USED',
+          });
+        }
+        throw new UnauthorizedException('Refresh token đã hết hạn hoặc bị thu hồi');
+      }
+
+      const priorRows = await tx.$queryRaw<{ rotation_root_id: string | null }[]>(
+        Prisma.sql`SELECT rotation_root_id FROM auth_sessions WHERE id = ${payload.sid}`,
+      );
+      const rotationRootId = priorRows[0]?.rotation_root_id ?? payload.sid;
+      const issued = await this.issueTokens(user, { ...meta, rotationRootId }, tx);
+      return { tokens: issued, previousSessionId: payload.sid };
     });
 
-    const tokens = await this.issueTokens(user, meta);
     await this.audit.log({
       organizationId: user.organizationId,
       userId: user.id,
       action: 'AUTH_REFRESH',
       entityType: 'AUTH_SESSION',
-      entityId: session.id,
+      entityId: previousSessionId,
       ipAddress: meta?.ip,
     });
 
@@ -884,9 +904,21 @@ export class AuthService {
           secret: this.refreshSecret(),
         });
         if (payload.sid) {
-          await this.prisma.authSession.updateMany({
-            where: { id: payload.sid, userId, revokedAt: null },
-            data: { revokedAt: new Date() },
+          await this.prisma.$transaction(async (tx) => {
+            await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
+            const rootRows = await tx.$queryRaw<{ rotation_root_id: string | null }[]>(
+              Prisma.sql`SELECT rotation_root_id FROM auth_sessions WHERE id = ${payload.sid} AND user_id = ${userId}`,
+            );
+            const rootId = rootRows[0]?.rotation_root_id ?? payload.sid;
+            await tx.$executeRaw(
+              Prisma.sql`
+                UPDATE auth_sessions
+                SET revoked_at = NOW()
+                WHERE user_id = ${userId}
+                  AND revoked_at IS NULL
+                  AND (id = ${rootId} OR rotation_root_id = ${rootId})
+              `,
+            );
           });
         }
       } catch {
@@ -1226,7 +1258,8 @@ export class AuthService {
       organizationId: string;
       role: { code: string };
     },
-    meta?: { ip?: string; userAgent?: string },
+    meta?: { ip?: string; userAgent?: string; rotationRootId?: string },
+    db: Pick<PrismaService, 'authSession'> | Prisma.TransactionClient = this.prisma,
   ) {
     const refreshSecret = this.refreshSecret();
     const refreshExpiresIn = this.config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
@@ -1250,7 +1283,8 @@ export class AuthService {
       { secret: refreshSecret, expiresIn: refreshExpiresIn },
     );
 
-    await this.prisma.authSession.create({
+    const rotationRootId = meta?.rotationRootId ?? sessionId;
+    await db.authSession.create({
       data: {
         id: sessionId,
         userId: user.id,
@@ -1262,6 +1296,9 @@ export class AuthService {
         lastUsedAt: new Date(),
       },
     });
+    await db.$executeRaw(
+      Prisma.sql`UPDATE auth_sessions SET rotation_root_id = ${rotationRootId} WHERE id = ${sessionId}`,
+    );
 
     return { accessToken, refreshToken };
   }

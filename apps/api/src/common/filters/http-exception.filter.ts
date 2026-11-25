@@ -9,6 +9,7 @@ import {
 import type { Response } from 'express';
 import { captureException } from '../../sentry';
 import { redactLogText } from '../utils/redact-log.util';
+import { CreditError, PlanPolicyError } from '@marketingspa/database';
 
 function prismaErrorCode(exception: unknown): string {
   if (!exception || typeof exception !== 'object' || !('code' in exception)) return '';
@@ -69,6 +70,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost) {
+    if (exception instanceof CreditError) {
+      host.switchToHttp().getResponse<Response>().status(400).json({
+        statusCode: 400, code: exception.code, message: exception.message,
+        ...(exception.code === 'INSUFFICIENT_CREDITS' ? { required: exception.extra.required, available: exception.extra.available } : {}),
+      });
+      return;
+    }
+    if (exception instanceof PlanPolicyError) {
+      host.switchToHttp().getResponse<Response>().status(403).json({
+        statusCode: 403, code: exception.code, message: exception.message,
+        ...exception.details, redirectTo: '/pricing',
+      });
+      return;
+    }
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
 

@@ -15,6 +15,7 @@ import { LoadingState, ErrorState } from '@/components/shared/page-state';
 import { useSalesReport } from '@/hooks/use-sales';
 import { formatCurrency } from '@/lib/format';
 import { useT } from '@/i18n/i18n-provider';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
 import { authStorage } from '@/lib/auth-storage';
 import { getApiBaseUrl } from '@/lib/api-client';
 
@@ -22,19 +23,32 @@ const PRESETS = ['today', '7d', '30d', 'month', 'year'] as const;
 
 export default function SalesReportsPage() {
   const t = useT();
+  const { data: user } = useCurrentUser();
+  const canProfit = hasPermission(user, 'sales.profit.view');
+  const canExport = hasPermission(user, 'sales.report.export');
   const [preset, setPreset] = useState<string>('30d');
   const report = useSalesReport({ preset });
   const k = report.data?.kpis;
 
   const cards = useMemo(() => {
     if (!k) return [];
-    return [
-      { label: t('sales.reportRevenue'), value: formatCurrency(k.revenue) },
-      { label: t('sales.reportOrders'), value: String(k.orderCount) },
+    const revenue = k.recognizedRevenue ?? k.revenue ?? 0;
+    const orders = k.exportedOrderCount ?? k.orderCount ?? 0;
+  return [
+      { label: t('sales.reportRevenue'), value: formatCurrency(revenue) },
+      { label: t('sales.reportOrders'), value: String(orders) },
+      { label: 'Giá trị đơn (tạo trong kỳ)', value: formatCurrency(k.orderValue ?? 0) },
+      { label: 'Thu trong kỳ', value: formatCurrency(k.collected ?? 0) },
+      { label: 'Hoàn trong kỳ', value: formatCurrency(k.refunded ?? 0) },
+      { label: 'Thuần thu', value: formatCurrency(k.netCollected ?? 0) },
       { label: t('sales.reportAov'), value: formatCurrency(k.aov) },
-      { label: t('sales.reportCogs'), value: formatCurrency(k.cogs) },
-      { label: t('sales.reportGrossProfit'), value: formatCurrency(k.grossProfit) },
-      { label: t('sales.reportInventoryValue'), value: formatCurrency(k.inventoryValue) },
+      ...(canProfit
+        ? [
+            { label: t('sales.reportCogs'), value: formatCurrency(k.cogs) },
+            { label: t('sales.reportGrossProfit'), value: formatCurrency(k.grossProfit) },
+            { label: t('sales.reportInventoryValue'), value: formatCurrency(k.inventoryValue) },
+          ]
+        : []),
       { label: t('sales.reportCancelled'), value: String(k.cancelledOrders) },
       { label: t('sales.reportReturned'), value: String(k.returnedOrders) },
       { label: t('sales.reportOutOfStock'), value: String(k.outOfStock) },
@@ -42,7 +56,7 @@ export default function SalesReportsPage() {
       { label: t('sales.reportExpired'), value: String(k.expiredBatches) },
       { label: t('sales.reportExpiring'), value: String(k.expiring30Batches) },
     ];
-  }, [k, t]);
+  }, [k, t, canProfit]);
 
   const exportCsv = async () => {
     const token = authStorage.getAccessToken();
@@ -74,10 +88,12 @@ export default function SalesReportsPage() {
               ))}
             </SelectContent>
           </Select>
+          {canExport ? (
           <Button type="button" variant="outline" onClick={() => void exportCsv()}>
             <Download className="mr-1 h-4 w-4" />
             CSV
           </Button>
+          ) : null}
         </div>
       </PageHeader>
 
@@ -86,6 +102,13 @@ export default function SalesReportsPage() {
 
       {k ? (
         <>
+          {(report.data as { warnings?: string[] })?.warnings?.length ? (
+            <ul className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+              {(report.data as { warnings: string[] }).warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {cards.map((c) => (
               <div key={c.label} className="rounded-xl border border-white/10 bg-white/5 p-4">

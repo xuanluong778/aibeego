@@ -1,3 +1,4 @@
+import { writePlanFile } from '../common/uploads/plan-storage';
 import {
   BadRequestException,
   ForbiddenException,
@@ -442,7 +443,7 @@ export class VideoTranscriptionService {
       if (hasFile && file) {
         const ext = this.safeExt(file.originalname);
         const dest = join(work.absolute, `source${ext}`);
-        await this.writeUpload(file, dest);
+        await writePlanFile(this.prisma, user.organizationId, dest, file.buffer?.length ?? file.size, () => this.writeUpload(file, dest));
       }
 
       await this.prisma.videoTranscription.update({

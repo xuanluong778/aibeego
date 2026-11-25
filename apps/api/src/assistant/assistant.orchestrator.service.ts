@@ -231,7 +231,6 @@ export class AssistantOrchestratorService {
         referenceId: `assistant.chat:${requestId}`,
         reason: 'assistant chat LLM',
         fn: async (creditCtx) => {
-          creditCtx.markProviderStarted();
       for (let round = 0; round < ASSISTANT_TOOL_LIMITS.maxLlmRounds; round++) {
         const pureContent = Boolean(contentIntent?.pure);
         const llm = await this.llmWithRetry({

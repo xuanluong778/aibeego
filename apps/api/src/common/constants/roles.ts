@@ -35,9 +35,27 @@ export const CORE_PERMISSION_DEFS = [
   { code: 'campaign.send', name: 'Gửi chiến dịch', module: 'marketing' },
   { code: 'order.read', name: 'Xem đơn hàng', module: 'finance' },
   { code: 'order.write', name: 'Tạo / sửa đơn hàng bán', module: 'sales' },
+  { code: 'sales.inventory.read', name: 'Xem tồn kho / lô', module: 'sales' },
+  { code: 'sales.inventory.write', name: 'Nhập/xuất/điều chỉnh kho', module: 'sales' },
+  { code: 'sales.receive.write', name: 'Nhận hàng PO', module: 'sales' },
+  { code: 'sales.stocktake.write', name: 'Kiểm kê kho', module: 'sales' },
+  { code: 'sales.payment.collect', name: 'Thu tiền đơn bán', module: 'sales' },
+  { code: 'sales.payment.refund', name: 'Hoàn tiền đơn bán', module: 'sales' },
+  { code: 'sales.cost.view', name: 'Xem giá vốn', module: 'sales' },
+  { code: 'sales.profit.view', name: 'Xem lợi nhuận / COGS', module: 'sales' },
+  { code: 'sales.report.export', name: 'Xuất báo cáo bán hàng', module: 'sales' },
   { code: 'expense.write', name: 'Ghi chi phí', module: 'finance' },
   { code: 'report.view', name: 'Xem báo cáo', module: 'analytics' },
   { code: 'settings.manage', name: 'Quản lý cài đặt', module: 'admin' },
+] as const;
+
+/** Tài chính spa — tách khỏi bộ quyền Bán hàng (order.write / sales.* giữ nguyên). */
+export const FINANCE_PERMISSION_DEFS = [
+  { code: 'finance.read', name: 'Đọc tài chính', module: 'finance' },
+  { code: 'finance.order.manage', name: 'Quản lý đơn tài chính', module: 'finance' },
+  { code: 'finance.payment.record', name: 'Ghi nhận thanh toán', module: 'finance' },
+  { code: 'finance.payment.refund', name: 'Hoàn tiền tài chính', module: 'finance' },
+  { code: 'finance.expense.manage', name: 'Quản lý chi phí', module: 'finance' },
 ] as const;
 
 export const HRM_PERMISSION_DEFS = [
@@ -48,6 +66,7 @@ export const HRM_PERMISSION_DEFS = [
   { code: 'hrm.document.read', name: 'Xem tài liệu HR', module: 'hrm' },
   { code: 'hrm.document.write', name: 'Sửa tài liệu HR', module: 'hrm' },
   { code: 'hrm.account.manage', name: 'Quản lý tài khoản NV', module: 'hrm' },
+  { code: 'hrm.role.assign', name: 'Cấp hoặc đổi vai trò nhân viên', module: 'hrm' },
   { code: 'hrm.audit.read', name: 'Xem audit HR', module: 'hrm' },
   { code: 'hrm.attendance.read', name: 'Xem chấm công', module: 'hrm' },
   { code: 'hrm.attendance.write', name: 'Chấm công / phân ca', module: 'hrm' },
@@ -67,6 +86,7 @@ export const WORK_PERMISSION_DEFS = [
 
 export const ALL_PERMISSION_DEFS = [
   ...CORE_PERMISSION_DEFS,
+  ...FINANCE_PERMISSION_DEFS,
   ...HRM_PERMISSION_DEFS,
   ...WORK_PERMISSION_DEFS,
 ] as const;
@@ -84,6 +104,22 @@ export function defaultPermissionCodesForRole(roleCode: string): string[] {
   const workStaff = ['work.project.read', 'work.project.write', 'work.task.read', 'work.task.write'];
   const crmRead = ['customer.read', 'lead.read', 'order.read', 'report.view'];
   const crmWrite = ['customer.write', 'lead.write', 'order.write'];
+  /** Vận hành kho/thu — không gồm giá vốn, lợi nhuận, hoàn tiền, xuất báo cáo. */
+  const salesStaffOps = [
+    'sales.inventory.read',
+    'sales.inventory.write',
+    'sales.receive.write',
+    'sales.stocktake.write',
+    'sales.payment.collect',
+  ];
+  /**
+   * Đọc / quản lý đơn / ghi nhận thanh toán tài chính spa.
+   * Đối chiếu order.read, order.write, sales.payment.collect.
+   * Không gồm hoàn tiền và chi phí (chỉ OWNER/MANAGER qua bộ đầy đủ).
+   */
+  const financeStaffOps = FINANCE_PERMISSION_DEFS.map((p) => p.code).filter(
+    (code) => code !== 'finance.payment.refund' && code !== 'finance.expense.manage',
+  );
 
   switch (canonicalizeRoleCode(roleCode)) {
     case SYSTEM_ROLES.OWNER:
@@ -104,7 +140,14 @@ export function defaultPermissionCodesForRole(roleCode: string): string[] {
         ...workStaff,
       ];
     case SYSTEM_ROLES.SALE:
-      return [...crmRead, ...crmWrite, 'hrm.employee.read', ...workStaff];
+      return [
+        ...crmRead,
+        ...crmWrite,
+        ...salesStaffOps,
+        ...financeStaffOps,
+        'hrm.employee.read',
+        ...workStaff,
+      ];
     case SYSTEM_ROLES.TECHNICIAN:
       return [
         'hrm.employee.read',

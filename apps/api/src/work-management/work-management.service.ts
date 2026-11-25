@@ -750,8 +750,8 @@ export class WorkManagementService {
       lastReviewAction: task.lastReviewAction,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
-      assignees: task.assignees.map((a) => a.employee),
-      watchers: task.watchers.map((w) => w.employee),
+      assignees: task.assignees.flatMap((a) => (a.employee?.id ? [a.employee] : [])),
+      watchers: task.watchers.flatMap((w) => (w.employee?.id ? [w.employee] : [])),
       checklist: task.checklist.map((c) => ({
         id: c.id,
         title: c.title,

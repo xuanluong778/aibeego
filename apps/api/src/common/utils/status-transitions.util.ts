@@ -35,6 +35,7 @@ export function assertAppointmentTransition(from: string, to: string): void {
 
 export function assertPaymentRefundable(status: string): void {
   assertStatusTransition(status, 'REFUNDED', {
+    COMPLETED: ['REFUNDED'],
     PAID: ['REFUNDED'],
     PARTIALLY_PAID: ['REFUNDED'],
     REFUNDED: [],

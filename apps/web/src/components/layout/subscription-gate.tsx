@@ -6,6 +6,9 @@ import { useCurrentUser } from '@/hooks/use-auth';
 import { useCurrentSubscription } from '@/hooks/use-billing';
 import { LoadingState } from '@/components/shared/page-state';
 import { useT } from '@/i18n/i18n-provider';
+import { usePlanEntitlements } from '@/hooks/use-billing';
+import { requiredPlanFeature } from '@marketingspa/shared';
+import Link from 'next/link';
 
 /** Routes luôn mở dù chưa có gói / hết trial */
 const ALLOW = ['/pricing', '/settings', '/credits', '/login', '/register'];
@@ -21,6 +24,12 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: user } = useCurrentUser();
   const sub = useCurrentSubscription();
+  const entitlements = usePlanEntitlements();
+  const featurePath = pathname.replace(/^\/ads(?=\/|$)/, '/ad-performance')
+    .replace(/^\/automation(?=\/|$)/, '/automation/flows');
+  const requiredFeature = requiredPlanFeature(featurePath);
+  const featureBlocked = requiredFeature && entitlements.data?.limits &&
+    !entitlements.data.features.includes(requiredFeature);
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const onAllowPath =
@@ -62,6 +71,14 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (hasAccess && !bypass && entitlements.isLoading) return <LoadingState />;
+  if (hasAccess && !bypass && featureBlocked) return (
+    <div className="mx-auto max-w-xl space-y-4 rounded-xl border p-8 text-center">
+      <h1 className="text-xl font-semibold">Tính năng dành cho Pro và VIP</h1>
+      <p className="text-muted-foreground">Gói hiện tại chưa bao gồm công cụ này. Xem bảng so sánh để chọn gói phù hợp.</p>
+      <Link className="inline-block rounded-md bg-teal-700 px-4 py-2 text-white" href="/pricing">Xem các gói</Link>
+    </div>
+  );
   if (hasAccess || bypass) return <>{children}</>;
 
   return (

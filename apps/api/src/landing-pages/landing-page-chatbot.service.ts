@@ -1,3 +1,4 @@
+import { planBilledChat } from '../chatbot-cskh/utils/plan-billed-chat';
 import {
   BadRequestException,
   Injectable,
@@ -479,7 +480,7 @@ export class LandingPageChatbotService {
       this.chatbot.getSettings(page.organizationId),
     ]);
 
-    const openAiChat = this.openAi.isConfigured()
+    const openAiChat = planBilledChat(this.prisma, page.organizationId, this.openAi.isConfigured()
       ? async (input: {
           model: string;
           systemPrompt: string;
@@ -499,7 +500,7 @@ export class LandingPageChatbotService {
               { role: 'user', content: input.userText },
             ],
           })
-      : undefined;
+      : undefined);
 
     const previousState = history.find(message => {
       const meta = message.metadata as { landingPageId?: string; conversationState?: unknown } | null;

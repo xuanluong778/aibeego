@@ -1,4 +1,8 @@
 import { Prisma, PrismaClient, CreditTransactionType } from '@prisma/client';
+import { currentBillingMonth, planDefinition } from '@marketingspa/shared';
+import { PlanPolicy } from './plan-policy';
+import { randomUUID } from 'node:crypto';
+import { creditCallContext } from './credit-context';
 
 export type CreditBalanceSnapshot = {
   organizationId: string;
@@ -7,6 +11,8 @@ export type CreditBalanceSnapshot = {
   available: number;
   lifetimeEarned: number;
   lifetimeUsed: number;
+  planBalance?: number;
+  purchasedBalance?: number;
 };
 
 export type CreditMutationResult = {
@@ -73,6 +79,8 @@ type WalletRow = {
   reservedBalance: Prisma.Decimal;
   lifetimeEarned: Prisma.Decimal;
   lifetimeUsed: Prisma.Decimal;
+  planBalance: Prisma.Decimal;
+  planPeriodKey: string | null;
 };
 
 export class CreditError extends Error {
@@ -105,17 +113,16 @@ export type RunPaidFeatureParams<T> = {
  * Multi-tenant credit ledger (organizationId). Nest-free — dùng được từ API và worker.
  */
 export class CreditLedger {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient, private readonly now: () => Date = () => new Date()) {}
 
   async getBalance(organizationId: string): Promise<CreditBalanceSnapshot> {
-    const wallet = await this.ensureWallet(organizationId);
+    const wallet = await this.prisma.$transaction((tx) => this.lockWallet(tx, organizationId));
     return this.snapshot(wallet);
   }
 
   async checkAvailable(organizationId: string, amount: number): Promise<boolean> {
     this.assertPositiveAmount(amount, 'amount');
-    const wallet = await this.ensureWallet(organizationId);
-    return Number(wallet.balance) >= amount;
+    return (await this.getBalance(organizationId)).balance >= amount;
   }
 
   async getFeatureCost(featureCode: string): Promise<number> {
@@ -251,6 +258,7 @@ export class CreditLedger {
         where: { id: wallet.id },
         data: {
           balance: this.decimal(balance - params.amount),
+          planBalance: this.decimal(Math.max(0, Number(wallet.planBalance) - params.amount)),
           reservedBalance: this.decimal(reserved + params.amount),
         },
       });
@@ -268,7 +276,7 @@ export class CreditLedger {
             referenceId: params.referenceId,
             idempotencyKey: params.idempotencyKey,
             featureCode: params.featureCode,
-            metadata: (params.metadata ?? {}) as Prisma.InputJsonValue,
+            metadata: { ...(params.metadata ?? {}), planCreditAmount: Math.min(Number(wallet.planBalance), params.amount), planPeriodKey: wallet.planPeriodKey } as Prisma.InputJsonValue,
           },
         });
         return { transactionId: txn.id, idempotent: false, balance: this.snapshot(updated) };
@@ -360,6 +368,11 @@ export class CreditLedger {
       const amount = Number(reserveTx.amount);
       const wallet = walletEarly;
       const balance = Number(wallet.balance);
+      const reservationMeta = (reserveTx.metadata ?? {}) as Record<string, unknown>;
+      const planAmount = Number(reservationMeta.planCreditAmount ?? 0);
+      const samePeriod = reservationMeta.planPeriodKey === wallet.planPeriodKey;
+      const refundablePlan = samePeriod ? planAmount : 0;
+      const refundable = amount - planAmount + refundablePlan;
       const reserved = Number(wallet.reservedBalance);
       if (reserved < amount) {
         throw new CreditError('RESERVE_UNDERFLOW', 'reservedBalance không đủ để release');
@@ -368,7 +381,8 @@ export class CreditLedger {
       const updated = await tx.creditWallet.update({
         where: { id: wallet.id },
         data: {
-          balance: this.decimal(balance + amount),
+          balance: this.decimal(balance + refundable),
+          planBalance: this.decimal(Number(wallet.planBalance) + refundablePlan),
           reservedBalance: this.decimal(reserved - amount),
         },
       });
@@ -379,7 +393,7 @@ export class CreditLedger {
             organizationId: params.organizationId,
             walletId: wallet.id,
             type: CreditTransactionType.RELEASE,
-            amount: reserveTx.amount,
+            amount: this.decimal(refundable),
             balanceAfter: updated.balance,
             reservedAfter: updated.reservedBalance,
             reason: params.reason ?? 'Release reservation',
@@ -406,6 +420,16 @@ export class CreditLedger {
     const amount = await this.resolveFeatureAmount(params.featureCode, params.amount);
     const ref = params.referenceId;
     const commitKey = `${ref}:commit`;
+    const resource = params.metadata?.meteringAddon === true ? null
+      : params.featureCode === 'content_ai.image' ? 'images'
+      : params.featureCode === 'chatbot.reply' ? 'chatbotReplies' : null;
+    const policy = new PlanPolicy(this.prisma);
+    const feature = params.featureCode === 'email.send' ? 'email_marketing'
+      : params.featureCode === 'video.transcribe' ? 'video_transcription'
+      : params.featureCode.startsWith('landing_page.') ? 'landing_pages'
+      : params.featureCode === 'chatbot.reply' ? 'chatbot_cskh'
+      : params.featureCode === 'ads_ai.creative' ? 'ads_performance' : 'content_ai';
+    await policy.assertFeature(params.organizationId, feature);
 
     if (await this.hasCommitted(params.organizationId, ref)) {
       throw new CreditError('ALREADY_COMMITTED', 'Credit đã được trừ cho tác vụ này', {
@@ -445,11 +469,14 @@ export class CreditLedger {
 
     let providerStarted = false;
     try {
-      const result = await params.fn({
+      if (resource) await policy.consume(params.organizationId, resource, ref);
+      const result = await creditCallContext.run({ organizationId: params.organizationId,
+        featureCode: params.featureCode, referenceId: ref, prepaid: true,
+        markProviderStarted: () => { providerStarted = true; } }, () => params.fn({
         markProviderStarted: () => {
           providerStarted = true;
         },
-      });
+      }));
       await this.commit({
         organizationId: params.organizationId,
         referenceId: ref,
@@ -478,6 +505,7 @@ export class CreditLedger {
           reason: params.reason ?? 'Release — provider chưa chạy',
           metadata: params.metadata,
         }).catch(() => undefined);
+        if (resource) await policy.release(params.organizationId, resource, ref);
       }
       throw err;
     }
@@ -571,6 +599,7 @@ export class CreditLedger {
 
       const data: Prisma.CreditWalletUpdateInput = {
         balance: this.decimal(balance - params.amount),
+        planBalance: this.decimal(Math.max(0, Number(wallet.planBalance) - params.amount)),
       };
       if (opts.trackLifetimeUsed) {
         data.lifetimeUsed = this.decimal(Number(wallet.lifetimeUsed) + params.amount);
@@ -619,6 +648,9 @@ export class CreditLedger {
   }
 
   private async lockWallet(tx: Prisma.TransactionClient, organizationId: string): Promise<WalletRow> {
+    // Also serialize the first request, when no wallet row exists yet.
+    const walletId = randomUUID();
+    await tx.$executeRaw`INSERT INTO credit_wallets(id, organization_id, updated_at) VALUES (${walletId}, ${organizationId}, NOW()) ON CONFLICT(organization_id) DO NOTHING`;
     await tx.$executeRaw`SELECT id FROM credit_wallets WHERE organization_id = ${organizationId} FOR UPDATE`;
     let wallet = await tx.creditWallet.findUnique({ where: { organizationId } });
     if (!wallet) {
@@ -626,7 +658,68 @@ export class CreditLedger {
       await tx.$executeRaw`SELECT id FROM credit_wallets WHERE organization_id = ${organizationId} FOR UPDATE`;
       wallet = await tx.creditWallet.findUniqueOrThrow({ where: { organizationId } });
     }
-    return wallet;
+    return this.syncMonthlyPlanCredits(tx, wallet);
+  }
+
+  /** Lazy monthly refresh under the wallet lock: no cron and no advance annual grant. */
+  private async syncMonthlyPlanCredits(tx: Prisma.TransactionClient, wallet: WalletRow): Promise<WalletRow> {
+    const now = this.now();
+    const sub = await tx.subscription.findFirst({
+      where: { organizationId: wallet.organizationId, status: 'ACTIVE', currentPeriodStart: { lte: now }, currentPeriodEnd: { gt: now } },
+      include: { plan: true }, orderBy: { currentPeriodEnd: 'desc' },
+    });
+    const definition = planDefinition(sub?.plan.code);
+    const period = sub && definition ? currentBillingMonth(sub.currentPeriodStart, now) : null;
+    const key = sub && period ? `${sub.id}:${period.start.toISOString()}` : null;
+    if (wallet.planPeriodKey === key) {
+      if (!key || !definition || !sub) return wallet;
+      const original = await tx.creditTransaction.findUnique({ where: {
+        organizationId_idempotencyKey: { organizationId: wallet.organizationId, idempotencyKey: `plan-month:${key}` },
+      } });
+      if (!original) return wallet;
+      if (Number(original.amount) >= definition.monthlyCredits) return wallet;
+      const previous = await tx.creditTransaction.aggregate({ where: {
+        organizationId: wallet.organizationId, referenceId: key, source: 'PLAN_MONTHLY_UPGRADE',
+      }, _sum: { amount: true } });
+      const delta = definition.monthlyCredits - Number(original.amount) - Number(previous._sum.amount || 0);
+      if (delta <= 0) return wallet;
+      // Increase only the current month's allowance; spent/purchased credit stays intact.
+      const upgraded = await tx.creditWallet.update({ where: { id: wallet.id }, data: {
+        balance: { increment: delta }, planBalance: { increment: delta }, lifetimeEarned: { increment: delta },
+      } });
+      await tx.creditTransaction.create({ data: {
+        organizationId: wallet.organizationId, walletId: wallet.id, type: CreditTransactionType.GRANT,
+        amount: this.decimal(delta), balanceAfter: upgraded.balance, reservedAfter: upgraded.reservedBalance,
+        idempotencyKey: `plan-allowance:${key}:${definition.monthlyCredits}`, referenceId: key,
+        subscriptionId: sub.id, source: 'PLAN_MONTHLY_UPGRADE', reason: 'Tăng hạn mức credit tháng',
+        metadata: { planCode: sub.plan.code, monthlyAllowance: definition.monthlyCredits },
+      } });
+      return upgraded;
+    }
+    const expired = Number(wallet.planBalance);
+    const alreadyGranted = key ? await tx.creditTransaction.findUnique({ where: {
+      organizationId_idempotencyKey: { organizationId: wallet.organizationId, idempotencyKey: `plan-month:${key}` },
+    } }) : null;
+    const credits = alreadyGranted ? 0 : definition?.monthlyCredits ?? 0;
+    const balance = Number(wallet.balance) - expired + credits;
+    const updated = await tx.creditWallet.update({ where: { id: wallet.id }, data: {
+      balance: this.decimal(balance), planBalance: this.decimal(credits), planPeriodKey: key,
+      lifetimeEarned: { increment: credits },
+    } });
+    if (expired > 0) await tx.creditTransaction.create({ data: {
+      organizationId: wallet.organizationId, walletId: wallet.id, type: CreditTransactionType.ADMIN_ADJUST,
+      amount: this.decimal(expired), balanceAfter: this.decimal(Number(wallet.balance) - expired),
+      reservedAfter: wallet.reservedBalance, idempotencyKey: `plan-expire:${wallet.planPeriodKey}`,
+      reason: 'Credit theo gói hết kỳ tháng', metadata: { delta: -expired, source: 'PLAN_EXPIRY' },
+    } });
+    if (credits > 0 && key) await tx.creditTransaction.create({ data: {
+      organizationId: wallet.organizationId, walletId: wallet.id, type: CreditTransactionType.GRANT,
+      amount: this.decimal(credits), balanceAfter: updated.balance, reservedAfter: updated.reservedBalance,
+      idempotencyKey: `plan-month:${key}`, subscriptionId: sub!.id,
+      reason: `Credit tháng gói ${definition!.name}`, source: 'PLAN_MONTHLY',
+      metadata: { planCode: sub!.plan.code, expiresAt: period!.end.toISOString() },
+    } });
+    return updated;
   }
 
   private async findByIdempotency(
@@ -693,6 +786,8 @@ export class CreditLedger {
       available: Math.max(0, balance),
       lifetimeEarned: Number(wallet.lifetimeEarned),
       lifetimeUsed: Number(wallet.lifetimeUsed),
+      planBalance: Number(wallet.planBalance),
+      purchasedBalance: Math.max(0, balance - Number(wallet.planBalance)),
     };
   }
 

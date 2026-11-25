@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
 import { formatISO, startOfDay, endOfDay } from 'date-fns';
 import { apiClient } from '@/lib/api-client';
 import type { PaginatedResult, Lead, Appointment, FinanceDashboard, StaleLead } from '@/types/api';
@@ -21,6 +22,8 @@ export type DashboardScope = 'overview' | 'hub';
 export function useDashboardData(scope: DashboardScope = 'overview') {
   const { from, to, date } = useMemo(() => todayRange(), []);
   const full = scope === 'overview';
+  const userQ = useCurrentUser();
+  const canFinanceRead = hasPermission(userQ.data, 'finance.read');
 
   const leadsToday = useQuery({
     queryKey: ['dashboard', 'leads-today', from, to],
@@ -41,7 +44,8 @@ export function useDashboardData(scope: DashboardScope = 'overview') {
     queryKey: ['dashboard', 'finance', date],
     queryFn: () => apiClient<FinanceDashboard>(`/finance/dashboard?period=day&date=${date}`),
     staleTime: DASHBOARD_STALE_MS,
-    enabled: full,
+    enabled: full && canFinanceRead,
+    retry: false,
   });
 
   const staleLeads = useQuery({
@@ -56,7 +60,7 @@ export function useDashboardData(scope: DashboardScope = 'overview') {
     staleTime: DASHBOARD_STALE_MS,
   });
 
-  const queries = full
+  const queries = full && canFinanceRead
     ? [leadsToday, appointmentsToday, finance, staleLeads, pipelineCounts]
     : [leadsToday, appointmentsToday, staleLeads, pipelineCounts];
 
@@ -98,5 +102,6 @@ export function useDashboardData(scope: DashboardScope = 'overview') {
     appointments,
     staleLeads: staleLeads.data ?? [],
     funnel,
+    canFinanceRead,
   };
 }

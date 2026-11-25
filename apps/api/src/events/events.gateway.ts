@@ -8,6 +8,7 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
+import { PrismaService } from '../prisma/prisma.service';
 import type { WsCampaignUpdate } from '@marketingspa/shared';
 
 export interface WsLeadNewPayload {
@@ -69,12 +70,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async handleConnection(client: Socket) {
-    const token =
-      (client.handshake.auth?.token as string | undefined) ??
-      (client.handshake.query?.token as string | undefined);
+    const authToken = client.handshake.auth?.token as string | undefined;
+    const queryToken = client.handshake.query?.token as string | undefined;
+    if (queryToken && !authToken) {
+      this.logger.warn(
+        'Socket auth: query token deprecated — gửi handshake.auth.token (Bearer access JWT)',
+      );
+    }
+    const token = authToken ?? queryToken;
 
     if (!token) {
       client.disconnect(true);
@@ -94,13 +101,59 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, isActive: true, deletedAt: true, organizationId: true },
+      });
+      if (!user || !user.isActive || user.deletedAt) {
+        client.disconnect(true);
+        return;
+      }
+      if (user.organizationId !== payload.organizationId) {
+        client.disconnect(true);
+        return;
+      }
+
       client.data.userId = payload.sub;
       client.data.organizationId = payload.organizationId;
-      client.join(`org:${payload.organizationId}`);
+      const room = `org:${payload.organizationId}`;
+      client.data.orgRoom = room;
+      client.join(room);
+
+      const recheckMs = parseInt(this.config.get<string>('AUTH_SOCKET_RECHECK_MS', '30000'), 10) || 30_000;
+      const timer = setInterval(() => {
+        void this.enforceSocketMembership(client).then((ok) => {
+          if (!ok) {
+            clearInterval(timer);
+          }
+        });
+      }, recheckMs);
+      client.on('disconnect', () => clearInterval(timer));
     } catch (err) {
       this.logger.debug(`Socket auth failed: ${err instanceof Error ? err.message : err}`);
       client.disconnect(true);
     }
+  }
+
+  /** Kiểm tra user còn active và đúng org — ngắt room cũ khi đổi trạng thái. */
+  async enforceSocketMembership(client: Socket): Promise<boolean> {
+    const userId = client.data.userId as string | undefined;
+    const orgId = client.data.organizationId as string | undefined;
+    const room = client.data.orgRoom as string | undefined;
+    if (!userId || !orgId || !room) {
+      client.disconnect(true);
+      return false;
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isActive: true, deletedAt: true, organizationId: true },
+    });
+    if (!user || !user.isActive || user.deletedAt || user.organizationId !== orgId) {
+      client.leave(room);
+      client.disconnect(true);
+      return false;
+    }
+    return true;
   }
 
   handleDisconnect(_client: Socket) {

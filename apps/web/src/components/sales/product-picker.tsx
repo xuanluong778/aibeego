@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useSalesProducts } from '@/hooks/use-sales';
 import type { SalesProduct } from '@/types/sales';
 import { ProductImage } from './product-image';
+import { formatCurrency } from '@/lib/format';
 
 export function SalesProductPicker({
   value,
@@ -116,8 +117,9 @@ export function SalesProductPicker({
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium">{product.name}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    Model: {product.model || '—'} · SKU: {product.sku || '—'} · Tồn bán được:{' '}
-                    {product.sellableQty ?? product.stockQty}
+                    Model: {product.model || '—'} · SKU: {product.sku || '—'} · ĐVT:{' '}
+                    {product.unit || '—'} · Tồn bán được: {product.sellableQty ?? product.stockQty} · Giá:{' '}
+                    {formatCurrency(product.price)}
                   </span>
                 </span>
               </button>
@@ -164,8 +166,8 @@ export function SalesProductPicker({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Đã chọn: {value.name}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Model: {value.model || '—'} · SKU: {value.sku || '—'} · Tồn nội bộ bán được:{' '}
-              {value.sellableQty ?? value.stockQty}
+              Model: {value.model || '—'} · SKU: {value.sku || '—'} · ĐVT: {value.unit || '—'} · Tồn
+              bán được: {value.sellableQty ?? value.stockQty} · Giá: {formatCurrency(value.price)}
             </p>
           </div>
           <Button

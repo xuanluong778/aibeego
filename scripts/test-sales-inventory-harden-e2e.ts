@@ -26,12 +26,14 @@ import { defaultPermissionCodesForRole, SYSTEM_ROLES } from '../apps/api/src/com
 
 const prisma = new PrismaService();
 const audit = new AuditService(prisma);
-const inventory = new InventoryService(prisma, audit);
-const sales = new SalesService(prisma, audit, inventory);
-const stocktake = new StocktakeService(prisma, audit, inventory);
+import { SalesDocumentCodeService } from '../apps/api/src/sales/sales-document-code.service';
+const docCodes = new SalesDocumentCodeService(prisma);
+const inventory = new InventoryService(prisma, audit, docCodes);
+const sales = new SalesService(prisma, audit, inventory, docCodes);
+const stocktake = new StocktakeService(prisma, audit, inventory, docCodes);
 const payments = new SalesPaymentService(prisma, audit);
-const returns = new SalesReturnService(prisma, audit, inventory);
-const purchase = new SalesPurchaseService(prisma, audit, inventory);
+const returns = new SalesReturnService(prisma, audit, inventory, docCodes);
+const purchase = new SalesPurchaseService(prisma, audit, inventory, docCodes);
 const reports = new SalesReportsService(prisma, inventory);
 
 const results: Array<{ name: string; pass: boolean; detail?: string }> = [];

@@ -20,9 +20,11 @@ import { HeaderSubscriptionChips } from './header-subscription-chips';
 
 interface TopbarProps {
   onMenuClick: () => void;
+  menuOpen?: boolean;
+  menuButtonRef?: React.Ref<HTMLButtonElement>;
 }
 
-export function Topbar({ onMenuClick }: TopbarProps) {
+export function Topbar({ onMenuClick, menuOpen, menuButtonRef }: TopbarProps) {
   const t = useT();
   const pathname = usePathname();
   const router = useRouter();
@@ -44,6 +46,10 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         size="icon"
         className="h-11 w-11 shrink-0 text-white hover:bg-white/10 hover:text-white lg:hidden"
         onClick={onMenuClick}
+        aria-label="Mở menu chính"
+        aria-haspopup="dialog"
+        aria-expanded={menuOpen}
+        ref={menuButtonRef}
       >
         <Menu className="h-5 w-5" />
       </Button>
@@ -58,14 +64,14 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
       {/* 1 icon tin nhắn (realtime Socket) — góc phải header, trước avatar */}
       <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
+        <HeaderCreditChip />
         <div className="hidden min-w-0 items-center gap-2 md:flex">
           <HeaderSubscriptionChips />
         </div>
-        <HeaderCreditChip />
         <MessagesHeaderIcon tone="dark" />
-        {user?.organization && (
-          <span className="hidden max-w-[160px] truncate text-xs text-white/70 md:inline">
-            {user.organization.name}
+        {(isSuperAdmin || user?.organization) && (
+          <span className="hidden max-w-[180px] truncate text-xs text-white/70 md:inline">
+            {isSuperAdmin ? 'Platform Super Admin' : user?.organization?.name}
           </span>
         )}
         <DropdownMenu>

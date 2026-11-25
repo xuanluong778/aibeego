@@ -1,0 +1,30 @@
+"use strict";
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AttributionModule = void 0;
+const common_1 = require("@nestjs/common");
+const attribution_controller_1 = require("./attribution.controller");
+const attribution_service_1 = require("./attribution.service");
+const attribution_dashboard_service_1 = require("./attribution-dashboard.service");
+const offline_conversion_service_1 = require("./offline-conversion.service");
+const attribution_hooks_service_1 = require("./attribution-hooks.service");
+let AttributionModule = class AttributionModule {
+};
+exports.AttributionModule = AttributionModule;
+exports.AttributionModule = AttributionModule = __decorate([
+    (0, common_1.Module)({
+        controllers: [attribution_controller_1.AttributionController],
+        providers: [
+            attribution_service_1.AttributionService,
+            attribution_dashboard_service_1.AttributionDashboardService,
+            offline_conversion_service_1.OfflineConversionService,
+            attribution_hooks_service_1.AttributionHooksService,
+        ],
+        exports: [attribution_service_1.AttributionService, attribution_hooks_service_1.AttributionHooksService, offline_conversion_service_1.OfflineConversionService, attribution_dashboard_service_1.AttributionDashboardService],
+    })
+], AttributionModule);

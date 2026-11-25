@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { createSalesIdempotencyKey } from '@/lib/sales-idempotency';
 import Link from 'next/link';
 import {
   ExternalLink,
@@ -30,6 +31,7 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/page-state';
 import { SalesOrderFormDialog } from '@/components/sales/sales-order-form-dialog';
 import { SalesPrintDocument } from '@/components/sales/sales-print-document';
+import { SalesReturnDialog } from '@/components/sales/sales-return-dialog';
 import {
   useCreateSalesOrder,
   useCreateSalesReturn,
@@ -44,6 +46,7 @@ import {
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { formatMutationError } from '@/lib/format-mutation-error';
 import { useT } from '@/i18n/i18n-provider';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
 import {
   NEXT_STATUS,
   SALES_ORDER_STATUSES,
@@ -68,6 +71,11 @@ function statusVariant(status: SalesOrderStatus) {
 
 export default function SalesOrdersPage() {
   const t = useT();
+  const { data: user } = useCurrentUser();
+  const canEditOrder = hasPermission(user, 'order.write');
+  const canCollect = hasPermission(user, 'sales.payment.collect');
+  const canRefund = hasPermission(user, 'sales.payment.refund');
+  const canExportStock = hasPermission(user, 'sales.inventory.write');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -77,6 +85,7 @@ export default function SalesOrdersPage() {
   const [printKind, setPrintKind] = useState<'order' | 'export' | null>(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [returnOpen, setReturnOpen] = useState(false);
 
   const list = useSalesOrders({
     page,
@@ -93,6 +102,18 @@ export default function SalesOrdersPage() {
   const createReturn = useCreateSalesReturn();
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
+  const payIdemKeys = useRef(new Map<string, string>());
+  const refundIdemKeys = useRef(new Map<string, string>());
+  const returnIdemKeys = useRef(new Map<string, string>());
+
+  const idemFor = (map: Map<string, string>, scope: string, orderId: string) => {
+    let key = map.get(orderId);
+    if (!key) {
+      key = createSalesIdempotencyKey(scope, orderId);
+      map.set(orderId, key);
+    }
+    return key;
+  };
 
   const items = list.data?.items ?? [];
   const totalPages = useMemo(
@@ -101,11 +122,19 @@ export default function SalesOrdersPage() {
   );
 
   const openCreate = () => {
+    if (!canEditOrder) {
+      setErr('Bạn không có quyền sửa đơn.');
+      return;
+    }
     setEditing(null);
     setFormOpen(true);
   };
 
   const openEdit = (order: SalesOrder) => {
+    if (!canEditOrder) {
+      setErr('Bạn không có quyền sửa đơn.');
+      return;
+    }
     setEditing(order);
     setFormOpen(true);
   };
@@ -383,9 +412,8 @@ export default function SalesOrdersPage() {
                 {t('sales.orderTotal')}: {formatCurrency(detail.data.total)}
               </p>
               <div className="grid gap-1 text-sm">
-                <p>
-                  {t('sales.amountPaid')}: {formatCurrency(detail.data.amountPaid ?? 0)}
-                </p>
+                <p>Đã thu: {formatCurrency(detail.data.amountCollected ?? detail.data.amountPaid ?? 0)}</p>
+                <p>Đã hoàn: {formatCurrency(detail.data.amountRefunded ?? 0)}</p>
                 <p>
                   {t('sales.amountDue')}:{' '}
                   {formatCurrency(
@@ -393,6 +421,7 @@ export default function SalesOrdersPage() {
                       Math.max(0, detail.data.total - (detail.data.amountPaid ?? 0)),
                   )}
                 </p>
+                <p>Còn phải hoàn: {formatCurrency(detail.data.amountRefundable ?? 0)}</p>
                 <p className="text-muted-foreground">
                   {t('sales.paymentStatus')}:{' '}
                   {t(`sales.payment.${detail.data.paymentStatus || 'UNPAID'}`)}
@@ -413,6 +442,7 @@ export default function SalesOrdersPage() {
                   onChange={(e) => setPayMethod(e.target.value)}
                   placeholder={t('sales.paymentMethod')}
                 />
+                {canCollect ? (
                 <Button
                   type="button"
                   size="sm"
@@ -423,9 +453,11 @@ export default function SalesOrdersPage() {
                         orderId: detail.data!.id,
                         amount: Number(payAmount),
                         method: payMethod,
+                        idempotencyKey: idemFor(payIdemKeys.current, 'payment', detail.data!.id),
                       },
                       {
                         onSuccess: () => {
+                          payIdemKeys.current.delete(detail.data!.id);
                           setPayAmount('');
                           setMsg(t('sales.paymentRecorded'));
                           void detail.refetch();
@@ -437,6 +469,8 @@ export default function SalesOrdersPage() {
                 >
                   {t('sales.recordPayment')}
                 </Button>
+                ) : null}
+                {canRefund ? (
                 <Button
                   type="button"
                   size="sm"
@@ -448,9 +482,11 @@ export default function SalesOrdersPage() {
                         orderId: detail.data!.id,
                         amount: Number(payAmount),
                         method: payMethod,
+                        idempotencyKey: idemFor(refundIdemKeys.current, 'refund', detail.data!.id),
                       },
                       {
                         onSuccess: () => {
+                          refundIdemKeys.current.delete(detail.data!.id);
                           setPayAmount('');
                           setMsg(t('sales.refundRecorded'));
                           void detail.refetch();
@@ -462,6 +498,7 @@ export default function SalesOrdersPage() {
                 >
                   {t('sales.recordRefund')}
                 </Button>
+                ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 {NEXT_STATUS[detail.data.status] ? (
@@ -475,7 +512,8 @@ export default function SalesOrdersPage() {
                     → {t(`sales.status.${NEXT_STATUS[detail.data.status]!}`)}
                   </Button>
                 ) : null}
-                {(detail.data.status === 'CONFIRMED' ||
+                {canExportStock &&
+                (detail.data.status === 'CONFIRMED' ||
                   detail.data.status === 'READY' ||
                   detail.data.status === 'SHIPPED') &&
                 !detail.data.exportedAt ? (
@@ -526,32 +564,9 @@ export default function SalesOrdersPage() {
                       type="button"
                       variant="outline"
                       disabled={createReturn.isPending}
-                      onClick={() => {
-                        const item = detail.data!.items.find(
-                          (it) => (it.returnedQty ?? 0) < it.quantity && it.id,
-                        );
-                        if (!item?.id) {
-                          setErr(t('sales.nothingToReturn'));
-                          return;
-                        }
-                        createReturn.mutate(
-                          {
-                            orderId: detail.data!.id,
-                            reason: 'Partial return',
-                            items: [{ orderItemId: item.id, quantity: 1 }],
-                          },
-                          {
-                            onSuccess: () => {
-                              setMsg(t('sales.partialReturnOk'));
-                              void detail.refetch();
-                              void list.refetch();
-                            },
-                            onError: (e) => setErr(formatMutationError(e)),
-                          },
-                        );
-                      }}
+                      onClick={() => setReturnOpen(true)}
                     >
-                      {t('sales.partialReturn')}
+                      Trả hàng
                     </Button>
                   </>
                 ) : null}
@@ -567,6 +582,23 @@ export default function SalesOrdersPage() {
                 ))}
               </ul>
             </div>
+          ) : null}
+          {detail.data ? (
+            <SalesReturnDialog
+              order={detail.data}
+              open={returnOpen}
+              onOpenChange={setReturnOpen}
+              pending={createReturn.isPending}
+              idempotencyKey={idemFor(returnIdemKeys.current, 'return', detail.data.id)}
+              onConfirm={async (body) => {
+                await createReturn.mutateAsync(body);
+                returnIdemKeys.current.delete(detail.data!.id);
+                setReturnOpen(false);
+                setMsg(t('sales.partialReturnOk'));
+                void detail.refetch();
+                void list.refetch();
+              }}
+            />
           ) : null}
           {detail.data && printKind ? (
             <SalesPrintDocument order={detail.data} kind={printKind} />

@@ -4,6 +4,7 @@
 import { spawn } from 'child_process';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { creditCallContext } from '@marketingspa/database';
 import {
   VIDEO_TRANSCRIPTION_LIMITS,
   buildSttPrompt,
@@ -490,6 +491,7 @@ async function callOpenAiTranscribe(params: {
       }
       throw new Error(`OpenAI transcribe ${res.status}${detail ? `: ${detail}` : ''}`);
     }
+    creditCallContext.getStore()?.markProviderStarted?.();
     const data = (await res.json()) as {
       text?: string;
       language?: string;

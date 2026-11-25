@@ -9,6 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { InventoryService, type StockTx } from './inventory.service';
 import { buildPaginatedResult, getPaginationParams } from '../common/utils/pagination.util';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { SalesDocumentCodeService, SALES_DOC_TYPES } from './sales-document-code.service';
 
 @Injectable()
 export class StocktakeService {
@@ -16,24 +17,13 @@ export class StocktakeService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly docCodes: SalesDocumentCodeService,
   ) {}
 
   private todayStart() {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
-  }
-
-  private async nextCode(organizationId: string) {
-    const day = new Date();
-    const y = day.getFullYear();
-    const m = String(day.getMonth() + 1).padStart(2, '0');
-    const d = String(day.getDate()).padStart(2, '0');
-    const prefix = `KK-${y}${m}${d}-`;
-    const count = await this.prisma.salesStocktake.count({
-      where: { organizationId, code: { startsWith: prefix } },
-    });
-    return `${prefix}${String(count + 1).padStart(4, '0')}`;
   }
 
   async list(organizationId: string, query: PaginationDto & { status?: string }) {
@@ -73,7 +63,14 @@ export class StocktakeService {
       },
     });
     if (!row) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
-    return row;
+    const match = (row.note ?? '').match(/^SCOPE:(ALL_ACTIVE|SELECTED)\|(\d+)\|?([\s\S]*)$/);
+    return {
+      ...row,
+      note: match ? match[3] || null : row.note,
+      scope: match?.[1] ?? 'UNKNOWN',
+      productCount: row.lines.length,
+      catalogMatched: match ? Number(match[2]) : row.lines.length,
+    };
   }
 
   async create(
@@ -81,25 +78,43 @@ export class StocktakeService {
     dto: { note?: string; productIds?: string[] },
     userId?: string,
   ) {
-    const code = await this.nextCode(organizationId);
-    const products = await this.prisma.salesProduct.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        ...(dto.productIds?.length ? { id: { in: dto.productIds } } : {}),
-      },
-      select: { id: true, stockQty: true },
-      orderBy: { name: 'asc' },
-      take: 500,
-    });
+    const where = {
+      organizationId,
+      isActive: true,
+      ...(dto.productIds?.length ? { id: { in: dto.productIds } } : {}),
+    };
+    const matched = await this.prisma.salesProduct.count({ where });
+    const products: Array<{ id: string; stockQty: number }> = [];
+    const pageSize = 500;
+    for (let skip = 0; skip < matched; skip += pageSize) {
+      const chunk = await this.prisma.salesProduct.findMany({
+        where,
+        select: { id: true, stockQty: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip,
+        take: pageSize,
+      });
+      products.push(...chunk);
+    }
     if (!products.length) throw new BadRequestException('Không có sản phẩm để kiểm kê');
+    if (products.length !== matched) {
+      throw new BadRequestException('Không tải đủ sản phẩm để kiểm kê — thử lại');
+    }
+    const scope = dto.productIds?.length ? 'SELECTED' : 'ALL_ACTIVE';
 
     const created = await this.prisma.$transaction(async (tx) => {
+      const code = await this.docCodes.nextInTransaction(
+        tx,
+        organizationId,
+        SALES_DOC_TYPES.STOCKTAKE,
+      );
       const st = await tx.salesStocktake.create({
         data: {
           organizationId,
           code,
-          note: dto.note?.trim() || null,
+          note: [`SCOPE:${scope}`, String(products.length), dto.note?.trim() || '']
+            .filter(Boolean)
+            .join('|'),
           performedById: userId ?? null,
           lines: {
             create: products.map((p) => ({
@@ -129,7 +144,12 @@ export class StocktakeService {
       );
       return st;
     });
-    return created;
+    return {
+      ...created,
+      scope,
+      productCount: products.length,
+      catalogMatched: matched,
+    };
   }
 
   async updateLines(
@@ -138,20 +158,16 @@ export class StocktakeService {
     lines: Array<{ productId: string; countedQty: number; note?: string }>,
     userId?: string,
   ) {
-    const existing = await this.prisma.salesStocktake.findFirst({
-      where: { id, organizationId },
-    });
-    if (!existing) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
-    if (existing.status !== SalesStocktakeStatus.DRAFT) {
-      throw new BadRequestException('Chỉ sửa phiếu kiểm kê nháp');
-    }
-
     await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT id FROM sales_stocktakes
+      const locked = await tx.$queryRaw<Array<{ status: SalesStocktakeStatus }>>`
+        SELECT status FROM sales_stocktakes
         WHERE id = ${id} AND organization_id = ${organizationId}
         FOR UPDATE
       `;
+      if (!locked.length) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
+      if (locked[0]!.status !== SalesStocktakeStatus.DRAFT) {
+        throw new BadRequestException('Chỉ sửa phiếu kiểm kê nháp');
+      }
       for (const line of lines) {
         const counted = Math.max(0, Math.trunc(Number(line.countedQty) || 0));
         const row = await tx.salesStocktakeLine.findFirst({
@@ -198,6 +214,9 @@ export class StocktakeService {
           FOR UPDATE
         `;
         if (!locked.length) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
+        if (locked[0]!.status === SalesStocktakeStatus.CANCELLED) {
+          throw new BadRequestException('Phiếu đã hủy — không xác nhận được');
+        }
         if (locked[0]!.status !== SalesStocktakeStatus.DRAFT) {
           // Idempotent confirm
           return this.get(organizationId, id);
@@ -396,26 +415,37 @@ export class StocktakeService {
   }
 
   async cancel(organizationId: string, id: string, userId?: string) {
-    const existing = await this.prisma.salesStocktake.findFirst({
-      where: { id, organizationId },
-    });
-    if (!existing) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
-    if (existing.status === SalesStocktakeStatus.CONFIRMED) {
-      throw new BadRequestException('Phiếu đã xác nhận — không hủy được');
-    }
-    if (existing.status === SalesStocktakeStatus.CANCELLED) return existing;
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ status: SalesStocktakeStatus; code: string }>>`
+        SELECT status, code FROM sales_stocktakes
+        WHERE id = ${id} AND organization_id = ${organizationId}
+        FOR UPDATE
+      `;
+      if (!locked.length) throw new NotFoundException('Không tìm thấy phiếu kiểm kê');
+      const row = locked[0]!;
+      if (row.status === SalesStocktakeStatus.CONFIRMED) {
+        throw new BadRequestException('Phiếu đã xác nhận — không hủy được');
+      }
+      if (row.status === SalesStocktakeStatus.CANCELLED) {
+        return tx.salesStocktake.findFirstOrThrow({ where: { id, organizationId } });
+      }
 
-    const updated = await this.prisma.salesStocktake.update({
-      where: { id },
-      data: { status: SalesStocktakeStatus.CANCELLED },
+      const updated = await tx.salesStocktake.update({
+        where: { id },
+        data: { status: SalesStocktakeStatus.CANCELLED },
+      });
+      await this.audit.log(
+        {
+          organizationId,
+          userId,
+          action: 'SALES_STOCKTAKE_CANCELLED',
+          entityType: 'SALES_STOCKTAKE',
+          entityId: id,
+          metadata: { code: row.code },
+        },
+        tx,
+      );
+      return updated;
     });
-    await this.audit.log({
-      organizationId,
-      userId,
-      action: 'SALES_STOCKTAKE_CANCELLED',
-      entityType: 'SALES_STOCKTAKE',
-      entityId: id,
-    });
-    return updated;
   }
 }

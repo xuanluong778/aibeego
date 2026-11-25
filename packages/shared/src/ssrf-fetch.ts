@@ -481,6 +481,7 @@ async function fetchPublicBufferSafe(
     /** Include truncated HTML (scripts already stripped) for richer parsers. */
     includeHtml?: boolean;
     allowHost?: (hostname: string) => boolean;
+    userAgent?: string;
   },
 ): Promise<{ finalUrl: string; response: PinnedResponse; contentType: string }> {
   const timeoutMs = opts?.timeoutMs ?? AD_URL_ANALYZE_LIMITS.fetchTimeoutMs;
@@ -526,7 +527,8 @@ async function fetchPublicBufferSafe(
         maxBytes,
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; AIBeego-LandingPageCrawl/1.0)',
+          'User-Agent':
+            opts?.userAgent ?? 'Mozilla/5.0 (compatible; AIBeego-LandingPageCrawl/1.0)',
           Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
           'Accept-Encoding': 'identity',
         },
@@ -597,6 +599,13 @@ export async function fetchPublicHtmlSafe(
     skipCommerceHostBlock?: boolean;
     includeHtml?: boolean;
     allowHost?: (hostname: string) => boolean;
+    userAgent?: string;
+    /** Override default post-strip minimum (Landing/ads default 40). */
+    minExtractChars?: number;
+    /** Override default extracted text cap (Landing/ads default maxExtractChars). */
+    maxExtractChars?: number;
+    /** Giữ script cho parse server-side (không gửi client); text vẫn từ HTML đã strip. */
+    preserveScriptTagsInHtml?: boolean;
   },
 ): Promise<PublicHtmlFetchResult> {
   const { finalUrl, response, contentType } = await fetchPublicBufferSafe(rawUrl, opts);
@@ -608,20 +617,28 @@ export async function fetchPublicHtmlSafe(
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, ' ')
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ');
   const { title, text } = stripHtml(safeHtml);
-  if (text.length < 40) {
+  const minChars = opts?.minExtractChars ?? 40;
+  if (text.length < minChars) {
     throw new FetchPublicError(
       'Không trích xuất được đủ nội dung công khai từ trang (có thể bị chặn hoặc trang trống).',
       'INSUFFICIENT_CONTENT',
     );
   }
 
+  const extractCap = opts?.maxExtractChars ?? AD_URL_ANALYZE_LIMITS.maxExtractChars;
+
   return {
     finalUrl,
     title: title || new URL(finalUrl).hostname,
-    text: text.slice(0, AD_URL_ANALYZE_LIMITS.maxExtractChars),
+    text: text.slice(0, extractCap),
     contentType,
     ...(opts?.includeHtml
-      ? { html: safeHtml.slice(0, Math.min(opts.maxBytes ?? 1_000_000, 800_000)) }
+      ? {
+          html: (opts.preserveScriptTagsInHtml ? html : safeHtml).slice(
+            0,
+            Math.min(opts.maxBytes ?? 1_000_000, 800_000),
+          ),
+        }
       : {}),
   };
 }

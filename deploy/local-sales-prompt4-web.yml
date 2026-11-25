@@ -1,0 +1,6 @@
+# Local only — API/web built from current source (Sales Prompt 4).
+services:
+  api:
+    image: aibeego-api:local-full-20261123
+  web:
+    image: aibeego-web:local-full-20261123

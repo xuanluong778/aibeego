@@ -8,6 +8,8 @@ import {
 } from '@marketingspa/shared';
 import { AssistantToolRegistry } from './tool-registry';
 import { maskObjectPii } from './pii';
+import { PrismaService } from '../../prisma/prisma.service';
+import { PlanPolicy } from '@marketingspa/database';
 
 function withTimeout<T>(promise: Promise<T>, ms: number, tool: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -35,7 +37,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, tool: string): Promise<
 export class AssistantToolRuntime {
   private readonly logger = new Logger(AssistantToolRuntime.name);
 
-  constructor(private readonly registry: AssistantToolRegistry) {}
+  constructor(private readonly registry: AssistantToolRegistry, private readonly prisma: PrismaService) {}
 
   getLimits() {
     return { ...ASSISTANT_TOOL_LIMITS };
@@ -83,6 +85,10 @@ export class AssistantToolRuntime {
     const timeoutMs = def.timeoutMs ?? ASSISTANT_TOOL_LIMITS.timeoutMs;
 
     try {
+      const feature = toolName.startsWith('finance.') ? 'finance'
+        : toolName.startsWith('ads.') ? 'ads_performance'
+        : toolName.startsWith('hrm.') || toolName.startsWith('employees.') ? 'hrm' : null;
+      if (feature && ctx.role !== 'SUPER_ADMIN') await new PlanPolicy(this.prisma).assertFeature(ctx.organizationId, feature);
       const result = await withTimeout(def.handler(ctx, parsed.data), timeoutMs, toolName);
 
       if (!result.ok) {

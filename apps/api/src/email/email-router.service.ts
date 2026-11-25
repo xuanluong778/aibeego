@@ -7,6 +7,7 @@ import {
 } from '@marketingspa/shared';
 import { createEmailProvider } from '@marketingspa/shared/dist/email-providers/create';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreditLedger, PlanPolicy } from '@marketingspa/database';
 
 export type SendRoutedEmailInput = {
   organizationId: string;
@@ -64,6 +65,7 @@ export class EmailRouterService {
       }));
 
     const provider = createEmailProvider({ purpose: input.purpose });
+    if (input.purpose === 'marketing') await new PlanPolicy(this.prisma).consume(input.organizationId, 'emails', `routed:${input.idempotencyKey}`);
     const from = input.from || defaultFromForProvider(provider.name);
     if (!from) {
       await this.prisma.emailOutboundMessage.update({
@@ -92,7 +94,12 @@ export class EmailRouterService {
     };
 
     try {
-      const result = await provider.send(message);
+      const result = input.purpose === 'marketing'
+        ? await new CreditLedger(this.prisma).runPaidFeature({ organizationId: input.organizationId,
+            featureCode: 'email.send', referenceId: `email.routed:${row.id}`,
+            fn: async context => { const sent = await provider.send(message); context.markProviderStarted(); return sent; },
+          })
+        : await provider.send(message);
       await this.prisma.emailOutboundMessage.update({
         where: { id: row.id },
         data: {

@@ -97,7 +97,7 @@ export class EmailMarketingController {
   @Post('send-test')
   @RequirePermissions('automation.campaign.send')
   sendTest(@CurrentUser() user: AuthUser, @Body() dto: SendTestEmailDto) {
-    return this.service.sendTestEmail(dto);
+    return this.service.sendTestEmail(dto, user.organizationId);
   }
 
   @Patch('templates/:id')

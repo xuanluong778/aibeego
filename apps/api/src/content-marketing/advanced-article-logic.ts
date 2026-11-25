@@ -205,6 +205,7 @@ export async function generateAdvancedArticle(
       temperature: 0.72,
     });
     const parsed = parseJson<AdvancedArticleResult>(raw);
+    if (typeof parsed.final_article !== 'string' || !parsed.final_article.trim()) return templateGenerateAdvanced(dto);
     const fallback = templateGenerateAdvanced(dto);
     return polishAdvancedResult({
       title: parsed.title || fallback.title,

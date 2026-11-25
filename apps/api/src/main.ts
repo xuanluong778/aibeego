@@ -103,6 +103,10 @@ async function bootstrap() {
   }
 
   const config = app.get(ConfigService);
+  const trustProxy = config.get<string>('TRUST_PROXY') ?? process.env.TRUST_PROXY ?? '1';
+  if (trustProxy === '1' || trustProxy === 'true') {
+    app.set('trust proxy', 1);
+  }
   const { assertEncryptionKeyConfigured } = await import(
     './common/utils/assert-encryption-key'
   );

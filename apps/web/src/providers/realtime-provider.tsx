@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { WS_EVENTS } from '@marketingspa/shared';
@@ -31,28 +31,77 @@ interface RealtimeContextValue {
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
+function applySocketAuth(socket: Socket) {
+  const token = authStorage.getAccessToken() ?? '';
+  socket.auth = { token };
+}
+
 /**
  * Socket.IO realtime — cập nhật badge/inbox qua React Query.
- * Không tạo popup/toast tin nhắn (badge ở MessagesHeaderIcon).
+ * Handshake auth Bearer (không dùng ?token=). Reconnect sau refresh / logout.
  */
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const { data: user } = useCurrentUser();
   const queryClient = useQueryClient();
   const [connected, setConnected] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!user?.organizationId || !authStorage.isAuthenticated()) return;
+    if (!user?.organizationId || !authStorage.isAuthenticated()) {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      setConnected(false);
+      return;
+    }
 
     const socket: Socket = io(`${resolveApiUrl()}/events`, {
-      // Prefer polling first — survives brief API restarts better than hard websocket-only 502
       transports: ['polling', 'websocket'],
       upgrade: true,
-      auth: { token: authStorage.getAccessToken() ?? '' },
       withCredentials: true,
       reconnection: true,
       reconnectionAttempts: 20,
       reconnectionDelay: 800,
     });
+    applySocketAuth(socket);
+    socketRef.current = socket;
+
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === 'ms_auth_session_epoch') {
+        if (!authStorage.isAuthenticated()) {
+          socket.disconnect();
+        }
+        return;
+      }
+      if (ev.key !== 'ms_access_token') return;
+      if (!ev.newValue || !authStorage.isAuthenticated()) {
+        socket.disconnect();
+        return;
+      }
+      applySocketAuth(socket);
+      if (!socket.connected) socket.connect();
+      else socket.disconnect().connect();
+    };
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('ms-auth-v1');
+      channel.onmessage = (ev: MessageEvent<{ type?: string; token?: string }>) => {
+        const data = ev.data;
+        if (data?.type === 'logout') {
+          socket.disconnect();
+          return;
+        }
+        if (data?.type === 'access-token' && data.token) {
+          applySocketAuth(socket);
+          if (!socket.connected) socket.connect();
+          else socket.disconnect().connect();
+        }
+      };
+    } catch {
+      channel = null;
+    }
+
+    window.addEventListener('storage', onStorage);
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -93,7 +142,6 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     socket.on(
       WS_EVENTS.CHATBOT_MESSAGE_NEW,
       (payload: { conversationId?: string }) => {
-        // Chỉ cập nhật badge/inbox — KHÔNG toast, KHÔNG auto-mở dropdown
         void queryClient.invalidateQueries({ queryKey: ['chatbot-cskh', 'inbox'] });
         void queryClient.invalidateQueries({ queryKey: ['chatbot-cskh', 'inbox-unread'] });
         if (payload.conversationId) {
@@ -125,10 +173,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    socket.connect();
+
     return () => {
+      window.removeEventListener('storage', onStorage);
+      channel?.close();
       socket.disconnect();
+      socketRef.current = null;
+      setConnected(false);
     };
-  }, [user?.organizationId, queryClient]);
+  }, [user?.id, user?.organizationId, queryClient]);
 
   return (
     <RealtimeContext.Provider value={{ connected }}>{children}</RealtimeContext.Provider>

@@ -203,6 +203,13 @@ export class AutosaveLandingPageDto {
   requestId?: string;
 }
 
+export class RetryLandingPageCacheDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(2000)
+  cacheRetryToken!: string;
+}
+
 export class PublishLandingPageDto {
   @IsOptional()
   @IsIn(['path', 'subdomain'])

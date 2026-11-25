@@ -21,6 +21,7 @@ import {
   useCreatePaymentOrder,
   useCurrentSubscription,
   usePaymentOrder,
+  usePlanEntitlements,
   type BillingPlan,
   type PaymentOrder,
 } from '@/hooks/use-billing';
@@ -31,16 +32,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { authStorage } from '@/lib/auth-storage';
 import { getDeviceFingerprint } from '@/lib/device-fingerprint';
 import { useT } from '@/i18n/i18n-provider';
-
-const FEATURE_ROW_KEYS = [
-  'pricingPage.benefitCrm',
-  'pricingPage.benefitAds',
-  'pricingPage.benefitChatbot',
-  'content.autoPost',
-  'pricingPage.benefitHrm',
-  'pricingPage.benefitReports',
-  'pricingPage.sepayHint',
-] as const;
+import { PLAN_FEATURE_LABELS, PLAN_LIMIT_LABELS, BILLING_MONTHS, type PlanLimit } from '@marketingspa/shared';
 
 const STATUS_CLASS: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-900',
@@ -79,7 +71,7 @@ function PaymentSuccessDialog({
           <DialogDescription className="text-center text-base text-foreground/80">
             Cảm ơn {name} đã tin tưởng và đồng hành cùng Ai Bee Go.
             <br />
-            Gói của bạn đã được kích hoạt tự động.
+            Thanh toán đã được ghi nhận. Nếu đổi hạng gói, gói mới bắt đầu sau thời hạn đã mua.
           </DialogDescription>
         </DialogHeader>
         {order && (
@@ -101,7 +93,7 @@ function PaymentSuccessDialog({
           </div>
         )}
         <p className="text-sm text-muted-foreground">
-          Chúc bạn kinh doanh thuận lợi và tận dụng tối đa các tính năng Pro.
+          Chúc bạn kinh doanh thuận lợi và tận dụng tối đa các tính năng của gói đã chọn.
         </p>
         <DialogFooter className="sm:justify-center">
           <Button className="w-full bg-teal-700 hover:bg-teal-800 sm:w-auto" onClick={onClose}>
@@ -146,6 +138,8 @@ function PaymentModal({
     setSuccessOpen(true);
     void qc.invalidateQueries({ queryKey: ['billing', 'subscription'] });
     void qc.invalidateQueries({ queryKey: ['billing', 'orders'] });
+    void qc.invalidateQueries({ queryKey: ['billing', 'entitlements'] });
+    void qc.invalidateQueries({ queryKey: ['credits'] });
   }, [order?.status, order?.id, qc]);
 
   async function copy(text: string, key: string) {
@@ -490,6 +484,7 @@ function PricingPageInner() {
   const { data: user, isLoading: authLoading } = useCurrentUser();
   const { data: plans, isLoading, isError, refetch } = useBillingPlans();
   const { data: sub } = useCurrentSubscription();
+  const { data: entitlements } = usePlanEntitlements();
   const { display } = useSubscriptionDisplay();
   const createOrder = useCreatePaymentOrder();
   const activateTrial = useActivateTrial();
@@ -497,13 +492,14 @@ function PricingPageInner() {
   const [modalOpen, setModalOpen] = useState(false);
   const upgradeStarted = useRef(false);
   const reason = searchParams.get('reason');
+  const [billingMonths, setBillingMonths] = useState<number>(1);
 
   const sorted = useMemo(
     () =>
       (plans ?? [])
-        .filter((p) => [6, 12].includes(p.durationMonths))
+        .filter((p) => p.durationMonths === billingMonths && p.entitlement)
         .sort((a, b) => a.sortOrder - b.sortOrder || a.durationMonths - b.durationMonths),
-    [plans],
+    [plans, billingMonths],
   );
 
   async function register(plan: BillingPlan) {
@@ -550,11 +546,11 @@ function PricingPageInner() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-10 pb-12">
+    <div className="mx-auto max-w-7xl space-y-10 pb-12">
       <header className="space-y-3 text-center">
-        <p className="text-sm font-medium tracking-wide text-teal-700">Ai Bee Go Pro</p>
+        <p className="text-sm font-medium tracking-wide text-emerald-300">Ai Bee Go — Basic · Pro · VIP</p>
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('pricing.title')}</h1>
-        <p className="mx-auto max-w-2xl text-muted-foreground">{t('pricing.subtitle')}</p>
+        <p className="mx-auto max-w-2xl text-muted-foreground">Chọn gói phù hợp với công việc và quy mô kinh doanh của bạn.</p>
         {reason === 'trial_expired' && (
           <p className="mx-auto max-w-2xl rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
             Thời gian dùng thử đã kết thúc. Vui lòng thanh toán để tiếp tục sử dụng Ai Bee Go.
@@ -581,7 +577,21 @@ function PricingPageInner() {
         />
       )}
 
-      <div id="plans" className="grid gap-6 md:grid-cols-2">
+      <div className="flex flex-wrap justify-center gap-2" role="group" aria-label="Kỳ thanh toán">
+        {BILLING_MONTHS.map((months) => (
+          <Button key={months} variant={billingMonths === months ? 'default' : 'outline'}
+            aria-pressed={billingMonths === months} onClick={() => setBillingMonths(months)}>
+            {months} tháng{months === 12 ? ' · Tiết kiệm 2 tháng' : ''}
+          </Button>
+        ))}
+      </div>
+      {entitlements?.scheduled?.map((scheduled) => (
+        <p key={scheduled.startsAt} className="rounded-lg border border-teal-300 bg-teal-50 p-3 text-sm text-teal-900">
+          Đã thanh toán {scheduled.name}. Bắt đầu lúc {formatDateTime(scheduled.startsAt)}.
+        </p>
+      ))}
+      {sorted.length === 0 && <p className="text-center text-muted-foreground">Chưa có gói cho kỳ thanh toán này.</p>}
+      <div id="plans" className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {sorted.map((plan) => {
           const recommended = Boolean(plan.highlightLabel);
           const savings = plan.savingsAmount ? Number(plan.savingsAmount) : 0;
@@ -599,7 +609,14 @@ function PricingPageInner() {
                 </Badge>
               )}
               <h2 className="text-xl font-semibold text-heading">{plan.name}</h2>
-              <p className="mt-1 text-sm text-white/75">{plan.durationMonths} tháng sử dụng</p>
+              <p className="mt-1 text-sm text-white/75">
+                {plan.bonusMonths
+                  ? `${plan.durationMonths} tháng + tặng ${plan.bonusMonths} tháng · Tổng ${plan.totalUsageMonths} tháng sử dụng`
+                  : `${plan.durationMonths} tháng sử dụng`}
+              </p>
+              {Boolean(plan.bonusMonths) && (
+                <p className="mt-2 text-sm font-semibold text-emerald-300">Mua 6 tháng tặng 1 tháng</p>
+              )}
               <div className="mt-4">
                 <span className="text-3xl font-bold tracking-tight text-white">
                   {formatCurrency(planPrice(plan))}
@@ -608,19 +625,24 @@ function PricingPageInner() {
               </div>
               {savings > 0 && (
                 <p className="mt-2 text-sm font-medium text-emerald-300">
-                  Tiết kiệm {formatCurrency(savings)} so với mua 2 gói 6 tháng
+                  Tiết kiệm {formatCurrency(savings)} so với thanh toán từng tháng
                 </p>
               )}
-              {Number(plan.creditGrant) > 0 && (
-                <p className="mt-2 text-sm text-heading">
-                  Tặng {Number(plan.creditGrant).toLocaleString('vi-VN')} AI Credit
-                </p>
-              )}
+              <p className="mt-2 text-sm text-emerald-300">
+                {plan.entitlement!.monthlyCredits.toLocaleString('vi-VN')} credit AI mỗi tháng
+              </p>
+              <p className="mt-1 text-xs text-white/75">Credit theo gói hết hạn cuối kỳ tháng; credit mua thêm được giữ riêng.</p>
+              <p className="mt-1 text-xs text-white/75">
+                Gợi ý phân bổ {Math.floor(plan.entitlement!.monthlyCredits / 30).toLocaleString('vi-VN')} credit/ngày trong 30 ngày. Số lượt sử dụng tùy tác vụ.
+              </p>
+              <p className="mt-3 text-sm text-white/90">
+                {plan.entitlement!.limits.users} người dùng · {plan.entitlement!.limits.fanpages} Fanpage · {plan.entitlement!.limits.bots} chatbot
+              </p>
               <ul className="mt-5 flex-1 space-y-2 text-sm text-white/95">
-                {FEATURE_ROW_KEYS.map((key) => (
-                  <li key={key} className="flex gap-2">
+                {plan.entitlement!.features.map((feature) => (
+                  <li key={feature} className="flex gap-2">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                    <span>{t(key)}</span>
+                    <span>{PLAN_FEATURE_LABELS[feature] ?? feature}</span>
                   </li>
                 ))}
               </ul>
@@ -653,37 +675,46 @@ function PricingPageInner() {
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">{t('pricingPage.benefits')}</th>
-                <th className="px-4 py-3 text-center font-medium">{t('pricingPage.months6')}</th>
-                <th className="px-4 py-3 text-center font-medium">{t('pricingPage.months12')}</th>
+                {sorted.map((plan) => (
+                  <th key={plan.id} className="px-4 py-3 text-center font-medium whitespace-nowrap">
+                    {plan.entitlement!.name}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {FEATURE_ROW_KEYS.map((key) => (
-                <tr key={key} className="border-t">
-                  <td className="px-4 py-2.5">{t(key)}</td>
-                  <td className="px-4 py-2.5 text-center text-teal-700">✓</td>
-                  <td className="px-4 py-2.5 text-center text-teal-700">✓</td>
+              {Object.entries(PLAN_FEATURE_LABELS).map(([feature, label]) => (
+                <tr key={feature} className="border-t">
+                  <td className="px-4 py-2.5">{label}</td>
+                  {sorted.map((plan) => (
+                    <td key={plan.id} className="px-4 py-2.5 text-center">
+                      {plan.entitlement!.features.includes(feature) ? '✓' : '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {(['users', 'branches', 'fanpages', 'zaloOas', 'customers', 'landingPages', 'bots', 'knowledgeBases', 'flows', 'chatbotReplies', 'transcriptionMinutes', 'sourcePages', 'emails', 'posts', 'storageMb', 'uploadMb'] as PlanLimit[]).map((limit) => (
+                <tr key={limit} className="border-t">
+                  <td className="px-4 py-2.5">{PLAN_LIMIT_LABELS[limit]}</td>
+                  {sorted.map((plan) => <td key={plan.id} className="px-4 py-2.5 text-center">{plan.entitlement!.limits[limit].toLocaleString('vi-VN')}</td>)}
                 </tr>
               ))}
               <tr className="border-t bg-muted/30">
                 <td className="px-4 py-2.5 font-medium">{t('pricingPage.price')}</td>
-                <td className="px-4 py-2.5 text-center font-medium">
-                  {sorted.find((p) => p.durationMonths === 6)
-                    ? formatCurrency(Number(sorted.find((p) => p.durationMonths === 6)!.priceVnd))
-                    : '—'}
-                </td>
-                <td className="px-4 py-2.5 text-center font-medium">
-                  {sorted.find((p) => p.durationMonths === 12)
-                    ? formatCurrency(Number(sorted.find((p) => p.durationMonths === 12)!.priceVnd))
-                    : '—'}
-                </td>
+                {sorted.map((plan) => (
+                  <td key={plan.id} className="px-4 py-2.5 text-center font-medium whitespace-nowrap">
+                    {formatCurrency(planPrice(plan))}
+                  </td>
+                ))}
               </tr>
             </tbody>
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          Hai chu kỳ dùng cùng toàn bộ tính năng; chỉ khác giá và thời hạn. Sau khi chuyển khoản đúng,
-          hệ thống kích hoạt/gia hạn gói qua webhook SePay — frontend không tự kích hoạt.
+          Quyền lợi và hạn mức tháng giữ nguyên giữa kỳ 1, 6 và 12 tháng của cùng một hạng gói.
+          Credit AI dùng chung cho các tác vụ, được cấp từng tháng và không cộng dồn.
+          Phí quảng cáo, tên miền và tin nhắn bên thứ ba được thanh toán riêng.
+          Khi đổi hạng, gói mới bắt đầu sau thời hạn gói đã mua; không mất ngày sử dụng còn lại.
         </p>
       </section>
 

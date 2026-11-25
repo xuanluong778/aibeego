@@ -1,6 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
+export type AdminCreditCost = {
+  id: string; featureCode: string; module: string; action: string; name: string;
+  description: string | null; creditCost: number; isActive: boolean; reserved: boolean;
+  updatedAt: string; unit: string; usedCredits30d: number; chargedCalls30d: number;
+};
+
+export function useAdminCreditCosts() {
+  return useQuery({ queryKey: ['platform-admin', 'credit-costs'],
+    queryFn: () => apiClient<AdminCreditCost[]>('/admin/credit-costs') });
+}
+
+export function useUpdateAdminCreditCost() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (input: { featureCode: string; creditCost: number; expectedUpdatedAt: string }) =>
+    apiClient<{ featureCode: string; creditCost: number; updatedAt: string }>(`/admin/credit-costs/${encodeURIComponent(input.featureCode)}`, {
+      method: 'PATCH', body: JSON.stringify({ creditCost: input.creditCost, expectedUpdatedAt: input.expectedUpdatedAt }),
+    }), onSuccess: updated => {
+      qc.setQueryData<AdminCreditCost[]>(['platform-admin', 'credit-costs'], rows =>
+        rows?.map(row => row.featureCode === updated.featureCode ? { ...row, ...updated } : row));
+      void qc.invalidateQueries({ queryKey: ['platform-admin', 'credit-costs'] });
+      void qc.invalidateQueries({ queryKey: ['credits', 'pricing'] });
+    },
+  });
+}
+
 export type AdminOverview = {
   organizations: number;
   users: number;

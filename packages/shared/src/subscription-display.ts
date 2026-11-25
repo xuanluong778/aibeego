@@ -1,6 +1,8 @@
+import { billingAnniversary } from './subscription-catalog';
 /** Plan codes — đồng bộ với seed/migration MSP Pro. */
 export const SUBSCRIPTION_PLAN_CODES = {
   TRIAL: 'msp-trial-3d',
+  PRO_1M: 'msp-pro-1m',
   PRO_6M: 'msp-pro-6m',
   PRO_12M: 'msp-pro-12m',
 } as const;
@@ -8,13 +10,16 @@ export const SUBSCRIPTION_PLAN_CODES = {
 export type SubscriptionPeriodSource = 'NONE' | 'TRIAL' | 'PAYMENT' | 'ADMIN_GIFT';
 
 export type SubscriptionTier =
+  | 'BASIC_1M' | 'BASIC_6M' | 'BASIC_12M'
+  | 'VIP_1M' | 'VIP_6M' | 'VIP_12M'
   | 'FREE'
   | 'TRIAL'
   | 'ADMIN_GIFT'
+  | 'PRO_1M'
   | 'PRO_6M'
   | 'PRO_12M';
 
-export type SubscriptionUpgradeVariant = 'upgrade_pro' | 'upgrade_12m' | 'current_plan';
+export type SubscriptionUpgradeVariant = 'upgrade_pro' | 'upgrade_12m' | 'current_plan' | 'compare_plans';
 
 export interface SubscriptionUpgradeButton {
   show: boolean;
@@ -68,9 +73,7 @@ export function computeRemainingDays(
 
 /** Cộng tháng giống backend extendSubscriptionTx. */
 export function addMonthsUtc(base: Date, months: number): Date {
-  const end = new Date(base);
-  end.setMonth(end.getMonth() + months);
-  return end;
+  return billingAnniversary(base, months);
 }
 
 /** Tính hạn từ chuỗi đơn PAID (stack gia hạn). */
@@ -114,18 +117,25 @@ export function resolveSubscriptionTier(input: {
   if (status === 'NONE' || status === 'EXPIRED' || status === 'TRIAL_EXPIRED') return 'FREE';
 
   const months = durationMonths ?? 0;
+  const catalog = /^abg-(basic|vip)-(1|6|12)m$/.exec(code);
+  if (catalog && (status === 'ACTIVE' || status === 'EXPIRING')) {
+    return `${catalog[1]!.toUpperCase()}_${catalog[2]}M` as SubscriptionTier;
+  }
   const isPro12 = code === SUBSCRIPTION_PLAN_CODES.PRO_12M || months === 12;
   const isPro6 = code === SUBSCRIPTION_PLAN_CODES.PRO_6M || months === 6;
+  const isPro1 = code === SUBSCRIPTION_PLAN_CODES.PRO_1M || months === 1;
 
   if (periodSource === 'PAYMENT') {
     if (isPro12) return 'PRO_12M';
     if (isPro6) return 'PRO_6M';
+    if (isPro1) return 'PRO_1M';
   }
 
-  if (periodSource === 'ADMIN_GIFT' && (isPro12 || isPro6)) return 'ADMIN_GIFT';
+  if (periodSource === 'ADMIN_GIFT' && (isPro12 || isPro6 || isPro1)) return 'ADMIN_GIFT';
 
   if (isPro12 && (status === 'ACTIVE' || status === 'EXPIRING')) return 'PRO_12M';
   if (isPro6 && (status === 'ACTIVE' || status === 'EXPIRING')) return 'PRO_6M';
+  if (isPro1 && (status === 'ACTIVE' || status === 'EXPIRING')) return 'PRO_1M';
 
   return 'FREE';
 }
@@ -152,7 +162,11 @@ export function resolveEffectiveExpiresAt(input: {
 }
 
 export function buildPlanLabel(tier: SubscriptionTier, trialDays = 3): string {
+  const catalog = /^(BASIC|VIP)_(1|6|12)M$/.exec(tier);
+  if (catalog) return `Gói ${catalog[1] === 'BASIC' ? 'Basic' : 'VIP'} — ${catalog[2]} tháng`;
   switch (tier) {
+    case 'PRO_1M':
+      return 'Gói hiện tại 1 tháng';
     case 'PRO_12M':
       return 'Gói hiện tại 12 tháng';
     case 'PRO_6M':
@@ -178,6 +192,7 @@ export function buildUpgradeButton(tier: SubscriptionTier): SubscriptionUpgradeB
         href: '/pricing',
         variant: 'upgrade_pro',
       };
+    case 'PRO_1M':
     case 'PRO_6M':
       return {
         show: true,
@@ -233,7 +248,9 @@ export function buildSubscriptionDisplay(
 
   const expiresAtIso = effectiveExpiresAt?.toISOString() ?? null;
   const remainingDays = computeRemainingDays(expiresAtIso, now);
-  const upgradeButton = buildUpgradeButton(tier);
+  const upgradeButton = input.planCode?.startsWith('abg-') && tier !== 'FREE'
+    ? { show: true, label: 'Xem các gói', href: '/pricing', variant: 'compare_plans' as const }
+    : buildUpgradeButton(tier);
 
   return {
     tier,

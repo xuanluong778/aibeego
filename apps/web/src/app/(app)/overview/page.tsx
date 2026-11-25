@@ -47,7 +47,7 @@ function StatCard({
 
 export default function OverviewPage() {
   const t = useT();
-  const { isLoading, isError, refetch, stats, appointments, staleLeads, funnel } =
+  const { isLoading, isError, refetch, stats, appointments, staleLeads, funnel, canFinanceRead } =
     useDashboardData();
   const credit = useCreditBalance();
   const sub = useCurrentSubscription();
@@ -72,7 +72,13 @@ export default function OverviewPage() {
           <ErrorState onRetry={refetch} />
         ) : (
           <>
-            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+            <div
+              className={
+                canFinanceRead
+                  ? 'grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7'
+                  : 'grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4'
+              }
+            >
               <StatCard
                 title={t('overview.aiCreditsRemaining')}
                 value={formatCredit(Number(credit.data?.available ?? credit.data?.balance ?? 0))}
@@ -96,22 +102,26 @@ export default function OverviewPage() {
                 value={stats.arrivedToday}
                 icon={UserCheck}
               />
-              <StatCard
-                title={t('overview.revenue')}
-                value={formatCurrency(stats.revenue)}
-                icon={Wallet}
-              />
-              <StatCard
-                title={t('overview.adSpend')}
-                value={formatCurrency(stats.adSpend)}
-                icon={Megaphone}
-              />
-              <StatCard
-                title={t('overview.estimatedProfit')}
-                value={formatCurrency(stats.profit)}
-                icon={TrendingUp}
-                subtitle={t('overview.profitFormula')}
-              />
+              {canFinanceRead && (
+                <>
+                  <StatCard
+                    title={t('overview.revenue')}
+                    value={formatCurrency(stats.revenue)}
+                    icon={Wallet}
+                  />
+                  <StatCard
+                    title={t('overview.adSpend')}
+                    value={formatCurrency(stats.adSpend)}
+                    icon={Megaphone}
+                  />
+                  <StatCard
+                    title={t('overview.estimatedProfit')}
+                    value={formatCurrency(stats.profit)}
+                    icon={TrendingUp}
+                    subtitle={t('overview.profitFormula')}
+                  />
+                </>
+              )}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">

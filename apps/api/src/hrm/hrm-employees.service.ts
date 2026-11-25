@@ -1,6 +1,8 @@
+import { PlanPolicy } from '@marketingspa/database';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -19,10 +21,12 @@ import {
   UpdateHrmEmployeeDto,
 } from './dto/employee.dto';
 import { CreateEmployeeAccountDto, ResetEmployeePasswordDto } from './dto/account.dto';
+import type { AuthUser } from '../common/interfaces/auth-user.interface';
+import { assertCanAssignRole, assertCanResetEmployeePassword } from './hrm-role.rbac';
 
 const BCRYPT_ROUNDS = 12;
 
-export type HrmActor = { userId?: string; ipAddress?: string };
+export type HrmActor = { userId?: string; ipAddress?: string; auth?: AuthUser };
 
 const employeeListInclude = {
   branch: true,
@@ -319,9 +323,19 @@ export class HrmEmployeesService {
       where: { organizationId, code: dto.roleCode },
     });
     if (!role) throw new BadRequestException(`Role ${dto.roleCode} không tồn tại`);
+    if (!actor?.auth) {
+      throw new ForbiddenException('Không có thông tin người thao tác');
+    }
+    const self = Boolean(actor.auth.employeeId && actor.auth.employeeId === employeeId);
+    assertCanAssignRole(actor.auth, {
+      organizationId,
+      targetUserId: self ? actor.auth.id : null,
+      targetRoleCode: self ? actor.auth.role : null,
+      nextRoleCode: dto.roleCode,
+    });
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    const user = await this.prisma.user.create({
+    const user = await new PlanPolicy(this.prisma).resource(organizationId, 'users', (tx) => tx.user.count({ where: { organizationId, isActive: true } }), (tx) => tx.user.create({
       data: {
         email: dto.email,
         passwordHash,
@@ -331,7 +345,7 @@ export class HrmEmployeesService {
         employeeId: employee.id,
       },
       include: { role: true },
-    });
+    }));
 
     if (!employee.email) {
       await this.prisma.employee.update({
@@ -369,12 +383,20 @@ export class HrmEmployeesService {
   ) {
     const employee = await this.prisma.employee.findFirst({
       where: { id: employeeId, organizationId },
-      include: { user: true },
+      include: { user: { include: { role: true } } },
     });
     if (!employee) throw new NotFoundException('Nhân viên không tồn tại');
     if (!employee.user) {
       throw new BadRequestException('Nhân viên chưa có tài khoản');
     }
+    if (!actor?.auth) {
+      throw new ForbiddenException('Không có thông tin người thao tác');
+    }
+    assertCanResetEmployeePassword(actor.auth, {
+      organizationId,
+      targetUserId: employee.user.id,
+      targetRoleCode: employee.user.role?.code,
+    });
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     await this.prisma.user.update({

@@ -71,6 +71,7 @@ export class EmployeesController {
     return this.service.update(user.organizationId, id, dto, {
       userId: user.id,
       ipAddress,
+      auth: user,
     });
   }
 

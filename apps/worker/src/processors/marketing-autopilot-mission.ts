@@ -4,6 +4,7 @@
  * All created assets stay DRAFT. Funnel/Email live on Autopilot-owned tables.
  */
 import type { Job } from 'bullmq';
+import { PlanPolicy } from '@marketingspa/database';
 import { AutomationTriggerType, MessageChannel, MessagingCampaignKind, prisma } from '@marketingspa/database';
 import {
   buildFallbackFunnelComplete,
@@ -102,7 +103,7 @@ async function createDraft(
   }
 
   if (type === 'AUTOMATION_DRAFT') {
-    const flow = await prisma.automationFlow.create({
+    const flow = await new PlanPolicy(prisma).resource(user.organizationId, 'flows', (tx) => tx.automationFlow.count({ where: { organizationId: user.organizationId } }), (tx) => tx.automationFlow.create({
       data: {
         organizationId: user.organizationId,
         name: `Autopilot Automation — ${project.name}`.slice(0, 200),
@@ -114,7 +115,7 @@ async function createDraft(
         actions: [{ type: 'DRAFT_STEP', order: 1, text: 'Autopilot draft' }],
         triggerConfig: { source: 'marketing_autopilot_worker', draftOnly: true },
       },
-    });
+    }));
     return {
       adapter: 'AutomationService',
       externalEntityType: 'automation_flow',
@@ -256,6 +257,7 @@ export async function processMarketingAutopilotMission(job: Job) {
     throw new Error(`Invalid mission job payload: ${parsed.error.message}`);
   }
   const { missionId, organizationId } = parsed.data;
+  await new PlanPolicy(prisma).assertFeature(organizationId, 'marketing_autopilot');
 
   const mission = await prisma.marketingMission.findFirst({
     where: { id: missionId, organizationId },

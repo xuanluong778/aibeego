@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AutomationLogStatus, MessageChannel, MessageTemplateApprovalStatus, Prisma } from '@marketingspa/database';
 import { PrismaService } from '../prisma/prisma.service';
@@ -184,7 +185,7 @@ export class AutomationService {
       throw new BadRequestException('Cần quyền automation.campaign.approve để kích hoạt flow');
     }
 
-    const flow = await this.prisma.automationFlow.create({
+    const flow = await new PlanPolicy(this.prisma).resource(organizationId, 'flows', (tx) => tx.automationFlow.count({ where: { organizationId } }), (tx) => tx.automationFlow.create({
       data: {
         organizationId,
         funnelId: dto.funnelId,
@@ -203,7 +204,7 @@ export class AutomationService {
         cooldownMinutes: dto.cooldownMinutes ?? 0,
       },
       include: { messageTemplate: true },
-    });
+    }));
     await this.audit.log({
       organizationId,
       userId,

@@ -31,8 +31,10 @@ const db = new PrismaClient();
 const redis = new Redis('redis://127.0.0.1:18579');
 const cache = new TenantKpiCacheService(redis);
 const audit = new AuditService(db);
-const inventory = new InventoryService(db, audit);
-const sales = new SalesService(db, audit, inventory, cache);
+const { SalesDocumentCodeService } = require('../apps/api/dist/sales/sales-document-code.service');
+const docCodes = new SalesDocumentCodeService(db);
+const inventory = new InventoryService(db, audit, docCodes);
+const sales = new SalesService(db, audit, inventory, docCodes, cache);
 const actors = {};
 let app, base, browser;
 const organizations = [];
@@ -88,10 +90,14 @@ async function start(extra = {}) {
       organizationId: org.id,
       organization: org,
       employee: null,
-      permissions: ['order.read', 'order.write'],
+      permissions: ['order.read', 'sales.inventory.read', 'sales.inventory.write', 'sales.cost.view'],
     };
   }
-  actors.reader = { ...actors.writer, role: 'MANAGER', permissions: ['order.read'] };
+  actors.reader = {
+    ...actors.writer,
+    role: 'MANAGER',
+    permissions: ['order.read', 'sales.inventory.read'],
+  };
   actors.owner = { ...actors.writer, role: 'OWNER', permissions: [] };
   class QaModule {}
   const deps = [

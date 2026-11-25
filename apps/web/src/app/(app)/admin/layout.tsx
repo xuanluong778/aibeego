@@ -7,6 +7,7 @@ import {
   Activity,
   Building2,
   CreditCard,
+  Coins,
   Handshake,
   LayoutDashboard,
   Plug,
@@ -27,6 +28,7 @@ const NAV = [
   { href: '/admin/subscriptions', labelKey: 'admin.nav.subscriptions', icon: CreditCard },
   { href: '/admin/billing', labelKey: 'admin.nav.billing', icon: Shield },
   { href: '/admin/usage', labelKey: 'admin.nav.usage', icon: Activity },
+  { href: '/admin/credit-costs', labelKey: 'admin.nav.creditCosts', icon: Coins },
   { href: '/admin/integrations', labelKey: 'admin.nav.integrations', icon: Plug },
   { href: '/admin/jobs', labelKey: 'admin.nav.jobs', icon: Workflow },
   { href: '/admin/audit', labelKey: 'admin.nav.audit', icon: ScrollText },
@@ -57,8 +59,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <nav className="flex shrink-0 flex-wrap gap-1 lg:w-56 lg:flex-col">
-        {NAV.map(({ href, labelKey, icon: Icon, exact }) => {
-          const active = exact ? pathname === href : pathname.startsWith(href);
+        {NAV.map(item => {
+          const { href, labelKey, icon: Icon } = item;
+          const active = 'exact' in item && item.exact ? pathname === href : pathname.startsWith(href);
           return (
             <Link
               key={href}

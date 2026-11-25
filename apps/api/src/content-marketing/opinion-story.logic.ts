@@ -254,7 +254,7 @@ Trả JSON thuần:
       punchlines: Array.isArray(parsed.punchlines)
         ? parsed.punchlines.slice(0, 8)
         : fallback.punchlines,
-      source: 'ai',
+      source: typeof parsed.content === 'string' && parsed.content.trim() ? 'ai' : 'template',
     };
   } catch {
     return templateGenerateOpinion(dto);

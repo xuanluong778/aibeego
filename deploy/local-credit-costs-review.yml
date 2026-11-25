@@ -1,0 +1,3 @@
+services:
+  api:
+    image: aibeego-api:credit-costs-review-20261122

@@ -86,6 +86,7 @@ export class HrmEmployeesController {
     return this.employees.createAccount(user.organizationId, id, dto, {
       userId: user.id,
       ipAddress,
+      auth: user,
     });
   }
 
@@ -100,6 +101,7 @@ export class HrmEmployeesController {
     return this.employees.resetPassword(user.organizationId, id, dto, {
       userId: user.id,
       ipAddress,
+      auth: user,
     });
   }
 

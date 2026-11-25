@@ -20,18 +20,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCustomers } from '@/hooks/use-queries';
-import { useSalesProducts } from '@/hooks/use-sales';
 import { formatCurrency } from '@/lib/format';
 import { useT } from '@/i18n/i18n-provider';
-import { SALES_ORDER_SOURCES, type SalesOrder } from '@/types/sales';
+import { SALES_ORDER_SOURCES, type SalesOrder, type SalesProduct } from '@/types/sales';
 import type { SalesOrderInput } from '@/hooks/use-sales';
 import { SalesBarcodeScan } from '@/components/sales/sales-barcode-scan';
+import { SalesProductPicker } from '@/components/sales/product-picker';
 
 type Line = {
   key: string;
   productId?: string;
   productName: string;
   sku?: string;
+  unit?: string;
+  model?: string;
+  picked?: SalesProduct | null;
   quantity: number;
   unitPrice: number;
   lineDiscount: number;
@@ -70,6 +73,7 @@ export function SalesOrderFormDialog({
   const [discount, setDiscount] = useState(String(initial?.discount ?? 0));
   const [shippingFee, setShippingFee] = useState(String(initial?.shippingFee ?? 0));
   const [note, setNote] = useState(initial?.note || '');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<Line[]>(
     initial?.items?.length
       ? initial.items.map((it) => ({
@@ -114,9 +118,7 @@ export function SalesOrderFormDialog({
     search: customerSearch || undefined,
     pageSize: '20',
   } as Record<string, string>);
-  const products = useSalesProducts({ page: 1, active: 'true' });
   const customerItems = customers.data?.items ?? [];
-  const productItems = products.data?.items ?? [];
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce(
@@ -137,19 +139,22 @@ export function SalesOrderFormDialog({
     }
   };
 
-  const pickProduct = (key: string, productId: string) => {
-    const p = productItems.find((x) => x.id === productId);
-    if (!p) return;
+  const applyProduct = (key: string, p: SalesProduct | null) => {
     setLines((prev) =>
       prev.map((l) =>
         l.key === key
-          ? {
-              ...l,
-              productId: p.id,
-              productName: p.name,
-              sku: p.sku || undefined,
-              unitPrice: Number(p.price) || 0,
-            }
+          ? p
+            ? {
+                ...l,
+                productId: p.id,
+                productName: p.name,
+                sku: p.sku || undefined,
+                unit: p.unit || undefined,
+                model: p.model || undefined,
+                unitPrice: Number(p.price) || 0,
+                picked: p,
+              }
+            : { ...l, productId: undefined, picked: null }
           : l,
       ),
     );
@@ -167,9 +172,15 @@ export function SalesOrderFormDialog({
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!customerId) return;
+            const nextErrors: Record<string, string> = {};
+            if (!customerId) nextErrors.customer = 'Chọn khách hàng';
+            lines.forEach((l) => {
+              if (!l.productName.trim()) nextErrors[l.key] = 'Chọn hoặc nhập sản phẩm';
+              if (!l.quantity || l.quantity < 1) nextErrors[`${l.key}-qty`] = 'Số lượng phải ≥ 1';
+            });
+            setFieldErrors(nextErrors);
+            if (Object.keys(nextErrors).length) return;
             const validLines = lines.filter((l) => l.productName.trim());
-            if (!validLines.length) return;
             onSubmit({
               customerId,
               customerName: customerName.trim() || undefined,
@@ -199,6 +210,9 @@ export function SalesOrderFormDialog({
                 onChange={(e) => setCustomerSearch(e.target.value)}
                 className="mb-2"
               />
+              {fieldErrors.customer ? (
+                <p role="alert" className="mb-1 text-xs text-destructive">{fieldErrors.customer}</p>
+              ) : null}
               <Select value={customerId || undefined} onValueChange={pickCustomer}>
                 <SelectTrigger>
                   <SelectValue placeholder={t('sales.selectCustomer')} />
@@ -252,28 +266,19 @@ export function SalesOrderFormDialog({
             </div>
             <SalesBarcodeScan
               onFound={(p) => {
-                setLines((prev) => {
-                  const existing = prev.find((l) => l.productId === p.id);
-                  if (existing) {
-                    return prev.map((l) =>
-                      l.productId === p.id ? { ...l, quantity: l.quantity + 1 } : l,
-                    );
-                  }
-                  const blank = prev.find((l) => !l.productId && !l.productName.trim());
-                  const nextLine = {
-                    key: blank?.key || emptyLine().key,
+                setLines((prev) => [
+                  ...prev,
+                  {
+                    ...emptyLine(),
                     productId: p.id,
                     productName: p.name,
                     sku: p.sku || undefined,
-                    quantity: 1,
+                    unit: p.unit || undefined,
+                    model: p.model || undefined,
                     unitPrice: Number(p.price) || 0,
-                    lineDiscount: 0,
-                  };
-                  if (blank) {
-                    return prev.map((l) => (l.key === blank.key ? nextLine : l));
-                  }
-                  return [...prev, nextLine];
-                });
+                    picked: p,
+                  },
+                ]);
               }}
             />
             <div className="space-y-3">
@@ -281,21 +286,29 @@ export function SalesOrderFormDialog({
                 <div key={line.key} className="grid gap-2 rounded-lg border border-white/10 p-3 sm:grid-cols-12">
                   <div className="sm:col-span-4 space-y-1">
                     <Label className="text-xs">{t('sales.product')}</Label>
-                    <Select
-                      value={line.productId || undefined}
-                      onValueChange={(v) => pickProduct(line.key, v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('sales.pickProduct')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {productItems.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name} · {formatCurrency(p.price)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SalesProductPicker
+                      value={
+                        line.picked ||
+                        (line.productId
+                          ? {
+                              id: line.productId,
+                              name: line.productName,
+                              sku: line.sku,
+                              model: line.model,
+                              unit: line.unit,
+                              price: line.unitPrice,
+                              costPrice: 0,
+                              stockQty: 0,
+                              minStockQty: 0,
+                              isActive: true,
+                            }
+                          : null)
+                      }
+                      onChange={(p) => applyProduct(line.key, p)}
+                    />
+                    {fieldErrors[line.key] ? (
+                      <p role="alert" className="text-xs text-destructive">{fieldErrors[line.key]}</p>
+                    ) : null}
                     <Input
                       className="mt-1"
                       placeholder={t('sales.productName')}

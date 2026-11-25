@@ -3,6 +3,8 @@ import { UnrecoverableError } from 'bullmq';
 import type Redis from 'ioredis';
 import { Queue } from 'bullmq';
 import {
+  CreditLedger,
+  CreditError,
   EmailAutomationAction,
   EmailAutomationStatus,
   EmailAutomationTrigger,
@@ -200,7 +202,16 @@ export async function processEmailCampaignSend(job: Job<EmailSendJob>, redis: Re
     const pixel = `${publicApiBase()}/open/${recipient.id}`;
     let html = renderMerge(template.htmlBody, vars);
     const clickBase = `${publicApiBase()}/click/${recipient.id}`;
-    html = rewriteEmailTrackedLinks(html, clickBase, unsub);
+    const clickSignSecret = (
+      process.env.EMAIL_CLICK_SIGNING_SECRET ||
+      process.env.JWT_SECRET ||
+      ''
+    ).trim();
+    html = rewriteEmailTrackedLinks(html, clickBase, unsub, {
+      campaignId,
+      recipientId: recipient.id,
+      clickSignSecret: clickSignSecret || undefined,
+    });
     html += `<p style="font-size:12px;color:#888;margin-top:24px">Nếu không muốn nhận email nữa, <a href="${unsub}">hủy đăng ký</a>.</p>`;
     html += `<img src="${pixel}" width="1" height="1" alt="" />`;
     const text =
@@ -237,7 +248,28 @@ export async function processEmailCampaignSend(job: Job<EmailSendJob>, redis: Re
 
     try {
       await acquireEmailSendRateLimit(redis, provider.name, organizationId);
-      const result = await provider.send(payload);
+      try {
+        await new PlanPolicy(prisma).consume(organizationId, 'emails', `email:${recipient.id}`);
+      } catch (error) {
+        if (!(error instanceof PlanPolicyError)) throw error;
+        await prisma.emailCampaign.updateMany({ where: { id: campaignId, organizationId }, data: { status: EmailCampaignStatus.PAUSED } });
+        await prisma.emailCampaignRecipient.updateMany({ where: { id: recipient.id, organizationId }, data: { status: EmailRecipientStatus.PENDING, lastError: error.code } });
+        return { paused: true, reason: error.code, sent, skipped, failed };
+      }
+      let result;
+      try {
+        result = await new CreditLedger(prisma).runPaidFeature({ organizationId,
+          featureCode: 'email.send', referenceId: `email.campaign:${recipient.id}`,
+          fn: async context => { const sent = await provider.send(payload); context.markProviderStarted(); return sent; },
+        });
+      } catch (error) {
+        if (error instanceof CreditError && error.code === 'INSUFFICIENT_CREDITS') {
+          await prisma.emailCampaign.updateMany({ where: { id: campaignId, organizationId }, data: { status: EmailCampaignStatus.PAUSED } });
+          await prisma.emailCampaignRecipient.updateMany({ where: { id: recipient.id, organizationId }, data: { status: EmailRecipientStatus.PENDING, lastError: error.code } });
+          return { paused: true, reason: error.code, sent, skipped, failed };
+        }
+        throw error;
+      }
       await prisma.$transaction([
         prisma.emailCampaignRecipient.update({
           where: { id: recipient.id },
@@ -298,6 +330,7 @@ export async function processEmailCampaignSend(job: Job<EmailSendJob>, redis: Re
 
 export async function processEmailNotOpenFollowup(job: Job<EmailNotOpenFollowupJob>, redis: Redis) {
   const { organizationId, automationId, recipientId } = job.data;
+  await new PlanPolicy(prisma).assertFeature(organizationId, 'email_automation');
 
   const original = await prisma.emailCampaignRecipient.findFirst({
     where: { id: recipientId, organizationId },
@@ -469,3 +502,4 @@ async function failRecipient(
     }),
   ]);
 }
+import { PlanPolicy, PlanPolicyError } from '@marketingspa/database';

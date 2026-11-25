@@ -536,8 +536,10 @@ export function useCreateSalesReturn() {
   return useMutation({
     mutationFn: (body: {
       orderId: string;
+      idempotencyKey?: string;
       reason?: string;
       note?: string;
+      disposition?: 'RESTOCK' | 'HOLD' | 'SCRAP';
       refundAmount?: number;
       items: Array<{ orderItemId: string; quantity: number; refundAmount?: number }>;
     }) =>
@@ -586,6 +588,7 @@ export function useSalesPurchaseOrders() {
           subtotal: number;
           supplier?: { name: string };
           items?: Array<{
+            id: string;
             productId: string;
             productName: string;
             quantity: number;
@@ -614,12 +617,22 @@ export function useReceivePurchaseOrder() {
   return useMutation({
     mutationFn: (body: {
       id: string;
-      items: Array<{ productId: string; quantity: number; batchCode?: string }>;
+      items: Array<{
+        purchaseOrderItemId?: string;
+        productId?: string;
+        quantity: number;
+        batchCode?: string;
+      }>;
       note?: string;
+      idempotencyKey?: string;
     }) =>
       apiClient(`/sales/purchase-orders/${body.id}/receive`, {
         method: 'POST',
-        body: JSON.stringify({ items: body.items, note: body.note }),
+        body: JSON.stringify({
+          items: body.items,
+          note: body.note,
+          idempotencyKey: body.idempotencyKey,
+        }),
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['sales'] }),
   });

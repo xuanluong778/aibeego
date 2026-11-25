@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import { PlanPolicy } from '@marketingspa/database';
 import { prisma, type PrismaClient } from '@marketingspa/database';
 import {
   collectRagWebsite,
@@ -53,6 +54,7 @@ export async function runRagSourceSync(
     failed = 0;
   const errors: string[] = [];
   const sink: RagCollectSink = async (item, error) => {
+    if (item && !error) await new PlanPolicy(db).consume(data.organizationId, 'sourcePages', `source:${data.runId}:${item.externalId}`);
     await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM rag_kb_sources WHERE id=${data.sourceId} FOR UPDATE`;
       if (!(await tx.ragKbSource.findFirst({ where }))) throw new RagSourceCancelled();

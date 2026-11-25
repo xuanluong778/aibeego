@@ -181,6 +181,10 @@ export class AuthController {
     }
 
     const result = await this.authService.refresh(refreshToken, authMeta(req, ip));
+    const holdMs = Number(process.env.AUTH_SESSION_QA_HOLD_MS || 0);
+    if (holdMs > 0 && req.headers['x-auth-session-qa-hold'] === '1') {
+      await new Promise((resolve) => setTimeout(resolve, holdMs));
+    }
     setRefreshCookie(res, result.refreshToken, this.config);
     const { refreshToken: _rt, ...body } = result;
     return body;

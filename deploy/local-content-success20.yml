@@ -1,0 +1,7 @@
+services:
+  api:
+    image: aibeego-api:content-success20-20261122
+  web:
+    image: aibeego-web:content-success20-20261122
+  worker:
+    image: aibeego-worker:content-success20-20261122

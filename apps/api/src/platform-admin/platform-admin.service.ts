@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SubscriptionStatus } from '@marketingspa/database';
+import { Prisma, SubscriptionStatus, assertPlanResource } from '@marketingspa/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
@@ -382,6 +382,8 @@ export class PlatformAdminService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      if (dto.isActive && !before.isActive) await assertPlanResource(tx, before.organizationId, 'users', () =>
+        tx.user.count({ where: { organizationId: before.organizationId, isActive: true } }));
       const after = await tx.user.update({
         where: { id },
         data: { isActive: dto.isActive },

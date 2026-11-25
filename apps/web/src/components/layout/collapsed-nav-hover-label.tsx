@@ -26,11 +26,7 @@ type CollapsedNavHoverLabelProps = {
  * Collapsed Main App Sidebar: hover icon → slide-right label via fixed portal
  * (avoids overflow clipping; does not change sidebar width).
  */
-export function CollapsedNavHoverLabel({
-  label,
-  enabled,
-  children,
-}: CollapsedNavHoverLabelProps) {
+export function CollapsedNavHoverLabel({ label, enabled, children }: CollapsedNavHoverLabelProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipId = useId();
   const [mounted, setMounted] = useState(false);
@@ -60,9 +56,14 @@ export function CollapsedNavHoverLabel({
     };
     window.addEventListener('scroll', onScrollOrResize, true);
     window.addEventListener('resize', onScrollOrResize);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onScrollOrResize();
+    };
+    window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('scroll', onScrollOrResize, true);
       window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('keydown', onKeyDown);
     };
   }, [open, updatePos]);
 

@@ -20,6 +20,7 @@ import {
 import { formatDateTime } from '@/lib/format';
 import { formatMutationError } from '@/lib/format-mutation-error';
 import { useT } from '@/i18n/i18n-provider';
+import { hasPermission, useCurrentUser } from '@/hooks/use-auth';
 
 type Line = {
   id: string;
@@ -33,6 +34,9 @@ type Line = {
 
 export default function SalesStocktakePage() {
   const t = useT();
+  const { data: user } = useCurrentUser();
+  const canStocktake = hasPermission(user, 'sales.stocktake.write');
+  const canAdjustStock = hasPermission(user, 'sales.inventory.write');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -74,6 +78,7 @@ export default function SalesStocktakePage() {
   return (
     <div className="space-y-6 pb-8">
       <PageHeader title={t('nav.salesStocktake')} description={t('sales.stocktakeDesc')}>
+        {canStocktake ? (
         <Button
           type="button"
           className="bg-[#F97316] text-white"
@@ -96,6 +101,7 @@ export default function SalesStocktakePage() {
         >
           {t('sales.newStocktake')}
         </Button>
+        ) : null}
       </PageHeader>
 
       {msg ? <p className="text-sm text-emerald-300">{msg}</p> : null}
@@ -104,6 +110,7 @@ export default function SalesStocktakePage() {
       <div className="rounded-xl border border-white/10 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-white">{t('sales.reconcileTitle')}</h2>
+          {canAdjustStock ? (
           <Button
             type="button"
             size="sm"
@@ -121,6 +128,7 @@ export default function SalesStocktakePage() {
           >
             {t('sales.reconcileFix')}
           </Button>
+          ) : null}
         </div>
         {reconcile.isLoading ? <LoadingState /> : null}
         {reconcile.data ? (
@@ -146,6 +154,9 @@ export default function SalesStocktakePage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-white">{t('sales.stocktakeList')}</h2>
+          <p className="text-xs text-muted-foreground">
+            Phiếu tải đủ sản phẩm trong phạm vi và ghi rõ số lượng. Không cắt danh mục ở 500.
+          </p>
           {list.isLoading ? <LoadingState /> : null}
           {list.isError ? <ErrorState onRetry={() => void list.refetch()} /> : null}
           {!list.isLoading && !items.length ? (
@@ -187,6 +198,19 @@ export default function SalesStocktakePage() {
                 <h2 className="font-mono text-white">{st.code}</h2>
                 <Badge>{st.status}</Badge>
               </div>
+              <p className="text-sm text-muted-foreground">
+                Phạm vi:{' '}
+                {(st as { scope?: string }).scope === 'SELECTED'
+                  ? 'sản phẩm đã chọn'
+                  : (st as { scope?: string }).scope === 'ALL_ACTIVE'
+                    ? 'toàn bộ sản phẩm đang bán'
+                    : 'theo phiếu'}
+                {' · '}
+                {(st as { productCount?: number }).productCount ?? st.lines?.length ?? 0} sản phẩm
+                {(st as { catalogMatched?: number }).catalogMatched != null
+                  ? ` / khớp danh mục ${(st as { catalogMatched?: number }).catalogMatched}`
+                  : ''}
+              </p>
               {isDraft ? (
                 <SalesBarcodeScan
                   onFound={(p) => {
@@ -262,7 +286,7 @@ export default function SalesStocktakePage() {
               <p className="text-xs text-muted-foreground">
                 {t('sales.varianceTotal')}: {varianceTotal}
               </p>
-              {isDraft ? (
+              {isDraft && canStocktake ? (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"

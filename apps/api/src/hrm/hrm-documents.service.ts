@@ -1,3 +1,4 @@
+import { writePlanFile } from '../common/uploads/plan-storage';
 import {
   BadRequestException,
   Injectable,
@@ -130,6 +131,7 @@ export class HrmDocumentsService {
     const absPath = join(dir, filename);
     const fileKey = `hrm/${organizationId}/${filename}`;
 
+    await writePlanFile(this.prisma, organizationId, absPath, file.buffer?.length ?? file.size ?? 0, async () => {
     if (file.buffer) {
       writeFileSync(absPath, file.buffer);
     } else if (file.stream) {
@@ -137,6 +139,8 @@ export class HrmDocumentsService {
     } else if (file.path) {
       copyFileSync(file.path, absPath);
     }
+
+    });
 
     const storedPath = `/uploads/hrm/${organizationId}/${filename}`;
 

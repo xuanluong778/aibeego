@@ -78,6 +78,9 @@ export interface SalesOrder {
   total: number;
   amountPaid?: number;
   amountDue?: number;
+  amountCollected?: number;
+  amountRefunded?: number;
+  amountRefundable?: number;
   paymentMethod?: string | null;
   paidAt?: string | null;
   transactionRef?: string | null;

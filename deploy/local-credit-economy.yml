@@ -1,0 +1,7 @@
+services:
+  api:
+    image: aibeego-api:credit-economy-20261122
+  worker:
+    image: aibeego-worker:credit-economy-20261122
+  web:
+    image: aibeego-web:credit-economy-20261122

@@ -1,3 +1,4 @@
+import { seedSubscriptionCatalog } from './seed-subscription-catalog';
 import {
   PrismaClient,
   Gender,
@@ -222,70 +223,7 @@ async function main() {
     },
   });
 
-  const mspFeatures = [
-    'crm_full',
-    'marketing_automation',
-    'ads_performance',
-    'chatbot_cskh',
-    'content_auto_post',
-    'hrm',
-    'messaging_campaigns',
-    'reports',
-  ];
-
-  await prisma.subscriptionPlan.upsert({
-    where: { code: 'msp-pro-6m' },
-    update: {
-      name: 'Ai Bee Go Pro — 6 tháng',
-      priceMonthly: new Decimal(650000),
-      priceVnd: new Decimal(3900000),
-      durationMonths: 6,
-      highlightLabel: null,
-      savingsAmount: null,
-      sortOrder: 10,
-      features: mspFeatures,
-      isActive: true,
-    },
-    create: {
-      code: 'msp-pro-6m',
-      name: 'Ai Bee Go Pro — 6 tháng',
-      priceMonthly: new Decimal(650000),
-      priceVnd: new Decimal(3900000),
-      durationMonths: 6,
-      sortOrder: 10,
-      creditsIncluded: 0,
-      features: mspFeatures,
-      isActive: true,
-    },
-  });
-
-  await prisma.subscriptionPlan.upsert({
-    where: { code: 'msp-pro-12m' },
-    update: {
-      name: 'Ai Bee Go Pro — 12 tháng',
-      priceMonthly: new Decimal(458333),
-      priceVnd: new Decimal(5500000),
-      durationMonths: 12,
-      highlightLabel: 'Khuyên dùng',
-      savingsAmount: new Decimal(2300000),
-      sortOrder: 20,
-      features: mspFeatures,
-      isActive: true,
-    },
-    create: {
-      code: 'msp-pro-12m',
-      name: 'Ai Bee Go Pro — 12 tháng',
-      priceMonthly: new Decimal(458333),
-      priceVnd: new Decimal(5500000),
-      durationMonths: 12,
-      highlightLabel: 'Khuyên dùng',
-      savingsAmount: new Decimal(2300000),
-      sortOrder: 20,
-      creditsIncluded: 0,
-      features: mspFeatures,
-      isActive: true,
-    },
-  });
+  await seedSubscriptionCatalog(prisma);
 
   // --- Organization (1 spa) ---
   const org = await prisma.organization.upsert({

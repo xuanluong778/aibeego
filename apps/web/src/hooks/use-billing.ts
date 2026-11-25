@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import type { SubscriptionDisplay } from '@marketingspa/shared';
+import type { PlanDefinition } from '@marketingspa/shared';
 
 export type BillingPlan = {
+  bonusMonths?: number;
+  totalUsageMonths?: number;
+  entitlement?: PlanDefinition | null;
   id: string;
   code: string;
   name: string;
@@ -16,6 +20,14 @@ export type BillingPlan = {
   features: string[] | unknown;
   isActive: boolean;
 };
+
+export function usePlanEntitlements() {
+  return useQuery({ queryKey: ['billing', 'entitlements'], queryFn: () => apiClient<{
+    tier: string | null; features: string[]; limits: PlanDefinition['limits'] | null;
+    monthlyCredits: number; legacy: boolean;
+    scheduled: Array<{ name: string; startsAt: string; endsAt: string }>;
+  }>('/billing/entitlements') });
+}
 
 export type PaymentOrder = {
   id: string;
@@ -38,6 +50,8 @@ export type PaymentOrder = {
   reviewNote: string | null;
   createdAt: string;
   plan?: {
+    bonusMonths?: number;
+    totalUsageMonths?: number;
     code: string;
     name: string;
     durationMonths: number;

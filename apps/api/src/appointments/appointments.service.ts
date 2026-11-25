@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   AppointmentStatus,
@@ -135,7 +136,7 @@ export class AppointmentsService {
               })
             : null);
         if (!customer) {
-          customer = await this.prisma.customer.create({
+          customer = await new PlanPolicy(this.prisma).resource(organizationId, 'customers', (tx) => tx.customer.count({ where: { organizationId, isActive: true } }), (tx) => tx.customer.create({
             data: {
               organizationId,
               branchId: dto.branchId ?? lead.branchId,
@@ -145,7 +146,7 @@ export class AppointmentsService {
               leadSourceId: lead.leadSourceId,
               source: 'appointment_from_lead',
             },
-          });
+          }));
         }
         await this.prisma.lead.update({
           where: { id: lead.id },
@@ -437,7 +438,7 @@ export class AppointmentsService {
       if (!template) {
         throw new NotFoundException('Chưa có mẫu tin nhắn automation');
       }
-      flow = await this.prisma.automationFlow.create({
+      flow = await new PlanPolicy(this.prisma).resource(organizationId, 'flows', (tx) => tx.automationFlow.count({ where: { organizationId } }), (tx) => tx.automationFlow.create({
         data: {
           organizationId,
           messageTemplateId: template.id,
@@ -446,7 +447,7 @@ export class AppointmentsService {
           triggerConfig: { hoursBefore: 24 },
         },
         include: { messageTemplate: true },
-      });
+      }));
     }
 
     const scheduledAt = appt.scheduledAt;

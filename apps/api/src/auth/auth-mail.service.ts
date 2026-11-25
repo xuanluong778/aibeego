@@ -1,6 +1,9 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer, { type Transporter } from 'nodemailer';
+import { redactEmailForLog, smtpFailureCode } from './auth-mail.redact';
+
+type AuthMailKind = 'registration-otp' | 'verify-email' | 'reset-password';
 
 @Injectable()
 export class AuthMailService {
@@ -68,7 +71,7 @@ export class AuthMailService {
       type === 'verify-email' ? 'Xác minh email MarketingSpa' : 'Đặt lại mật khẩu MarketingSpa';
     const text = `Xin chào,\n\nMở liên kết sau (có hiệu lực giới hạn):\n${link}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`;
 
-    await this.dispatch(email, subject, text);
+    await this.dispatch(email, subject, text, { kind: type, html: undefined });
   }
 
   async sendRegistrationOtp(email: string, otp: string, name: string): Promise<void> {
@@ -89,31 +92,36 @@ export class AuthMailService {
       <p style="color:#666">Nếu bạn không yêu cầu đăng ký, hãy bỏ qua email này.</p>
     `;
 
-    await this.dispatch(email, subject, text, { html, debugOtp: otp, requireSmtp: true });
+    await this.dispatch(email, subject, text, {
+      kind: 'registration-otp',
+      html,
+      requireSmtp: true,
+    });
   }
 
   private async dispatch(
     email: string,
     subject: string,
     text: string,
-    opts?: { html?: string; debugOtp?: string; requireSmtp?: boolean },
+    opts: { kind: AuthMailKind; html?: string; requireSmtp?: boolean },
   ): Promise<void> {
+    const toLog = redactEmailForLog(email);
     const allowDevFallback =
       (this.config.get<string>('AUTH_OTP_DEV_FALLBACK') || '').trim() === 'true' ||
       (this.config.get<string>('NODE_ENV') || '').trim() === 'development';
 
     if (!this.smtpConfigured()) {
-      if (opts?.requireSmtp && !allowDevFallback) {
-        this.logger.error(`[mail] SMTP chưa cấu hình — không thể gửi OTP tới ${email}`);
+      if (opts.requireSmtp && !allowDevFallback) {
+        this.logger.error(
+          `[mail:smtp-missing] kind=${opts.kind} to=${toLog} status=503`,
+        );
         throw new ServiceUnavailableException(
           'Hệ thống chưa cấu hình gửi email. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.',
         );
       }
       this.logger.warn(
-        `[mail:dev-fallback] SMTP chưa cấu hình — to=${email} subject=${subject}` +
-          (opts?.debugOtp ? ` otp=${opts.debugOtp}` : ''),
+        `[mail:dev-fallback] kind=${opts.kind} to=${toLog} smtp=missing status=skipped`,
       );
-      this.logger.log(text);
       return;
     }
 
@@ -125,11 +133,10 @@ export class AuthMailService {
         text,
         html: opts?.html,
       });
-      this.logger.log(`[mail:sent] to=${email} subject=${subject}`);
+      this.logger.log(`[mail:sent] kind=${opts.kind} to=${toLog} status=ok`);
     } catch (e) {
-      this.logger.error(
-        `[mail:fail] to=${email} ${e instanceof Error ? e.message : String(e)}`,
-      );
+      const code = smtpFailureCode(e);
+      this.logger.error(`[mail:fail] kind=${opts.kind} to=${toLog} status=fail code=${code}`);
       throw new ServiceUnavailableException(
         'Không gửi được email OTP. Vui lòng thử lại sau hoặc kiểm tra cấu hình SMTP.',
       );

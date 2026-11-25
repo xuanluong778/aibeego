@@ -320,7 +320,9 @@ function WorkManagementBoard() {
       list = list.filter((t) => t.priority === priorityFilter);
     }
     if (assigneeFilter !== 'all') {
-      list = list.filter((t) => t.assignees.some((a) => a.id === assigneeFilter));
+      list = list.filter((t) =>
+        (t.assignees ?? []).some((a) => a?.id === assigneeFilter),
+      );
     }
     list = list.filter((task) => matchesWorkDeadline(task, deadlineFilter));
     return list;
@@ -419,8 +421,8 @@ function WorkManagementBoard() {
       title: task.title,
       description: task.description || '',
       assignerId: task.assignerId || '',
-      assigneeIds: task.assignees.map((a) => a.id),
-      watcherIds: task.watchers.map((w) => w.id),
+      assigneeIds: (task.assignees ?? []).filter((a) => a?.id).map((a) => a.id),
+      watcherIds: (task.watchers ?? []).filter((w) => w?.id).map((w) => w.id),
       startDate: task.startDate || '',
       deadline: task.deadline || '',
       priority: task.priority || 'MEDIUM',
@@ -1069,8 +1071,8 @@ function WorkManagementBoard() {
                 multiple={false}
                 placeholder="Gõ tên, mã hoặc email để tìm..."
                 initialEmployees={
-                  editTask?.assigner
-                    ? [{ id: editTask.assigner.id, name: editTask.assigner.name }]
+                  editTask?.assigner?.id
+                    ? [{ id: editTask.assigner.id, name: editTask.assigner.name ?? '—' }]
                     : []
                 }
               />
@@ -1081,7 +1083,9 @@ function WorkManagementBoard() {
                 multiple={true}
                 placeholder="Gõ tên, mã hoặc email..."
                 initialEmployees={
-                  editTask?.assignees?.map((a) => ({ id: a.id, name: a.name })) ?? []
+                  editTask?.assignees
+                    ?.filter((a) => a?.id)
+                    .map((a) => ({ id: a.id, name: a.name ?? '—' })) ?? []
                 }
               />
               <WorkEmployeePicker
@@ -1091,7 +1095,9 @@ function WorkManagementBoard() {
                 multiple={true}
                 placeholder="Gõ tên, mã hoặc email..."
                 initialEmployees={
-                  editTask?.watchers?.map((w) => ({ id: w.id, name: w.name })) ?? []
+                  editTask?.watchers
+                    ?.filter((w) => w?.id)
+                    .map((w) => ({ id: w.id, name: w.name ?? '—' })) ?? []
                 }
               />
             </div>

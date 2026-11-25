@@ -1,89 +1,59 @@
 /**
- * SSRF-safe URL validation for policy import (throws CrawlValidationError).
+ * Facebook policy import — wrapper quanh @marketingspa/shared/ssrf-fetch (throws CrawlValidationError).
  */
-import { lookup } from 'dns/promises';
-import { isIP } from 'net';
+import {
+  assertPublicHttpUrl as sharedAssertPublicHttpUrl,
+  fetchPublicHtmlSafe as sharedFetchPublicHtmlSafe,
+  FetchPublicError,
+  SsrfValidationError,
+} from '@marketingspa/shared/dist/ssrf-fetch';
 import { CrawlValidationError } from '../../chatbot-cskh/utils/website-crawl.util';
 
-function ipv4ToInt(ip: string): number {
-  return ip.split('.').reduce((acc, oct) => (acc << 8) + Number(oct), 0) >>> 0;
+function mapSsrfToCrawlValidation(e: SsrfValidationError): CrawlValidationError {
+  switch (e.code) {
+    case 'EMPTY_URL':
+      return new CrawlValidationError('URL không được để trống.');
+    case 'INVALID_URL':
+      return new CrawlValidationError('URL không hợp lệ.');
+    case 'BAD_SCHEME':
+      return new CrawlValidationError('URL phải bắt đầu bằng http:// hoặc https://');
+    case 'USERINFO':
+      return new CrawlValidationError('URL không được chứa thông tin đăng nhập.');
+    case 'DNS_FAILED':
+      return new CrawlValidationError('Không phân giải được tên miền.');
+    case 'PRIVATE_IP':
+    case 'LOCALHOST':
+    case 'METADATA':
+      return new CrawlValidationError('Không quét URL nội bộ.');
+    default:
+      return new CrawlValidationError(e.message);
+  }
 }
 
-function isPrivateOrReservedIp(ip: string): boolean {
-  const v = isIP(ip);
-  if (v === 4) {
-    const n = ipv4ToInt(ip);
-    const ranges: Array<[number, number]> = [
-      [ipv4ToInt('0.0.0.0'), ipv4ToInt('0.255.255.255')],
-      [ipv4ToInt('10.0.0.0'), ipv4ToInt('10.255.255.255')],
-      [ipv4ToInt('127.0.0.0'), ipv4ToInt('127.255.255.255')],
-      [ipv4ToInt('169.254.0.0'), ipv4ToInt('169.254.255.255')],
-      [ipv4ToInt('172.16.0.0'), ipv4ToInt('172.31.255.255')],
-      [ipv4ToInt('192.168.0.0'), ipv4ToInt('192.168.255.255')],
-      [ipv4ToInt('100.64.0.0'), ipv4ToInt('100.127.255.255')],
-      [ipv4ToInt('224.0.0.0'), ipv4ToInt('255.255.255.255')],
-    ];
-    return ranges.some(([a, b]) => n >= a && n <= b);
+function mapFetchToCrawlValidation(e: FetchPublicError): CrawlValidationError {
+  switch (e.code) {
+    case 'TIMEOUT':
+      return new CrawlValidationError('Hết thời gian chờ khi tải trang.');
+    case 'TOO_LARGE':
+      return new CrawlValidationError('Trang quá lớn để phân tích.');
+    case 'TOO_MANY_REDIRECTS':
+      return new CrawlValidationError('Quá nhiều lần redirect.');
+    case 'BAD_REDIRECT':
+      return new CrawlValidationError('Redirect thiếu Location.');
+    case 'HTTP_ERROR':
+      return new CrawlValidationError(e.message);
+    default:
+      return new CrawlValidationError(e.message);
   }
-  if (v === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === '::1' || lower === '::') return true;
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA
-    if (lower.startsWith('fe80')) return true; // link-local
-    if (lower.startsWith('ff')) return true; // multicast
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped?.[1]) return isPrivateOrReservedIp(mapped[1]);
-    // Public IPv6 is allowed
-    return false;
-  }
-  return true;
 }
 
 export async function assertPublicHttpUrl(raw: string): Promise<URL> {
-  const trimmed = (raw || '').trim();
-  if (!trimmed) throw new CrawlValidationError('URL không được để trống.');
-
-  let parsed: URL;
   try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new CrawlValidationError('URL không hợp lệ.');
+    return await sharedAssertPublicHttpUrl(raw, { skipCommerceHostBlock: true });
+  } catch (e) {
+    if (e instanceof SsrfValidationError) throw mapSsrfToCrawlValidation(e);
+    throw e;
   }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new CrawlValidationError('URL phải bắt đầu bằng http:// hoặc https://');
-  }
-  if (parsed.username || parsed.password) {
-    throw new CrawlValidationError('URL không được chứa thông tin đăng nhập.');
-  }
-
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
-    throw new CrawlValidationError('Không quét URL nội bộ.');
-  }
-  if (host === 'metadata.google.internal' || host.endsWith('.internal')) {
-    throw new CrawlValidationError('Không quét URL nội bộ.');
-  }
-
-  if (isIP(host)) {
-    if (isPrivateOrReservedIp(host)) {
-      throw new CrawlValidationError('Không quét URL nội bộ.');
-    }
-  } else {
-    let records: Array<{ address: string }>;
-    try {
-      records = await lookup(host, { all: true, verbatim: true });
-    } catch {
-      throw new CrawlValidationError('Không phân giải được tên miền.');
-    }
-    for (const rec of records) {
-      if (isPrivateOrReservedIp(rec.address)) {
-        throw new CrawlValidationError('Không quét URL nội bộ.');
-      }
-    }
-  }
-
-  return parsed;
 }
 
 export async function fetchPublicHtmlSafe(
@@ -95,93 +65,27 @@ export async function fetchPublicHtmlSafe(
     userAgent?: string;
   },
 ): Promise<{ finalUrl: string; title: string; text: string; html: string }> {
-  const timeoutMs = opts?.timeoutMs ?? 12_000;
-  const maxBytes = opts?.maxBytes ?? 1_500_000;
-  const maxRedirects = opts?.maxRedirects ?? 3;
-  const userAgent =
-    opts?.userAgent ??
-    'Mozilla/5.0 (compatible; AiBeeGo-PolicyImporter/1.0)';
-
-  let current = await assertPublicHttpUrl(rawUrl);
-  let redirects = 0;
-
-  for (let hop = 0; hop <= maxRedirects; hop++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      response = await fetch(current.toString(), {
-        method: 'GET',
-        redirect: 'manual',
-        headers: {
-          'User-Agent': userAgent,
-          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-        signal: controller.signal,
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      throw new CrawlValidationError(
-        e instanceof Error && e.name === 'AbortError'
-          ? 'Hết thời gian chờ khi tải trang.'
-          : e instanceof Error
-            ? e.message
-            : 'Không tải được trang.',
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const loc = response.headers.get('location');
-      if (!loc) throw new CrawlValidationError('Redirect thiếu Location.');
-      redirects += 1;
-      if (redirects > maxRedirects) {
-        throw new CrawlValidationError('Quá nhiều lần redirect.');
-      }
-      current = await assertPublicHttpUrl(new URL(loc, current).toString());
-      continue;
-    }
-
-    if (!response.ok) {
-      throw new CrawlValidationError(`Máy chủ trả HTTP ${response.status}.`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new CrawlValidationError('Không đọc được nội dung trang.');
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        total += value.byteLength;
-        if (total > maxBytes) {
-          try {
-            await reader.cancel();
-          } catch {
-            /* ignore */
-          }
-          throw new CrawlValidationError('Trang quá lớn để phân tích.');
-        }
-        chunks.push(value);
-      }
-    }
-
-    const html = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
-    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    const title = (titleMatch?.[1] || current.hostname).replace(/\s+/g, ' ').trim();
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 20_000);
-
-    return { finalUrl: current.toString(), title, text, html };
+  try {
+    const fetched = await sharedFetchPublicHtmlSafe(rawUrl, {
+      timeoutMs: opts?.timeoutMs ?? 12_000,
+      maxBytes: opts?.maxBytes ?? 1_500_000,
+      maxRedirects: opts?.maxRedirects ?? 3,
+      skipCommerceHostBlock: true,
+      includeHtml: true,
+      preserveScriptTagsInHtml: true,
+      userAgent: opts?.userAgent ?? 'Mozilla/5.0 (compatible; AiBeeGo-PolicyImporter/1.0)',
+      maxExtractChars: 20_000,
+      minExtractChars: 0,
+    });
+    return {
+      finalUrl: fetched.finalUrl,
+      title: fetched.title,
+      text: fetched.text,
+      html: fetched.html ?? '',
+    };
+  } catch (e) {
+    if (e instanceof SsrfValidationError) throw mapSsrfToCrawlValidation(e);
+    if (e instanceof FetchPublicError) throw mapFetchToCrawlValidation(e);
   }
-
-  throw new CrawlValidationError('Quá nhiều lần redirect.');
+  throw new CrawlValidationError('Không tải được trang.');
 }

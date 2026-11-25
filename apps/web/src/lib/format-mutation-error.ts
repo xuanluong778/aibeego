@@ -18,6 +18,9 @@ export function formatMutationError(
     if (error.statusCode === 401) {
       return tr('validation.sessionExpired');
     }
+    if (error.statusCode === 403) {
+      return error.message || 'Bạn không có quyền thực hiện thao tác này.';
+    }
     if (error.message === 'Validation failed' && error.statusCode === 400) {
       return fallback || tr('validation.validationFailed');
     }

@@ -20,11 +20,6 @@ export class LandingPagesPublicController {
   ) {}
 
   private clientIp(req: Request): string {
-    const xf = req.headers['x-forwarded-for'];
-    if (typeof xf === 'string' && xf.trim()) {
-      const first = xf.split(',')[0]?.trim() || '';
-      if (first) return first.slice(0, 64);
-    }
     return (req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 64);
   }
 
@@ -73,6 +68,17 @@ export class LandingPagesPublicController {
   @Get('preview/:token')
   getByPreviewToken(@Param('token') token: string, @Req() req: Request) {
     return this.service.getPublicByPreviewToken(token, this.clientIp(req));
+  }
+
+  @Get(':slug/cache-scope')
+  @Header('Cache-Control', 'public, max-age=0, s-maxage=60')
+  async getCacheScope(
+    @Param('slug') slug: string,
+    @Query('organizationId') organizationId?: string,
+    @Req() req?: Request,
+  ) {
+    const org = await this.service.domainOrganization(req?.headers.host || '', slug, organizationId);
+    return this.service.getPublicCacheScope(slug, org);
   }
 
   @Get(':slug')

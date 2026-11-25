@@ -1,0 +1,106 @@
+// Candidate API image + isolated QA database only; provider calls are simulated.
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const req=require('node:module').createRequire('/app/package.json');
+process.env.DATABASE_URL='postgresql://planqa:planqa-local-only@subscription-postgres:5432/plan_tiers_qa_v2?schema=public';
+req('reflect-metadata');
+const {prisma:db,CreditLedger,creditCallContext}=req('@marketingspa/database');
+const {CREDIT_PRICING,buildPlanCatalog,aiCreditUnits,creditFeatureForPath,billingAnniversary,transcriptionCreditAmount}=req('@marketingspa/shared');
+const {CreditService}=req('/app/dist/credit/credit.service');
+const {OpenAiService}=req('/app/dist/openai/openai.service');
+const {CreditContextInterceptor}=req('/app/dist/openai/credit-context.interceptor');
+const {planBilledChat}=req('/app/dist/chatbot-cskh/utils/plan-billed-chat');
+const {lastValueFrom,defer}=req('rxjs');
+let n=0,calls=0,status=200;const stamp=Date.now();
+const realFetch=global.fetch;
+global.fetch=async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:'fixture'}}]}),{status});};
+const credit=new CreditService(db),ledger=new CreditLedger(db);
+const config={get:key=>({OPENAI_API_KEY:'fixture-only',OPENAI_MODEL:'gpt-4o-mini',OPENAI_BASE_URL:'https://provider.invalid'}[key])};
+const ai=new OpenAiService(config,credit);
+const msg={messages:[{role:'user',content:'Fixture'}],maxTokens:100};
+async function fixture(code='abg-pro-1m'){
+  const org=await db.organization.create({data:{name:'Credit economy QA',slug:`credit-economy-${stamp}-${++n}`}});
+  const plan=await db.subscriptionPlan.findUniqueOrThrow({where:{code}});
+  const start=new Date();await db.subscription.create({data:{organizationId:org.id,planId:plan.id,status:'ACTIVE',currentPeriodStart:start,currentPeriodEnd:billingAnniversary(start,1)}});
+  await ledger.getBalance(org.id);return org.id;
+}
+const scope=(org,code,fn)=>creditCallContext.run({organizationId:org,featureCode:code,referenceId:`qa:${stamp}:${++n}`},fn);
+async function cost(org,fn){const before=await ledger.getBalance(org);const result=await fn();const after=await ledger.getBalance(org);return {amount:before.balance-after.balance,result};}
+async function main(){
+  const {Module,Global}=req('@nestjs/common'),{NestFactory}=req('@nestjs/core'),{ConfigModule}=req('@nestjs/config');
+  const {PrismaService}=req('/app/dist/prisma/prisma.service');
+  class FixtureDatabase{};Global()(FixtureDatabase);Module({providers:[{provide:PrismaService,useValue:db}],exports:[PrismaService]})(FixtureDatabase);
+  class FixtureApp{};Module({imports:[ConfigModule.forRoot({isGlobal:true,ignoreEnvFile:true}),FixtureDatabase,
+    req('/app/dist/openai/openai.module').OpenAiModule,req('/app/dist/credit/credit.module').CreditModule]})(FixtureApp);
+  const app=await NestFactory.createApplicationContext(FixtureApp,{logger:false});
+  assert(app.get(OpenAiService));assert(app.get(CreditService));await app.close();
+  for(const plan of buildPlanCatalog())await db.subscriptionPlan.upsert({where:{code:plan.code},create:plan,update:plan});
+  for(const p of CREDIT_PRICING)await db.creditFeaturePricing.upsert({where:{featureCode:p.featureCode},create:{...p,isActive:true},update:{...p,isActive:true}});
+  const org=await fixture(),audit=[];
+  for(const p of CREDIT_PRICING.filter(p=>!['content_ai.image','video.transcribe','email.send','chatbot.reply','ai.vision'].includes(p.featureCode))){
+    const used=await cost(org,()=>scope(org,p.featureCode,()=>ai.chatCompletion(msg)));
+    assert.equal(used.amount,p.creditCost,p.featureCode);audit.push({feature:p.featureCode,charged:used.amount});
+  }
+  const nested=await cost(org,()=>scope(org,'assistant.chat',()=>credit.runPaidFeature({organizationId:org,featureCode:'assistant.chat',referenceId:`outer:${stamp}`,fn:()=>ai.chatCompletion(msg)})));
+  assert.equal(nested.amount,20,'An existing outer charge must not be charged again by the provider gateway');
+  const multi=await cost(org,()=>scope(org,'assistant.chat',()=>credit.runPaidFeature({organizationId:org,featureCode:'assistant.chat',referenceId:`outer.multi:${stamp}`,fn:async()=>{await ai.chatCompletion(msg);return ai.chatCompletion(msg);}})));
+  assert.equal(multi.amount,40,'Additional provider calls in a workflow are billed');
+  const vision=await cost(org,()=>scope(org,'ai.analysis',()=>ai.chatCompletionVision({messages:[{role:'user',content:[{type:'text',text:'Read image'},{type:'image_url',image_url:{url:'data:image/png;base64,'+'A'.repeat(1000000)}}]}],maxTokens:100})));
+  assert.equal(vision.amount,60,'Image bytes are not counted as text tokens');
+  audit.push({feature:'ai.vision',charged:60});
+  const chatbot=planBilledChat(db,org,()=>ai.chatCompletion(msg));
+  const botUsed=await cost(org,async()=>{await chatbot('a');await chatbot('b');});
+  assert.equal(botUsed.amount,12,'Each actual chatbot reply has its own reference');
+  audit.push({feature:'chatbot.reply',charged:6,nestedDoubleCharge:false});
+  const long=await cost(org,()=>scope(org,'content_ai.generate',()=>ai.chatCompletion({messages:[{role:'user',content:'a'.repeat(30000)}],maxTokens:500})));
+  assert(long.amount>40,'Long prompts cost more');
+  const premium=await cost(org,()=>scope(org,'content_ai.generate',()=>ai.chatCompletion({...msg,model:'gpt-4o'})));
+  assert(premium.amount>40,'More expensive models cost more');
+  const beforeFailure=await ledger.getBalance(org);status=503;
+  await assert.rejects(scope(org,'content_ai.generate',()=>ai.chatCompletion(msg)));
+  status=200;assert.equal((await ledger.getBalance(org)).balance,beforeFailure.balance,'Rejected provider call releases reservation');
+  const acceptedBefore=await ledger.getBalance(org);
+  await assert.rejects(scope(org,'assistant.chat',()=>credit.runPaidFeature({organizationId:org,featureCode:'assistant.chat',referenceId:`accepted:${stamp}`,fn:async()=>{await ai.chatCompletion(msg);throw Error('postprocessing failed');}})));
+  assert.equal(acceptedBefore.balance-(await ledger.getBalance(org)).balance,20,'Accepted provider cost is retained after postprocessing error');
+  let sends=0;
+  const email=()=>ledger.runPaidFeature({organizationId:org,featureCode:'email.send',referenceId:`email:${stamp}`,fn:async c=>{sends++;c.markProviderStarted();return 'sent';}});
+  assert.equal((await cost(org,email)).amount,2);
+  await assert.rejects(email(),e=>e.code==='ALREADY_COMMITTED');assert.equal(sends,1);
+  process.env.EMAIL_PROVIDER_STUB='1';process.env.EMAIL_PROVIDER='ses';process.env.SES_FROM_EMAIL='qa@example.invalid';
+  const {EmailRouterService}=req('/app/dist/email/email-router.service');
+  const router=new EmailRouterService(db);
+  const routed={organizationId:org,purpose:'marketing',to:'qa@example.invalid',subject:'Fixture',text:'Fixture',from:'qa@example.invalid',idempotencyKey:`routed:${stamp}`};
+  assert.equal((await cost(org,()=>router.send(routed))).amount,2);
+  assert.equal((await cost(org,()=>router.send(routed))).amount,0,'Sent email deduplicates before charging');
+  assert.equal((await cost(org,()=>router.send({...routed,purpose:'transactional',idempotencyKey:`otp:${stamp}`}))).amount,0,'System email remains included');
+  const transcript=await cost(org,()=>ledger.runPaidFeature({organizationId:org,featureCode:'video.transcribe',amount:300,referenceId:`video:${stamp}`,fn:async c=>{c.markProviderStarted();return 'three minutes';}}));
+  assert.equal(transcript.amount,300);audit.push({feature:'video.transcribe',chargedPerMinute:100},{feature:'email.send',charged:2,retryDoubleCharge:false});
+  const low=await fixture();const lowBalance=await ledger.getBalance(low);
+  await ledger.usage({organizationId:low,amount:lowBalance.balance-100,idempotencyKey:'drain'});
+  const beforeCalls=calls;
+  const attempts=await Promise.allSettled(Array.from({length:6},()=>scope(low,'content_ai.generate',()=>ai.chatCompletion(msg))));
+  assert.equal(attempts.filter(x=>x.status==='fulfilled').length,2);
+  assert.equal(calls-beforeCalls,2);assert.equal((await ledger.getBalance(low)).balance,20);
+  const state={getType:()=> 'http',switchToHttp:()=>({getRequest:()=>({user:{organizationId:low},url:'/content-marketing/generate'})})};
+  const intercepted=new CreditContextInterceptor().intercept(state,{handle:()=>defer(async()=>{try{return await ai.chatCompletion(msg);}catch{return 'fallback';}})});
+  await assert.rejects(lastValueFrom(intercepted),e=>e.getResponse().code==='INSUFFICIENT_CREDITS');
+  const count=calls;await assert.rejects(ai.chatCompletion(msg),e=>e.getResponse().code==='CREDIT_CONTEXT_REQUIRED');assert.equal(calls,count);
+  const upgraded=await fixture('abg-basic-1m');
+  const wallet=await db.creditWallet.findUniqueOrThrow({where:{organizationId:upgraded}});
+  await db.creditTransaction.updateMany({where:{organizationId:upgraded,source:'PLAN_MONTHLY'},data:{amount:500}});
+  await db.creditWallet.update({where:{id:wallet.id},data:{balance:500,planBalance:300,lifetimeEarned:700,lifetimeUsed:200}});
+  const upgradedBalances=await Promise.all(Array.from({length:6},()=>ledger.getBalance(upgraded)));
+  assert(upgradedBalances.every(b=>b.balance===5000&&b.planBalance===4800&&b.purchasedBalance===200));
+  assert.equal(await db.creditTransaction.count({where:{organizationId:upgraded,source:'PLAN_MONTHLY_UPGRADE'}}),1);
+  assert.equal(aiCreditUnits({model:'gpt-4o-mini',inputChars:100,maxTokens:100}),1);
+  assert.equal(transcriptionCreditAmount(100,30),50);
+  assert.equal(transcriptionCreditAmount(100,180),300);
+  assert.throws(()=>transcriptionCreditAmount(100,NaN));
+  assert.equal(creditFeatureForPath('/api/v1/landing-pages/generate'),'landing_page.generate');
+  assert.equal(creditFeatureForPath('/api/v1/funnel-builder/generate'),'funnel.ai_suggest');
+  const profiles={Basic:{allowance:5000,used:30*40+20*10+20*20+150*6+250*2+5*100+10*30},Pro:{allowance:15000,used:75*40+70*10+60*20+500*6+1000*2+15*100+10*60},VIP:{allowance:45000,used:200*40+120*10+200*20+1500*6+3000*2+60*100+30*60}};
+  for(const profile of Object.values(profiles))assert.equal(profile.used,profile.allowance*.8);
+  const report={passed:true,audit,profiles,providerNetworkCalls:0,simulatedProviderCalls:calls,monthlyUpgradePreservesSpentAndPurchased:true,concurrentOverspendBlocked:true,swallowedInsufficientCreditBlocked:true};
+  if(fs.existsSync('/fixtures'))fs.writeFileSync('/fixtures/economy-test-report.json',JSON.stringify(report,null,2));
+  console.log(JSON.stringify(report));
+}
+main().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{global.fetch=realFetch;await db.$disconnect();});

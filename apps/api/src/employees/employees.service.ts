@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { LeadPipelineStatus, OrderStatus, AppointmentStatus } from '@marketingspa/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateEmployeeDto, UpdateEmployeeDto, EmployeeQueryDto } from './dto/employee.dto';
 import { buildPaginatedResult, getPaginationParams } from '../common/utils/pagination.util';
+import type { AuthUser } from '../common/interfaces/auth-user.interface';
+import { assertCanAssignRole, roleCodesEqual } from '../hrm/hrm-role.rbac';
+
+type EmployeeActor = { userId?: string; ipAddress?: string; auth?: AuthUser };
 
 @Injectable()
 export class EmployeesService {
@@ -53,7 +57,7 @@ export class EmployeesService {
   async create(
     organizationId: string,
     dto: CreateEmployeeDto,
-    actor?: { userId?: string; ipAddress?: string },
+    actor?: EmployeeActor,
   ) {
     const employee = await this.prisma.employee.create({
       data: {
@@ -84,26 +88,31 @@ export class EmployeesService {
     organizationId: string,
     id: string,
     dto: UpdateEmployeeDto,
-    actor?: { userId?: string; ipAddress?: string },
+    actor?: EmployeeActor,
   ) {
     const before = await this.findOne(organizationId, id);
 
-    if (dto.roleCode) {
+    if (dto.roleCode && before.user && !roleCodesEqual(before.user.role?.code, dto.roleCode)) {
+      if (!actor?.auth) {
+        throw new ForbiddenException('Không có thông tin người thao tác');
+      }
+      if (before.user.organizationId !== organizationId) {
+        throw new ForbiddenException('Tài khoản đích không thuộc tổ chức');
+      }
+      assertCanAssignRole(actor.auth, {
+        organizationId,
+        targetUserId: before.user.id,
+        targetRoleCode: before.user.role?.code,
+        nextRoleCode: dto.roleCode,
+      });
       const role = await this.prisma.role.findFirst({
         where: { organizationId, code: dto.roleCode },
       });
       if (!role) throw new BadRequestException(`Role ${dto.roleCode} không tồn tại`);
-
-      const employee = await this.prisma.employee.findFirst({
-        where: { id, organizationId },
-        include: { user: true },
+      await this.prisma.user.update({
+        where: { id: before.user.id },
+        data: { roleId: role.id },
       });
-      if (employee?.user) {
-        await this.prisma.user.update({
-          where: { id: employee.user.id },
-          data: { roleId: role.id },
-        });
-      }
     }
 
     const { roleCode: _roleCode, ...data } = dto;
@@ -145,7 +154,7 @@ export class EmployeesService {
   async remove(
     organizationId: string,
     id: string,
-    actor?: { userId?: string; ipAddress?: string },
+    actor?: EmployeeActor,
   ) {
     await this.findOne(organizationId, id);
     const employee = await this.prisma.employee.update({

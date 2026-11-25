@@ -106,6 +106,11 @@ export class SubscriptionEntitlementInterceptor implements NestInterceptor {
       }
     }
 
+    if (!ent.isTrial && !(await this.billing.isFeatureAllowedForOrg(user.organizationId, path))) {
+      throw new ForbiddenException({ statusCode: 403, code: 'FEATURE_NOT_IN_PLAN',
+        message: 'Tính năng này cần gói Pro hoặc VIP. Vui lòng nâng gói.', redirectTo: '/pricing' });
+    }
+
     return next.handle();
   }
 }

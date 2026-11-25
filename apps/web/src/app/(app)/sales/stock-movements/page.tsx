@@ -33,7 +33,8 @@ import { useT } from '@/i18n/i18n-provider';
 export default function SalesStockMovementsPage() {
   const t = useT();
   const { data: user } = useCurrentUser();
-  const canWrite = hasPermission(user, 'order.write');
+  const canWrite = hasPermission(user, 'sales.inventory.write');
+  const canSeeCost = hasPermission(user, 'sales.cost.view');
   const [productId, setProductId] = useState('');
   const [pickedProduct, setPickedProduct] = useState<SalesProduct | null>(null);
   const [batchCode, setBatchCode] = useState('');
@@ -168,6 +169,7 @@ export default function SalesStockMovementsPage() {
                 onChange={(e) => setExpiryDate(e.target.value)}
               />
             </div>
+            {canSeeCost ? (
             <div className="space-y-1">
               <Label htmlFor="inbound-cost">{t('sales.costPrice')}</Label>
               <Input
@@ -178,6 +180,7 @@ export default function SalesStockMovementsPage() {
                 onChange={(e) => setUnitCost(e.target.value)}
               />
             </div>
+            ) : null}
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="inbound-reason">{t('sales.reason')}</Label>
               <Input

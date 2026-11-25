@@ -1,0 +1,63 @@
+name: security-acceptance-prompt1-5
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - '.github/workflows/security-acceptance-prompt1-5.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+jobs:
+  security-gates-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Secrets scan
+        run: node scripts/scan-committed-secrets.cjs
+      - name: Bundle SQL audit
+        run: node scripts/audit-chatbot-bundle-sql.cjs
+      - name: Phase 1 hardening
+        run: pnpm test:phase1-hardening
+      - name: Landing Page tenant isolation
+        run: node scripts/test-landing-page-tenant-isolation.cjs
+      - name: Build shared (package tsconfig)
+        run: node scripts/build-shared-package.cjs
+      - name: LP cache + email click unit
+        run: node scripts/test-public-cache-email-guards.cjs
+      - name: JSON-LD safe
+        run: |
+          node scripts/test-safe-json-ld.cjs
+          node scripts/test-safe-json-ld-sync.cjs
+      - name: Landing Page SaaS gates
+        run: node scripts/test-landing-page-saas-ready.cjs
+      - name: Dependency audit (high+)
+        run: pnpm audit --audit-level=high
+      - name: Scoring + QA guard fixtures
+        run: |
+          node scripts/test-security-acceptance-scoring.cjs
+          node scripts/test-qa-db-guard.cjs
+          node scripts/test-qa-ses-api-guard.cjs
+      - name: Security acceptance (offline mode)
+        run: SECURITY_ACCEPTANCE_MODE=offline node scripts/run-security-acceptance-prompt1-5.cjs
+        env:
+          API_URL: http://127.0.0.1:8080
+          SECURITY_ACCEPTANCE_DB: marketingspa_hrm_finance_qa

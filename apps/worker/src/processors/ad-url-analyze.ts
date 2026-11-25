@@ -115,6 +115,8 @@ export async function processAdUrlAnalyze(job: Job): Promise<{ id: string; ok: b
     await patchJob(redis, payload.jobId, { stage: 'analyzing' });
 
     const result = await analyzeAdUrlContent({
+      organizationId: payload.organizationId,
+      billingReference: `ad-url:${payload.jobId}:${job.attemptsMade}`,
       adPostKind: payload.adPostKind,
       title: fetched.title,
       text: fetched.text,

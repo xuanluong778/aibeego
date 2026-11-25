@@ -1,0 +1,10 @@
+services:
+  api:
+    image: aibeego-api:subscription-tiers-20261122
+  worker:
+    image: aibeego-worker:subscription-tiers-20261122
+  web:
+    image: aibeego-web:subscription-tiers-20261122
+    build:
+      args:
+        LP_RELEASE_BUILD: "1"

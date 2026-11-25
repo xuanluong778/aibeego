@@ -1,17 +1,26 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma, SalesOrderStatus } from '@marketingspa/database';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  Prisma,
+  SalesOrderStatus,
+  SalesPaymentKind,
+  SalesReturnDocStatus,
+  SalesStockMovementType,
+} from '@marketingspa/database';
+import { costWarningLines } from './sales-cost-basis.util';
+import type { ReturnAllocationResult } from './sales-return-allocation.util';
+import { resolveSalesReportRange } from '@marketingspa/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryService } from './inventory.service';
 import { TenantKpiCacheService } from '../common/services/tenant-kpi-cache.service';
+import { rollupMovementCogs } from './sales-report-cogs.util';
 
-export type ReportRangePreset =
-  | 'today'
-  | '7d'
-  | '30d'
-  | 'month'
-  | 'year'
-  | 'custom';
-
+/**
+ * Chính sách ghi nhận (Prompt 2):
+ * - orderValue: tổng đơn tạo trong kỳ (không DRAFT/CANCELLED)
+ * - recognizedRevenue: doanh thu xuất theo exportedAt; netRecognizedRevenue trừ doanh thu đảo (allocation trả hàng)
+ * - collected / refunded / netCollected: tiền thu/hoàn theo paidAt trong kỳ (tách khỏi trả hàng)
+ * - cogs: OUTBOUND − RETURN_IN trong kỳ (createdAt UTC), từ snapshot allocation — không dùng giá danh mục hiện tại
+ */
 @Injectable()
 export class SalesReportsService {
   constructor(
@@ -20,112 +29,149 @@ export class SalesReportsService {
     private readonly kpiCache?: TenantKpiCacheService,
   ) {}
 
-  resolveRange(opts: {
-    preset?: string;
-    from?: string;
-    to?: string;
-  }): { from: Date; to: Date; preset: string } {
-    const now = new Date();
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    const startOfDay = (d: Date) => {
-      const x = new Date(d);
-      x.setHours(0, 0, 0, 0);
-      return x;
-    };
+  async getOrgReportTimezone(organizationId: string): Promise<string> {
+    const org = await this.prisma.organization.findFirstOrThrow({
+      where: { id: organizationId },
+      select: { salesReportTimezone: true },
+    });
+    return org.salesReportTimezone?.trim() || 'Asia/Ho_Chi_Minh';
+  }
 
-    const preset = (opts.preset || '30d') as ReportRangePreset;
-    if (preset === 'custom' && opts.from && opts.to) {
-      return {
-        from: startOfDay(new Date(opts.from)),
-        to: new Date(new Date(opts.to).setHours(23, 59, 59, 999)),
-        preset,
-      };
+  resolveRange(
+    organizationId: string,
+    opts: { preset?: string; from?: string; to?: string },
+    timeZone?: string,
+  ) {
+    try {
+      return resolveSalesReportRange({
+        preset: opts.preset,
+        from: opts.from,
+        to: opts.to,
+        timeZone: timeZone ?? undefined,
+      });
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Khoảng ngày không hợp lệ');
     }
-    if (preset === 'today') {
-      return { from: startOfDay(now), to: end, preset };
-    }
-    if (preset === '7d') {
-      const from = startOfDay(now);
-      from.setDate(from.getDate() - 6);
-      return { from, to: end, preset };
-    }
-    if (preset === 'month') {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from, to: end, preset };
-    }
-    if (preset === 'year') {
-      const from = new Date(now.getFullYear(), 0, 1);
-      return { from, to: end, preset };
-    }
-    // 30d default
-    const from = startOfDay(now);
-    from.setDate(from.getDate() - 29);
-    return { from, to: end, preset: '30d' };
   }
 
   async summary(
     organizationId: string,
     opts: { preset?: string; from?: string; to?: string },
   ) {
-    const { from, to, preset } = this.resolveRange(opts);
-    const cacheName = `sales-sum:${preset}:${from.toISOString()}:${to.toISOString()}`;
-    const cached = await this.kpiCache?.getJson<any>(organizationId, cacheName);
+    const timeZone = await this.getOrgReportTimezone(organizationId);
+    const range = this.resolveRange(organizationId, opts, timeZone);
+    const { fromUtc, toUtc, preset, fromDate, toDate } = range;
+
+    const cacheName = `sales-sum:v2:${preset}:${timeZone}:${fromDate}:${toDate}`;
+    const cached = await this.kpiCache?.getJson<unknown>(organizationId, cacheName);
     if (cached) return cached;
 
-    const orders = await this.prisma.salesOrder.findMany({
-      where: {
-        organizationId,
-        createdAt: { gte: from, lte: to },
-      },
-      take: 5000,
-      include: {
-        items: true,
-        customer: { select: { id: true, name: true, phone: true } },
-      },
-    });
+    const orderWhereCreated: Prisma.SalesOrderWhereInput = {
+      organizationId,
+      createdAt: { gte: fromUtc, lte: toUtc },
+      status: { notIn: [SalesOrderStatus.DRAFT, SalesOrderStatus.CANCELLED] },
+    };
 
-    const countable = orders.filter(
-      (o) =>
-        o.status !== SalesOrderStatus.CANCELLED &&
-        o.status !== SalesOrderStatus.DRAFT,
-    );
-    const revenueOrders = countable.filter(
-      (o) =>
-        o.status !== SalesOrderStatus.RETURNED ||
-        Number(o.total) > 0,
-    );
+    const [
+      orderCountCreated,
+      orderValueAgg,
+      exportedOrders,
+      payments,
+      refunds,
+      stockMovements,
+      returnsInPeriod,
+    ] = await Promise.all([
+        this.prisma.salesOrder.count({ where: orderWhereCreated }),
+        this.prisma.salesOrder.aggregate({
+          where: orderWhereCreated,
+          _sum: { total: true, discount: true, shippingFee: true },
+        }),
+        this.prisma.salesOrder.findMany({
+          where: {
+            organizationId,
+            exportedAt: { gte: fromUtc, lte: toUtc },
+            status: {
+              notIn: [SalesOrderStatus.DRAFT, SalesOrderStatus.CANCELLED],
+            },
+          },
+          select: {
+            id: true,
+            customerId: true,
+            customerName: true,
+            total: true,
+            discount: true,
+            shippingFee: true,
+            status: true,
+            amountPaid: true,
+            items: {
+              select: {
+                id: true,
+                productId: true,
+                productName: true,
+                quantity: true,
+                returnedQty: true,
+                totalPrice: true,
+                unitPrice: true,
+                lineDiscount: true,
+              },
+            },
+          },
+        }),
+        this.prisma.salesPayment.aggregate({
+          where: {
+            organizationId,
+            kind: SalesPaymentKind.PAYMENT,
+            paidAt: { gte: fromUtc, lte: toUtc },
+          },
+          _sum: { amount: true },
+          _count: true,
+        }),
+        this.prisma.salesPayment.aggregate({
+          where: {
+            organizationId,
+            kind: SalesPaymentKind.REFUND,
+            paidAt: { gte: fromUtc, lte: toUtc },
+          },
+          _sum: { amount: true },
+          _count: true,
+        }),
+        this.prisma.salesStockMovement.findMany({
+          where: {
+            organizationId,
+            createdAt: { gte: fromUtc, lte: toUtc },
+            type: {
+              in: [SalesStockMovementType.OUTBOUND, SalesStockMovementType.RETURN_IN],
+            },
+          },
+          select: {
+            type: true,
+            productId: true,
+            lines: {
+              select: {
+                quantity: true,
+                unitCost: true,
+                costAmount: true,
+                costBasis: true,
+              },
+            },
+          },
+        }),
+        this.prisma.salesReturn.findMany({
+          where: {
+            organizationId,
+            status: SalesReturnDocStatus.CONFIRMED,
+            confirmedAt: { gte: fromUtc, lte: toUtc },
+          },
+          select: {
+            allocationSnapshot: true,
+            refundAmount: true,
+          },
+        }),
+      ]);
 
-    // Doanh thu: đơn không hủy/draft; trừ đơn RETURNED full vẫn có thể có revenue 0 — dùng total của đơn shipped+
-    const soldStatuses: SalesOrderStatus[] = [
-      SalesOrderStatus.CONFIRMED,
-      SalesOrderStatus.READY,
-      SalesOrderStatus.SHIPPED,
-      SalesOrderStatus.COMPLETED,
-      SalesOrderStatus.PARTIALLY_RETURNED,
-    ];
-    const sold = orders.filter((o) => soldStatuses.includes(o.status));
-    const revenue = sold.reduce((s, o) => s + Number(o.total), 0);
-    const orderCount = sold.length;
-    const aov = orderCount ? revenue / orderCount : 0;
+    const orderValue = Number(orderValueAgg._sum.total ?? 0);
 
-    // COGS từ costPrice * (qty - returned) trên dòng có product
-    let cogs = 0;
-    const productIds = [
-      ...new Set(
-        sold.flatMap((o) =>
-          o.items.map((i) => i.productId).filter(Boolean) as string[],
-        ),
-      ),
-    ];
-    const products = productIds.length
-      ? await this.prisma.salesProduct.findMany({
-          where: { organizationId, id: { in: productIds } },
-          select: { id: true, costPrice: true, name: true },
-        })
-      : [];
-    const costById = new Map(products.map((p) => [p.id, Number(p.costPrice)]));
-
+    let recognizedRevenue = 0;
     const productAgg = new Map<
       string,
       { productId: string; name: string; qty: number; revenue: number; cogs: number }
@@ -135,31 +181,25 @@ export class SalesReportsService {
       { customerId: string; name: string; orders: number; revenue: number }
     >();
 
-    for (const o of sold) {
-      const cid = o.customerId;
-      const c = customerAgg.get(cid) || {
-        customerId: cid,
+    for (const o of exportedOrders) {
+      const cust = customerAgg.get(o.customerId) || {
+        customerId: o.customerId,
         name: o.customerName,
         orders: 0,
         revenue: 0,
       };
-      c.orders += 1;
-      c.revenue += Number(o.total);
-      customerAgg.set(cid, c);
+      cust.orders += 1;
+      let orderRecognized = 0;
 
       for (const it of o.items) {
         const netQty = Math.max(0, it.quantity - it.returnedQty);
         if (netQty <= 0) continue;
-        const lineRev =
-          Number(it.totalPrice) *
-          (it.quantity > 0 ? netQty / it.quantity : 0);
-        const unitCost = it.productId ? costById.get(it.productId) ?? 0 : 0;
-        const lineCogs = unitCost * netQty;
-        cogs += lineCogs;
+        const lineTotal = Number(it.totalPrice);
+        const lineRev = it.quantity > 0 ? (lineTotal * netQty) / it.quantity : 0;
+        orderRecognized += lineRev;
         if (it.productId) {
-          const key = it.productId;
-          const row = productAgg.get(key) || {
-            productId: key,
+          const row = productAgg.get(it.productId) || {
+            productId: it.productId,
             name: it.productName,
             qty: 0,
             revenue: 0,
@@ -167,21 +207,78 @@ export class SalesReportsService {
           };
           row.qty += netQty;
           row.revenue += lineRev;
-          row.cogs += lineCogs;
-          productAgg.set(key, row);
+          productAgg.set(it.productId, row);
         }
       }
+      recognizedRevenue += orderRecognized;
+      cust.revenue += orderRecognized;
+      customerAgg.set(o.customerId, cust);
     }
 
-    const grossProfit = revenue - cogs;
-    const cancelled = orders.filter((o) => o.status === SalesOrderStatus.CANCELLED).length;
-    const returned = orders.filter(
-      (o) =>
-        o.status === SalesOrderStatus.RETURNED ||
-        o.status === SalesOrderStatus.PARTIALLY_RETURNED,
-    ).length;
+    let returnRevenueReversal = 0;
+    let refundObligationSuggested = 0;
+    for (const r of returnsInPeriod) {
+      const snap = r.allocationSnapshot as ReturnAllocationResult | null;
+      returnRevenueReversal += snap?.totals?.revenueReversal ?? 0;
+      refundObligationSuggested += snap?.totals?.suggestedRefundMax ?? 0;
+    }
+    returnRevenueReversal = Math.round(returnRevenueReversal * 100) / 100;
+    refundObligationSuggested = Math.round(refundObligationSuggested * 100) / 100;
+    const netRecognizedRevenue = Math.round((recognizedRevenue - returnRevenueReversal) * 100) / 100;
 
-    // Inventory value + alerts snapshot
+    const cogsRollup = rollupMovementCogs(stockMovements);
+    const cogsNet = Math.round(cogsRollup.cogsNet * 100) / 100;
+
+    for (const row of productAgg.values()) {
+      const share =
+        recognizedRevenue > 0 ? row.revenue / recognizedRevenue : 0;
+      row.cogs = Math.round(cogsNet * share * 100) / 100;
+    }
+
+    const collected = Number(payments._sum.amount ?? 0);
+    const refunded = Number(refunds._sum.amount ?? 0);
+    const netCollected = Math.round((collected - refunded) * 100) / 100;
+    const grossProfit = Math.round((netRecognizedRevenue - cogsNet) * 100) / 100;
+    const aov = exportedOrders.length
+      ? recognizedRevenue / exportedOrders.length
+      : 0;
+
+    const cancelled = await this.prisma.salesOrder.count({
+      where: {
+        organizationId,
+        createdAt: { gte: fromUtc, lte: toUtc },
+        status: SalesOrderStatus.CANCELLED,
+      },
+    });
+    const returned = await this.prisma.salesOrder.count({
+      where: {
+        organizationId,
+        exportedAt: { gte: fromUtc, lte: toUtc },
+        status: {
+          in: [SalesOrderStatus.RETURNED, SalesOrderStatus.PARTIALLY_RETURNED],
+        },
+      },
+    });
+
+    const invRows = await this.prisma.$queryRaw<
+      Array<{
+        value: string | null;
+        unknown_lines: bigint;
+        zero_confirmed: bigint;
+      }>
+    >`
+      SELECT
+        COALESCE(SUM(b.remaining_quantity * b.unit_cost), 0)::text AS value,
+        COALESCE(SUM(CASE WHEN b.cost_basis = 'UNKNOWN' OR (b.cost_basis IS NULL AND b.unit_cost <= 0) THEN b.remaining_quantity ELSE 0 END), 0) AS unknown_lines,
+        COALESCE(SUM(CASE WHEN b.cost_basis = 'CONFIRMED' AND b.unit_cost = 0 THEN b.remaining_quantity ELSE 0 END), 0) AS zero_confirmed
+      FROM sales_stock_batches b
+      WHERE b.organization_id = ${organizationId}
+        AND b.remaining_quantity > 0
+    `;
+    const inventoryValue = Number(invRows[0]?.value ?? 0);
+    const inventoryUnknownQty = Number(invRows[0]?.unknown_lines ?? 0);
+    const inventoryZeroConfirmedQty = Number(invRows[0]?.zero_confirmed ?? 0);
+
     const allProducts = await this.prisma.salesProduct.findMany({
       where: { organizationId, isActive: true },
       select: {
@@ -190,47 +287,40 @@ export class SalesReportsService {
         sku: true,
         stockQty: true,
         minStockQty: true,
-        costPrice: true,
       },
     });
-
-    let inventoryValue = 0;
-    const stockRows = [];
-    let outOfStock = 0;
-    let lowStock = 0;
     const stockMap = await this.inventory.stockBreakdownMany(
       this.prisma,
       organizationId,
       allProducts.map((p) => p.id),
     );
-    for (const p of allProducts) {
+    let outOfStock = 0;
+    let lowStock = 0;
+    const stockRows = allProducts.map((p) => {
       const br = stockMap.get(p.id) || {
         physicalQty: 0,
         sellableQty: 0,
         expiredQty: 0,
       };
-      inventoryValue += br.physicalQty * Number(p.costPrice);
       if (br.sellableQty <= 0) outOfStock += 1;
       else if (br.sellableQty <= p.minStockQty) lowStock += 1;
-      stockRows.push({
+      return {
         productId: p.id,
         name: p.name,
         sku: p.sku,
         ...br,
         stockQty: p.stockQty,
         minStockQty: p.minStockQty,
-      });
-    }
+      };
+    });
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const in30 = new Date(today);
-    in30.setDate(in30.getDate() + 30);
+    const todayUtc = fromUtc;
+    const in30End = new Date(toUtc.getTime() + 30 * 86400000);
     const expiredBatches = await this.prisma.salesStockBatch.findMany({
       where: {
         organizationId,
         remainingQuantity: { gt: 0 },
-        expiryDate: { lt: today },
+        expiryDate: { lt: todayUtc },
       },
       include: { product: { select: { id: true, name: true, sku: true } } },
       take: 50,
@@ -239,7 +329,7 @@ export class SalesReportsService {
       where: {
         organizationId,
         remainingQuantity: { gt: 0 },
-        expiryDate: { gte: today, lte: in30 },
+        expiryDate: { gte: todayUtc, lte: in30End },
       },
       include: { product: { select: { id: true, name: true, sku: true } } },
       take: 50,
@@ -252,21 +342,64 @@ export class SalesReportsService {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
+    const warnings = costWarningLines({
+      unknownQty: cogsRollup.cogsUnknownQty,
+      estimatedQty: cogsRollup.cogsEstimatedQty,
+      confirmedZeroQty: cogsRollup.cogsConfirmedZeroQty,
+      inventoryUnknownQty,
+      inventoryZeroConfirmedQty,
+    });
+
     const payload = {
-      range: { preset, from: from.toISOString(), to: to.toISOString() },
+      range: {
+        preset,
+        timeZone,
+        from: fromDate,
+        to: toDate,
+        fromUtc: fromUtc.toISOString(),
+        toUtc: toUtc.toISOString(),
+      },
+      policy: {
+        orderValue: 'Đơn tạo trong kỳ (createdAt, TZ org)',
+        recognizedRevenue: 'Dòng xuất trong kỳ (exportedAt), trừ returnedQty trên dòng',
+        returnRevenueReversal: 'Doanh thu đảo từ allocation_snapshot trả hàng (confirmedAt)',
+        netRecognizedRevenue: 'recognizedRevenue − returnRevenueReversal',
+        collected: 'Thu tiền paidAt trong kỳ (SalesPayment PAYMENT)',
+        refunded: 'Hoàn tiền paidAt trong kỳ (SalesPayment REFUND) — tách phiếu trả',
+        refundObligationSuggested: 'Gợi ý hoàn tối đa trên phiếu trả, không tự ghi hoàn tiền',
+        cogs: 'OUTBOUND − RETURN_IN trong kỳ, cost snapshot allocation',
+        partialReturnAllocation: 'CK & ship phân bổ theo tỷ trọng merchandise; remainder cent',
+      },
+      warnings,
       kpis: {
-        revenue,
-        orderCount,
+        orderValue,
+        orderCountCreated,
+        recognizedRevenue,
+        returnRevenueReversal,
+        netRecognizedRevenue,
+        refundObligationSuggested,
+        exportedOrderCount: exportedOrders.length,
         aov,
-        cogs,
+        collected,
+        refunded,
+        netCollected,
+        cogs: cogsNet,
+        cogsConfirmed: cogsRollup.cogsConfirmed,
+        cogsEstimated: cogsRollup.cogsEstimated,
+        cogsUnknownQty: cogsRollup.cogsUnknownQty,
         grossProfit,
         cancelledOrders: cancelled,
         returnedOrders: returned,
         inventoryValue,
+        inventoryUnknownQty,
         outOfStock,
         lowStock,
+        paymentCount: payments._count,
+        refundCount: refunds._count,
         expiredBatches: expiredBatches.length,
         expiring30Batches: expiringBatches.length,
+        discountInPeriod: Number(orderValueAgg._sum.discount ?? 0),
+        shippingInPeriod: Number(orderValueAgg._sum.shippingFee ?? 0),
       },
       topProducts,
       topCustomers,
@@ -299,7 +432,14 @@ export class SalesReportsService {
     organizationId: string,
     opts: { preset?: string; from?: string; to?: string },
   ) {
-    const data = await this.summary(organizationId, opts);
+    const data = (await this.summary(organizationId, opts)) as {
+      kpis: Record<string, number>;
+      topProducts: Array<Record<string, unknown>>;
+      topCustomers: Array<Record<string, unknown>>;
+      warnings: string[];
+      range: { preset: string };
+    };
+    const k = data.kpis;
     const lines: string[] = [];
     const esc = (v: unknown) => {
       const s = String(v ?? '');
@@ -307,14 +447,9 @@ export class SalesReportsService {
       return s;
     };
     lines.push('section,metric,value');
-    lines.push(`kpi,revenue,${data.kpis.revenue}`);
-    lines.push(`kpi,orderCount,${data.kpis.orderCount}`);
-    lines.push(`kpi,aov,${data.kpis.aov}`);
-    lines.push(`kpi,cogs,${data.kpis.cogs}`);
-    lines.push(`kpi,grossProfit,${data.kpis.grossProfit}`);
-    lines.push(`kpi,inventoryValue,${data.kpis.inventoryValue}`);
-    lines.push(`kpi,cancelledOrders,${data.kpis.cancelledOrders}`);
-    lines.push(`kpi,returnedOrders,${data.kpis.returnedOrders}`);
+    for (const [key, val] of Object.entries(k)) {
+      lines.push(`kpi,${key},${val}`);
+    }
     lines.push('section,productId,name,qty,revenue,cogs');
     for (const p of data.topProducts) {
       lines.push(
@@ -326,6 +461,9 @@ export class SalesReportsService {
       lines.push(
         ['topCustomer', c.customerId, esc(c.name), c.orders, c.revenue].join(','),
       );
+    }
+    for (const w of data.warnings ?? []) {
+      lines.push(`warning,,${esc(w)}`);
     }
     return {
       filename: `sales-report-${data.range.preset}-${Date.now()}.csv`,

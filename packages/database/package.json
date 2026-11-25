@@ -14,6 +14,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@marketingspa/shared": "workspace:*",
     "@prisma/client": "^6.1.0"
   },
   "prisma": {

@@ -1,5 +1,7 @@
 import { authStorage } from './auth-storage';
 import { getStoredAffiliateRef } from './affiliate-ref';
+import { publishAuthMessage, waitForPeerAccessToken, withRefreshCoordination } from './auth-coordinator';
+import { accessTokenExpiringSoon, shouldReuseStoredTokenAfterLock } from './auth-session-policy';
 
 function resolveApiUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -92,50 +94,96 @@ let loginRedirectScheduled = false;
 
 /** JWT exp trong ≤45s hoặc malformed → refresh trước (tránh 401 ồn console trên /auth/me). */
 function accessTokenNeedsRefresh(token: string | null): boolean {
-  if (!token) return true;
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return true;
-    const b64 = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '='));
-    const payload = JSON.parse(json) as { exp?: number };
-    if (typeof payload.exp !== 'number') return true;
-    return payload.exp * 1000 <= Date.now() + 45_000;
-  } catch {
-    return true;
+  return accessTokenExpiringSoon(token);
+}
+
+function readRefreshErrorCode(body: Record<string, unknown> | null): string | undefined {
+  if (!body) return undefined;
+  return typeof body.code === 'string' ? body.code : undefined;
+}
+
+/** Phiên đã logout tab khác — dừng request, không retry / refresh. */
+function abortIfSessionEpochChanged(epochAtStart: number): void {
+  if (authStorage.getSessionEpoch() !== epochAtStart) {
+    throw new ApiError('Unauthorized', 401);
   }
 }
 
-async function refreshAccessToken(): Promise<string | null> {
-  if (refreshInFlight) return refreshInFlight;
+async function refreshAccessToken(rejectedAccessToken?: string | null): Promise<string | null> {
+  const epochAtStart = authStorage.getSessionEpoch();
+  if (refreshInFlight) {
+    const token = await refreshInFlight;
+    if (epochAtStart !== authStorage.getSessionEpoch()) return null;
+    return token;
+  }
   refreshInFlight = (async () => {
     try {
-      const API_URL = resolveApiUrl();
-      const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!res.ok) {
-        // Only clear session when refresh cookie is definitely rejected
-        if (res.status === 401 || res.status === 403) {
-          authStorage.clear();
+      return await withRefreshCoordination(async () => {
+        abortIfSessionEpochChanged(epochAtStart);
+        const afterLock = authStorage.getAccessToken();
+        if (shouldReuseStoredTokenAfterLock(afterLock, rejectedAccessToken)) {
+          return afterLock;
         }
-        return null;
-      }
 
-      const data = (await res.json()) as { accessToken?: string; data?: { accessToken?: string } };
-      const token = data.accessToken || data.data?.accessToken || null;
-      if (!token) {
-        authStorage.clear();
-        return null;
-      }
-      authStorage.setAccessToken(token);
-      return token;
+        const API_URL = resolveApiUrl();
+        const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (epochAtStart !== authStorage.getSessionEpoch()) return null;
+
+        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        const code = readRefreshErrorCode(body);
+
+        if (!res.ok) {
+          if (code === 'REFRESH_ALREADY_USED') {
+            const beforeWait = authStorage.getAccessToken();
+            if (shouldReuseStoredTokenAfterLock(beforeWait, rejectedAccessToken)) return beforeWait;
+
+            const peer = await waitForPeerAccessToken();
+            if (shouldReuseStoredTokenAfterLock(peer, rejectedAccessToken)) {
+              authStorage.setAccessToken(peer, { epochAtStart });
+              return peer;
+            }
+            const afterWait = authStorage.getAccessToken();
+            if (shouldReuseStoredTokenAfterLock(afterWait, rejectedAccessToken)) return afterWait;
+          } else {
+            const peer = await waitForPeerAccessToken(800);
+            if (shouldReuseStoredTokenAfterLock(peer, rejectedAccessToken)) {
+              authStorage.setAccessToken(peer, { epochAtStart });
+              return peer;
+            }
+          }
+          if (res.status === 401 || res.status === 403) {
+            if (code !== 'REFRESH_ALREADY_USED' && epochAtStart === authStorage.getSessionEpoch()) {
+              authStorage.clear();
+            }
+          }
+          return null;
+        }
+
+        if (epochAtStart !== authStorage.getSessionEpoch()) return null;
+
+        const token =
+          (typeof body?.accessToken === 'string' && body.accessToken) ||
+          (typeof body?.data === 'object' &&
+            body?.data !== null &&
+            typeof (body.data as { accessToken?: string }).accessToken === 'string' &&
+            (body.data as { accessToken: string }).accessToken) ||
+          null;
+        if (!token) {
+          if (epochAtStart === authStorage.getSessionEpoch()) authStorage.clear();
+          return null;
+        }
+        authStorage.setAccessToken(token, { epochAtStart });
+        publishAuthMessage({ type: 'refresh-done', ok: true });
+        return token;
+      });
     } catch {
       // Network blip — keep access token; do not clear session
-      return null;
+      return authStorage.getAccessToken();
     } finally {
       refreshInFlight = null;
     }
@@ -156,10 +204,18 @@ function withCredentials(init: RequestInit): RequestInit {
   return { ...init, credentials: 'include' };
 }
 
+function unauthorizedAfterLogout(epochAtRequest: number): never {
+  if (authStorage.getSessionEpoch() === epochAtRequest) {
+    scheduleLoginRedirectOnce();
+  }
+  throw new ApiError('Unauthorized', 401);
+}
+
 export async function apiClient<T>(
   path: string,
   options: RequestInit & { auth?: boolean } = {},
 ): Promise<T> {
+  const epochAtRequest = authStorage.getSessionEpoch();
   const { auth = true, ...init } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -170,10 +226,10 @@ export async function apiClient<T>(
   // Proactive refresh so /auth/me rarely logs a 401 in the console
   if (auth && accessTokenNeedsRefresh(token)) {
     const refreshed = await refreshAccessToken();
+    abortIfSessionEpochChanged(epochAtRequest);
     if (refreshed) token = refreshed;
     else if (!token) {
-      scheduleLoginRedirectOnce();
-      throw new ApiError('Unauthorized', 401);
+      unauthorizedAfterLogout(epochAtRequest);
     }
   }
   if (auth && token) {
@@ -204,14 +260,20 @@ export async function apiClient<T>(
     );
   }
 
+  abortIfSessionEpochChanged(epochAtRequest);
+
   if (res.status === 401 && auth) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
+    if (authStorage.getSessionEpoch() !== epochAtRequest) {
+      throw new ApiError('Unauthorized', 401);
+    }
+    const newToken = await refreshAccessToken(token);
+    abortIfSessionEpochChanged(epochAtRequest);
+    if (newToken && newToken !== token) {
       headers['Authorization'] = `Bearer ${newToken}`;
       res = await fetch(`${API_URL}/api/v1${path}`, withCredentials({ ...init, headers }));
+      abortIfSessionEpochChanged(epochAtRequest);
     } else {
-      scheduleLoginRedirectOnce();
-      throw new ApiError('Unauthorized', 401);
+      unauthorizedAfterLogout(epochAtRequest);
     }
   }
 
@@ -228,8 +290,14 @@ export async function apiClient<T>(
 }
 
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const epochAtRequest = authStorage.getSessionEpoch();
   const headers: Record<string, string> = {};
-  const token = authStorage.getAccessToken();
+  let token = authStorage.getAccessToken();
+  if (accessTokenNeedsRefresh(token)) {
+    const refreshed = await refreshAccessToken();
+    abortIfSessionEpochChanged(epochAtRequest);
+    if (refreshed) token = refreshed;
+  }
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const API_URL = resolveApiUrl();
@@ -242,9 +310,15 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
     }),
   );
 
+  abortIfSessionEpochChanged(epochAtRequest);
+
   if (res.status === 401) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
+    if (authStorage.getSessionEpoch() !== epochAtRequest) {
+      throw new ApiError('Unauthorized', 401);
+    }
+    const newToken = await refreshAccessToken(token);
+    abortIfSessionEpochChanged(epochAtRequest);
+    if (newToken && newToken !== token) {
       headers.Authorization = `Bearer ${newToken}`;
       res = await fetch(
         `${API_URL}/api/v1${path}`,
@@ -254,6 +328,9 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
           body: formData,
         }),
       );
+      abortIfSessionEpochChanged(epochAtRequest);
+    } else {
+      unauthorizedAfterLogout(epochAtRequest);
     }
   }
 
@@ -269,18 +346,33 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
 }
 
 export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
+  const epochAtRequest = authStorage.getSessionEpoch();
   const headers: Record<string, string> = {};
-  const token = authStorage.getAccessToken();
+  let token = authStorage.getAccessToken();
+  if (accessTokenNeedsRefresh(token)) {
+    const refreshed = await refreshAccessToken();
+    abortIfSessionEpochChanged(epochAtRequest);
+    if (refreshed) token = refreshed;
+  }
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const API_URL = resolveApiUrl();
   let res = await fetch(`${API_URL}/api/v1${path}`, withCredentials({ headers }));
 
+  abortIfSessionEpochChanged(epochAtRequest);
+
   if (res.status === 401) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
+    if (authStorage.getSessionEpoch() !== epochAtRequest) {
+      throw new ApiError('Unauthorized', 401);
+    }
+    const newToken = await refreshAccessToken(token);
+    abortIfSessionEpochChanged(epochAtRequest);
+    if (newToken && newToken !== token) {
       headers.Authorization = `Bearer ${newToken}`;
       res = await fetch(`${API_URL}/api/v1${path}`, withCredentials({ headers }));
+      abortIfSessionEpochChanged(epochAtRequest);
+    } else {
+      unauthorizedAfterLogout(epochAtRequest);
     }
   }
 

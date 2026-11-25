@@ -108,6 +108,7 @@ export async function processAutoPostPublish(
       }
 
       const accessToken = decryptSecret(page.encryptedPageAccessToken);
+      await new PlanPolicy(prisma).consume(organizationId, 'posts', `post:${postId}`);
       const published = await publishToFacebookPage(page.pageId, accessToken, {
         message: post.caption.trim(),
         link: post.linkUrl ?? undefined,
@@ -201,3 +202,4 @@ export async function processAutoPostScheduledScan(redis?: Redis) {
   }
   return { due: due.length, processed };
 }
+import { PlanPolicy } from '@marketingspa/database';

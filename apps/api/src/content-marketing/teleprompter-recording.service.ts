@@ -16,6 +16,7 @@ import { createReadStream, existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { organizationPlan, PlanPolicyError } from '@marketingspa/database';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import {
   absoluteFromKey,
@@ -148,6 +149,10 @@ export class TeleprompterRecordingService {
       partSize: dto.partSize,
     });
     if (!check.ok) throw new BadRequestException(check.message);
+    const { definition } = await organizationPlan(this.prisma, user.organizationId);
+    if (definition && dto.size > definition.limits.uploadMb * 1024 * 1024) {
+      throw new PlanPolicyError('PLAN_LIMIT_REACHED', 'Bản quay vượt dung lượng mỗi tệp của gói.', { resource: 'uploadMb', limit: definition.limits.uploadMb });
+    }
 
     let teleprompterSourceId: string | null = null;
     if (dto.teleprompterSourceId?.trim()) {
@@ -306,7 +311,8 @@ export class TeleprompterRecordingService {
 
     let finalSize: number;
     try {
-      finalSize = await assemblePartsAsync(row.storageKey, expected);
+      finalSize = await writePlanFile(this.prisma, user.organizationId, absoluteFromKey(row.storageKey), row.size,
+        () => assemblePartsAsync(row.storageKey, expected));
     } catch (err) {
       await this.prisma.contentTeleprompterRecording.update({
         where: { id: row.id },
@@ -481,3 +487,4 @@ export class TeleprompterRecordingService {
     );
   }
 }
+import { writePlanFile } from '../common/uploads/plan-storage';

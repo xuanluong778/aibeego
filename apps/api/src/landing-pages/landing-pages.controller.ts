@@ -11,22 +11,26 @@ import {
   Query,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../common/guards/auth.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
-import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import {
+  RequirePermissions,
+  RequirePermissionsEnforced,
+} from '../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { createUploadMulterOptions } from '../common/uploads/upload-policy';
 import { PlatformAdminGuard } from '../common/guards/platform-admin.guard';
 import { LandingPagesService } from './landing-pages.service';
 import { LandingPageTemplatePackService } from './landing-page-template-pack.service';
-import { TEMPLATE_PACK_MAX_ZIP_BYTES } from './template-pack';
+import { TEMPLATE_BULK_MAX_ZIP_BYTES, TEMPLATE_PACK_MAX_ZIP_BYTES } from './template-pack';
 import {
   AutosaveLandingPageDto,
   CreateLandingPageDto,
@@ -45,6 +49,7 @@ import {
   ListLandingPageTemplatesQueryDto,
   ListLandingPagesQueryDto,
   PublishLandingPageDto,
+  RetryLandingPageCacheDto,
   UpdateLandingPageDto,
   UpsertCustomDomainDto,
 } from './dto/landing-pages.dto';
@@ -52,6 +57,11 @@ import {
 const templateZipUpload = FileInterceptor('file', {
   storage: memoryStorage(),
   limits: { fileSize: TEMPLATE_PACK_MAX_ZIP_BYTES, files: 1 },
+});
+
+const templateBulkUpload = FilesInterceptor('files', 300, {
+  storage: memoryStorage(),
+  limits: { fileSize: TEMPLATE_BULK_MAX_ZIP_BYTES, files: 300 },
 });
 
 @Controller('landing-pages')
@@ -155,6 +165,29 @@ export class LandingPagesController {
   @UseInterceptors(templateZipUpload)
   importTemplatePack(@CurrentUser() user: AuthUser, @UploadedFile() file: { originalname?: string; buffer?: Buffer; size?: number }) {
     return this.templatePacks.importNew(user, file);
+  }
+
+  @Post('templates/packs/bulk')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.write')
+  @UseInterceptors(templateBulkUpload)
+  importTemplatePacksBulk(
+    @CurrentUser() user: AuthUser,
+    @UploadedFiles() files: Array<{ originalname?: string; buffer?: Buffer; size?: number }>,
+  ) {
+    return this.templatePacks.importBulk(user, files);
+  }
+
+  @Get('templates/packs/export-all')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePermissions('lead.read')
+  @Header('Cache-Control', 'no-store')
+  async exportAllTemplatePacks(@CurrentUser() user: AuthUser): Promise<StreamableFile> {
+    const pack = await this.templatePacks.exportAll(user);
+    return new StreamableFile(pack.body, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${pack.filename}"`,
+    });
   }
 
   @Get('templates/:idOrSlug/pack')
@@ -419,6 +452,18 @@ export class LandingPagesController {
   @RequirePermissions('lead.write')
   unpublish(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.unpublish(user, id);
+  }
+
+  @Post(':id/refresh-public-cache')
+  @RequirePermissionsEnforced('lead.write')
+  refreshPublicCache(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.refreshPublicCache(user, id);
+  }
+
+  @Post('actions/retry-public-cache')
+  @RequirePermissionsEnforced('lead.write')
+  retryPublicCache(@CurrentUser() user: AuthUser, @Body() dto: RetryLandingPageCacheDto) {
+    return this.service.retryPublicCacheWithToken(user, dto.cacheRetryToken);
   }
 
   @Post(':id/duplicate')

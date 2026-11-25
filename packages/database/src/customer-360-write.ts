@@ -161,6 +161,8 @@ export async function createOrReuseCustomerSsot(
 
   const sourceFields = applyCustomerSourceFields(input.source, true);
 
+  await assertPlanResource(tx, input.organizationId, 'customers', () =>
+    tx.customer.count({ where: { organizationId: input.organizationId, isActive: true } }));
   const created = await tx.customer.create({
     data: {
       organizationId: input.organizationId,
@@ -291,3 +293,4 @@ export async function applyCustomerSsotUpdate(
 
   return row;
 }
+import { assertPlanResource } from './plan-policy';

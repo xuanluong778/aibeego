@@ -1,8 +1,10 @@
+import { CreditLedger } from '@marketingspa/database';
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { Job } from 'bullmq';
 import {
   VIDEO_TRANSCRIPTION_LIMITS,
+  transcriptionCreditAmount,
   VIDEO_TRANSCRIPTION_TEMP_RETENTION_MS,
   buildChunkPlan,
   correctVietnameseTranscript,
@@ -281,6 +283,7 @@ export async function processVideoTranscription(job: Job): Promise<{ id: string;
     }
 
     const videoDuration = await probeDurationSeconds(sourcePath);
+    await new PlanPolicy(prisma).consume(row.organizationId, 'transcriptionMinutes', `transcription:${row.id}`, Math.max(1, Math.ceil(videoDuration / 60)));
     if (videoDuration > maxDurationSeconds()) {
       throw Object.assign(
         new Error(`Video dài hơn ${Math.round(maxDurationSeconds() / 60)} phút`),
@@ -398,7 +401,7 @@ export async function processVideoTranscription(job: Job): Promise<{ id: string;
           durationSec: plan.durationSec,
         });
 
-        const { result: asr, retries } = await twoPassTranscribeChunk({
+        const runChunk = () => twoPassTranscribeChunk({
           chunkWavPath: chunkPath,
           fullAudioPath: audioPath,
           chunksDir,
@@ -411,6 +414,14 @@ export async function processVideoTranscription(job: Job): Promise<{ id: string;
           videoTitle: row.sourceTitle || row.originalFilename || row.sourceUrl,
           chunkCount: progress.chunkCount,
         });
+        const billableSeconds = plan.endSec - Math.max(plan.startSec, plans.find(p => p.index === idx - 1)?.endSec || 0);
+        const { result: asr, retries } = await new CreditLedger(prisma).runPaidFeature({
+              organizationId: row.organizationId, featureCode: 'video.transcribe',
+              referenceId: `transcription:${row.id}:${idx}:${row.attemptCount + 1}`,
+              amount: transcriptionCreditAmount(await new CreditLedger(prisma).getFeatureCost('video.transcribe'), billableSeconds),
+              metadata: { billableSeconds, chunkIndex: idx },
+              fn: async () => runChunk(),
+            });
         allRetries.push(...retries);
 
         if (!asr.text) throw new Error('EMPTY_TRANSCRIPT');
@@ -626,3 +637,4 @@ export async function processVideoTranscription(job: Job): Promise<{ id: string;
     return { id: row.id, ok: false };
   }
 }
+import { PlanPolicy } from '@marketingspa/database';

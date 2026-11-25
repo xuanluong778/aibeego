@@ -1,3 +1,4 @@
+import { planBilledChat } from './utils/plan-billed-chat';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { normalizeZaloWebhook, sendZaloOaHttp } from '@marketingspa/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -111,7 +112,7 @@ export class ChatbotZaloKnowledgeService implements OnModuleInit {
         settings,
         usageAllowed: usage.allowed,
         knowledge,
-        openAiChat: this.ai.isConfigured()
+        openAiChat: planBilledChat(this.prisma, organizationId, this.ai.isConfigured()
           ? (input) =>
               this.ai.chatCompletion({
                 model: input.model,
@@ -124,7 +125,7 @@ export class ChatbotZaloKnowledgeService implements OnModuleInit {
                   { role: 'user', content: input.userText },
                 ],
               })
-          : undefined,
+          : undefined),
       });
       result = await this.chatbot.guardReplyKnowledge(organizationId, botId, knowledge, result);
       const stillLinked: MessagingChannelConnection | null =

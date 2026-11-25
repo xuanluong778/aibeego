@@ -22,7 +22,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser } from '../common/interfaces/auth-user.interface';
 import { createUploadMulterOptions } from '../common/uploads/upload-policy';
 import { PaginationDto } from '../common/dto/pagination.dto';
-import { assertSalesWritePermission, SALES_PERMISSIONS } from './sales.rbac';
+import { assertSalesInventoryWrite, SALES_PERMISSIONS } from './sales.rbac';
 import { ProductImportService } from './product-import.service';
 import {
   ProductImportConfirmDto,
@@ -30,10 +30,12 @@ import {
   ProductImportUploadDto,
 } from './dto/product-import.dto';
 import { IMPORT_LIMITS, productImportTemplate } from './product-spreadsheet.util';
+import { SalesSensitiveRedactInterceptor } from './sales-sensitive-redact.interceptor';
 
 @Controller('sales/product-imports')
 @UseGuards(JwtAuthGuard, TenantGuard, PermissionsGuard)
-@RequirePermissions(SALES_PERMISSIONS.write)
+@RequirePermissions(SALES_PERMISSIONS.inventoryWrite)
+@UseInterceptors(SalesSensitiveRedactInterceptor)
 export class ProductImportController {
   constructor(private readonly imports: ProductImportService) {}
 
@@ -43,7 +45,7 @@ export class ProductImportController {
     @Query('format') format = 'xlsx',
     @Res() res: Response,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     if (!['csv', 'xlsx'].includes(format))
       throw new BadRequestException('Chọn mẫu .csv hoặc .xlsx.');
     const body = await productImportTemplate(format as 'csv' | 'xlsx');
@@ -61,7 +63,7 @@ export class ProductImportController {
   }
   @Get()
   history(@CurrentUser() user: AuthUser, @Query() query: PaginationDto) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.history(user.organizationId, query);
   }
   @Post()
@@ -76,7 +78,7 @@ export class ProductImportController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query() query: ProductImportUploadDto,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.upload(
       user.organizationId,
       user.id,
@@ -87,7 +89,7 @@ export class ProductImportController {
   }
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.get(user.organizationId, id);
   }
   @Get(':id/rows')
@@ -96,7 +98,7 @@ export class ProductImportController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PaginationDto,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.rows(user.organizationId, id, query);
   }
   @Get(':id/report.csv')
@@ -105,7 +107,7 @@ export class ProductImportController {
     @Param('id', ParseUUIDPipe) id: string,
     @Res() res: Response,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="sales-import-${id}.csv"`);
     res.send(await this.imports.report(user.organizationId, id));
@@ -116,7 +118,7 @@ export class ProductImportController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ProductImportPreviewDto,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.preview(user.organizationId, id, dto);
   }
   @Post(':id/confirm')
@@ -125,17 +127,17 @@ export class ProductImportController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ProductImportConfirmDto,
   ) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.confirm(user.organizationId, id, dto.previewVersion);
   }
   @Post(':id/process')
   process(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.process(user.organizationId, id, user.id);
   }
   @Post(':id/retry')
   retry(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    assertSalesWritePermission(user);
+    assertSalesInventoryWrite(user);
     return this.imports.retry(user.organizationId, id);
   }
 }

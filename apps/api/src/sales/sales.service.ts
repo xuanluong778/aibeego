@@ -22,6 +22,9 @@ import {
   UpdateSalesOrderDto,
   UpdateSalesProductDto,
 } from './dto/sales.dto';
+import { SalesDocumentCodeService, SALES_DOC_TYPES } from './sales-document-code.service';
+import { assertBranchInOrg } from './sales-org-scope.util';
+import { deriveOrderPaymentStatus } from './sales-order-payment.util';
 
 const ALLOWED_TRANSITIONS: Record<SalesOrderStatus, SalesOrderStatus[]> = {
   DRAFT: [SalesOrderStatus.CONFIRMED, SalesOrderStatus.CANCELLED],
@@ -49,6 +52,7 @@ export class SalesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly docCodes: SalesDocumentCodeService,
     private readonly kpiCache?: TenantKpiCacheService,
   ) {}
 
@@ -71,18 +75,6 @@ export class SalesService {
     const ship = Math.max(0, Number(shippingFee) || 0);
     const total = Math.max(0, subtotal - disc + ship);
     return { lines, subtotal, discount: disc, shippingFee: ship, total };
-  }
-
-  private async nextOrderCode(organizationId: string) {
-    const day = new Date();
-    const y = day.getFullYear();
-    const m = String(day.getMonth() + 1).padStart(2, '0');
-    const d = String(day.getDate()).padStart(2, '0');
-    const prefix = `SO-${y}${m}${d}-`;
-    const count = await this.prisma.salesOrder.count({
-      where: { organizationId, code: { startsWith: prefix } },
-    });
-    return `${prefix}${String(count + 1).padStart(4, '0')}`;
   }
 
   private async assertCustomer(organizationId: string, customerId: string) {
@@ -126,7 +118,7 @@ export class SalesService {
       shippingFee: Prisma.Decimal;
       total: Prisma.Decimal;
       amountPaid?: Prisma.Decimal;
-      payments?: Array<{ amount: Prisma.Decimal }>;
+      payments?: Array<{ amount: Prisma.Decimal; kind?: string }>;
       items?: Array<{
         unitPrice: Prisma.Decimal;
         lineDiscount: Prisma.Decimal;
@@ -136,6 +128,13 @@ export class SalesService {
   >(order: T) {
     const total = Number(order.total);
     const amountPaid = Number(order.amountPaid ?? 0);
+    const collected = (order.payments ?? [])
+      .filter((p) => p.kind !== 'REFUND')
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const amountRefunded = (order.payments ?? [])
+      .filter((p) => p.kind === 'REFUND')
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const round = (n: number) => Math.round(n * 100) / 100;
     return {
       ...order,
       subtotal: Number(order.subtotal),
@@ -143,7 +142,10 @@ export class SalesService {
       shippingFee: Number(order.shippingFee),
       total,
       amountPaid,
-      amountDue: Math.max(0, Math.round((total - amountPaid) * 100) / 100),
+      amountCollected: order.payments ? round(collected) : undefined,
+      amountRefunded: order.payments ? round(amountRefunded) : undefined,
+      amountDue: Math.max(0, round(total - amountPaid)),
+      amountRefundable: Math.max(0, round(amountPaid - total)),
       payments: order.payments?.map((p) => ({ ...p, amount: Number(p.amount) })),
       items: order.items?.map((it) => ({
         ...it,
@@ -235,58 +237,85 @@ export class SalesService {
     if (!dto.items?.length) throw new BadRequestException('Đơn hàng cần ít nhất 1 sản phẩm');
     const customer = await this.assertCustomer(organizationId, dto.customerId);
     await this.assertProductsInOrg(organizationId, dto.items);
+    await assertBranchInOrg(this.prisma, organizationId, dto.branchId);
     const totals = this.calcTotals(dto.items, dto.discount, dto.shippingFee);
-    const code = await this.nextOrderCode(organizationId);
 
-    const order = await this.prisma.salesOrder.create({
-      data: {
+    let order: Awaited<ReturnType<typeof this.prisma.salesOrder.create>>;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        order = await this.prisma.$transaction(async (tx) => {
+      const code = await this.docCodes.nextInTransaction(
+        tx,
         organizationId,
-        branchId: dto.branchId,
-        customerId: customer.id,
-        code,
-        status: SalesOrderStatus.DRAFT,
-        customerName: (dto.customerName || customer.name).trim(),
-        phone: dto.phone?.trim() || customer.phone || null,
-        address: dto.address?.trim() || null,
-        source: dto.source?.trim() || null,
-        subtotal: this.decimal(totals.subtotal),
-        discount: this.decimal(totals.discount),
-        shippingFee: this.decimal(totals.shippingFee),
-        total: this.decimal(totals.total),
-        note: dto.note?.trim() || null,
-        createdById: userId,
-        items: {
-          create: dto.items.map((it, i) => {
-            const line = totals.lines[i]!;
-            return {
-              productId: it.productId || null,
-              productName: it.productName.trim(),
-              sku: it.sku?.trim() || null,
-              quantity: line.qty,
-              unitPrice: this.decimal(line.unitPrice),
-              lineDiscount: this.decimal(line.lineDiscount),
-              totalPrice: this.decimal(line.totalPrice),
-            };
-          }),
+        SALES_DOC_TYPES.SALES_ORDER,
+      );
+      const created = await tx.salesOrder.create({
+        data: {
+          organizationId,
+          branchId: dto.branchId,
+          customerId: customer.id,
+          code,
+          status: SalesOrderStatus.DRAFT,
+          customerName: (dto.customerName || customer.name).trim(),
+          phone: dto.phone?.trim() || customer.phone || null,
+          address: dto.address?.trim() || null,
+          source: dto.source?.trim() || null,
+          subtotal: this.decimal(totals.subtotal),
+          discount: this.decimal(totals.discount),
+          shippingFee: this.decimal(totals.shippingFee),
+          total: this.decimal(totals.total),
+          note: dto.note?.trim() || null,
+          createdById: userId,
+          items: {
+            create: dto.items.map((it, i) => {
+              const line = totals.lines[i]!;
+              return {
+                productId: it.productId || null,
+                productName: it.productName.trim(),
+                sku: it.sku?.trim() || null,
+                quantity: line.qty,
+                unitPrice: this.decimal(line.unitPrice),
+                lineDiscount: this.decimal(line.lineDiscount),
+                totalPrice: this.decimal(line.totalPrice),
+              };
+            }),
+          },
         },
-      },
-      include: {
-        customer: { select: { id: true, name: true, phone: true } },
-        items: true,
-      },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          items: true,
+        },
+      });
+      await this.audit.log(
+        {
+          organizationId,
+          userId,
+          action: 'SALES_ORDER_CREATED',
+          entityType: 'SALES_ORDER',
+          entityId: created.id,
+          metadata: { code: created.code, total: totals.total },
+        },
+        tx,
+      );
+      return created;
     });
-
-    await this.audit.log({
-      organizationId,
-      userId,
-      action: 'SALES_ORDER_CREATED',
-      entityType: 'SALES_ORDER',
-      entityId: order.id,
-      metadata: { code: order.code, total: totals.total },
-    });
+        break;
+      } catch (e) {
+        if (
+          attempt < 3 &&
+          typeof e === 'object' &&
+          e !== null &&
+          'code' in e &&
+          (e as { code: string }).code === 'P2002'
+        ) {
+          continue;
+        }
+        throw e;
+      }
+    }
 
     await this.kpiCache?.bump(organizationId);
-    return this.serializeOrder(order);
+    return this.serializeOrder(order!);
   }
 
   async updateOrder(
@@ -295,35 +324,57 @@ export class SalesService {
     dto: UpdateSalesOrderDto,
     userId?: string,
   ) {
-    const existing = await this.prisma.salesOrder.findFirst({ where: { id, organizationId } });
-    if (!existing) throw new NotFoundException('Không tìm thấy đơn hàng');
-    if (
-      existing.status !== SalesOrderStatus.DRAFT &&
-      existing.status !== SalesOrderStatus.CONFIRMED
-    ) {
-      throw new BadRequestException('Chỉ sửa được đơn DRAFT hoặc CONFIRMED');
-    }
-    if (existing.exportedAt) {
-      throw new BadRequestException('Đơn đã xuất kho — không sửa dòng hàng');
-    }
     if (dto.items?.length) await this.assertProductsInOrg(organizationId, dto.items);
+    if (dto.branchId !== undefined) await assertBranchInOrg(this.prisma, organizationId, dto.branchId);
 
-    let customerId = existing.customerId;
-    let customerName = existing.customerName;
+    let prefCustomerId: string | undefined;
+    let prefCustomerName: string | undefined;
     if (dto.customerId) {
       const customer = await this.assertCustomer(organizationId, dto.customerId);
-      customerId = customer.id;
-      customerName = dto.customerName?.trim() || customer.name;
+      prefCustomerId = customer.id;
+      prefCustomerName = dto.customerName?.trim() || customer.name;
     } else if (dto.customerName?.trim()) {
-      customerName = dto.customerName.trim();
+      prefCustomerName = dto.customerName.trim();
     }
 
     const items = dto.items;
-    const totals = items?.length
-      ? this.calcTotals(items, dto.discount ?? Number(existing.discount), dto.shippingFee ?? Number(existing.shippingFee))
-      : null;
-
     const order = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{
+          id: string;
+          status: SalesOrderStatus;
+          exported_at: Date | null;
+          subtotal: Prisma.Decimal;
+          discount: Prisma.Decimal;
+          shipping_fee: Prisma.Decimal;
+          amount_paid: Prisma.Decimal;
+          customer_id: string;
+          customer_name: string;
+        }>
+      >`
+        SELECT id, status, exported_at, subtotal, discount, shipping_fee, amount_paid,
+               customer_id, customer_name
+        FROM sales_orders
+        WHERE id = ${id} AND organization_id = ${organizationId}
+        FOR UPDATE
+      `;
+      if (!locked.length) throw new NotFoundException('Không tìm thấy đơn hàng');
+      const row = locked[0]!;
+      if (row.status !== SalesOrderStatus.DRAFT && row.status !== SalesOrderStatus.CONFIRMED) {
+        throw new BadRequestException('Chỉ sửa được đơn DRAFT hoặc CONFIRMED');
+      }
+      if (row.exported_at) {
+        throw new BadRequestException('Đơn đã xuất kho — không sửa dòng hàng');
+      }
+
+      const discountBase =
+        dto.discount !== undefined ? dto.discount : Number(row.discount);
+      const shipBase =
+        dto.shippingFee !== undefined ? dto.shippingFee : Number(row.shipping_fee);
+      const totals = items?.length
+        ? this.calcTotals(items, discountBase, shipBase)
+        : null;
+
       if (items?.length) {
         await tx.salesOrderItem.deleteMany({ where: { orderId: id } });
         await tx.salesOrderItem.createMany({
@@ -343,69 +394,71 @@ export class SalesService {
         });
       }
 
-      return tx.salesOrder.update({
+      let subtotal = Number(row.subtotal);
+      let discount = discountBase;
+      let shippingFee = shipBase;
+      if (totals) {
+        subtotal = totals.subtotal;
+        discount = totals.discount;
+        shippingFee = totals.shippingFee;
+      } else if (dto.discount === undefined && dto.shippingFee === undefined && !items?.length) {
+        // metadata-only patch
+      } else if (!items?.length) {
+        subtotal = Number(
+          (
+            await tx.salesOrderItem.aggregate({
+              where: { orderId: id },
+              _sum: { totalPrice: true },
+            })
+          )._sum.totalPrice ?? row.subtotal,
+        );
+      }
+      const total = Math.max(0, subtotal - Number(discount) + Number(shippingFee));
+      const amountPaid = Number(row.amount_paid);
+      const paymentStatus = deriveOrderPaymentStatus(total, amountPaid);
+
+      const updated = await tx.salesOrder.update({
         where: { id },
         data: {
-          customerId,
-          customerName,
+          customerId: prefCustomerId ?? row.customer_id,
+          customerName: prefCustomerName ?? row.customer_name,
           phone: dto.phone !== undefined ? dto.phone?.trim() || null : undefined,
           address: dto.address !== undefined ? dto.address?.trim() || null : undefined,
           source: dto.source !== undefined ? dto.source?.trim() || null : undefined,
           note: dto.note !== undefined ? dto.note?.trim() || null : undefined,
-          ...(totals
-            ? {
-                subtotal: this.decimal(totals.subtotal),
-                discount: this.decimal(totals.discount),
-                shippingFee: this.decimal(totals.shippingFee),
-                total: this.decimal(totals.total),
-              }
-            : {
-                ...(dto.discount !== undefined
-                  ? { discount: this.decimal(dto.discount) }
-                  : {}),
-                ...(dto.shippingFee !== undefined
-                  ? { shippingFee: this.decimal(dto.shippingFee) }
-                  : {}),
-              }),
+          ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+          subtotal: this.decimal(subtotal),
+          discount: this.decimal(discount),
+          shippingFee: this.decimal(shippingFee),
+          total: this.decimal(total),
+          paymentStatus,
         },
         include: {
           customer: { select: { id: true, name: true, phone: true } },
           items: true,
         },
       });
-    });
 
-    // Recompute total if only discount/shipping changed without items
-    if (!totals && (dto.discount !== undefined || dto.shippingFee !== undefined)) {
-      const subtotal = Number(order.subtotal);
-      const discount = Number(order.discount);
-      const shippingFee = Number(order.shippingFee);
-      const total = Math.max(0, subtotal - discount + shippingFee);
-      const updated = await this.prisma.salesOrder.update({
-        where: { id },
-        data: { total: this.decimal(total) },
-        include: {
-          customer: { select: { id: true, name: true, phone: true } },
-          items: true,
+      await this.audit.log(
+        {
+          organizationId,
+          userId,
+          action: 'SALES_ORDER_UPDATED',
+          entityType: 'SALES_ORDER',
+          entityId: id,
+          metadata: {
+            total,
+            paymentStatus,
+            subtotal,
+            discount,
+            shippingFee,
+          },
         },
-      });
-      await this.audit.log({
-        organizationId,
-        userId,
-        action: 'SALES_ORDER_UPDATED',
-        entityType: 'SALES_ORDER',
-        entityId: id,
-      });
-      return this.serializeOrder(updated);
-    }
-
-    await this.audit.log({
-      organizationId,
-      userId,
-      action: 'SALES_ORDER_UPDATED',
-      entityType: 'SALES_ORDER',
-      entityId: id,
+        tx,
+      );
+      return updated;
     });
+
     return this.serializeOrder(order);
   }
 
@@ -572,6 +625,7 @@ export class SalesService {
           orderId: id,
           orderCode: row.code,
           items: items.map((it) => ({
+            orderItemId: it.id,
             productId: it.productId,
             productName: it.productName,
             quantity: it.quantity,

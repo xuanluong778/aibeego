@@ -1,0 +1,3 @@
+services:
+  api:
+    image: aibeego-api:template-bulk-route-fix-20261122

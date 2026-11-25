@@ -168,6 +168,8 @@ export async function processAppointmentReminders(redis: Redis) {
 }
 
 export async function processAutomationMessage(job: Job) {
+  await new PlanPolicy(prisma).assertFeature(job.data.organizationId, 'marketing_automation');
+  await new PlanPolicy(prisma).consume(job.data.organizationId, 'automationSteps', `automation:${job.id}`);
   const { organizationId, flowId, customerId, leadId } = job.data as {
     organizationId: string;
     flowId: string;
@@ -368,3 +370,4 @@ export async function processCampaignSend(job: Job) {
 
   return { sent: totalCustomers };
 }
+import { PlanPolicy } from '@marketingspa/database';

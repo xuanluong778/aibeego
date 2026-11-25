@@ -73,6 +73,7 @@ export class CreateExpenseDto {
   description!: string;
 
   @Type(() => Number)
+  @IsNumber()
   amount!: number;
 
   @IsDateString()
@@ -102,6 +103,7 @@ export class UpdateExpenseDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
   amount?: number;
 
   @IsOptional()

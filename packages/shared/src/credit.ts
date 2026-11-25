@@ -1,6 +1,7 @@
 /** AI Credit feature codes — dùng chung API/worker, không hard-code chi phí rải rác */
 export const CREDIT_FEATURE_CODES = {
   CONTENT_AI_GENERATE: 'content_ai.generate',
+  CONTENT_AI_SUGGEST: 'content_ai.suggest',
   CONTENT_AI_IMAGE: 'content_ai.image',
   ASSISTANT_CHAT: 'assistant.chat',
   ASSISTANT_WRITE: 'assistant.write',
@@ -12,6 +13,9 @@ export const CREDIT_FEATURE_CODES = {
   RAG_QUERY: 'rag.query',
   AI_ANALYSIS: 'ai.analysis',
   LANDING_PAGE_INLINE_AI: 'landing_page.inline_ai',
+  LANDING_PAGE_GENERATE: 'landing_page.generate',
+  AI_VISION: 'ai.vision',
+  EMAIL_SEND: 'email.send',
 } as const;
 
 export type CreditFeatureCode = (typeof CREDIT_FEATURE_CODES)[keyof typeof CREDIT_FEATURE_CODES];
@@ -23,6 +27,8 @@ export type CreditBalanceSnapshot = {
   available: number;
   lifetimeEarned: number;
   lifetimeUsed: number;
+  planBalance?: number;
+  purchasedBalance?: number;
 };
 
 export type CreditMutationResult = {
@@ -125,6 +131,7 @@ export const CREDIT_OUT_TYPES = ['USAGE', 'RESERVE'] as const;
 
 export const CREDIT_FEATURE_LABELS: Record<string, string> = {
   'content_ai.generate': 'Tạo nội dung AI',
+  'content_ai.suggest': 'Content AI — gợi ý ngắn',
   'content_ai.image': 'Tạo hình ảnh AI',
   'assistant.chat': 'Trợ lý AI — chat',
   'assistant.write': 'Trợ lý AI — soạn thảo',
@@ -136,6 +143,9 @@ export const CREDIT_FEATURE_LABELS: Record<string, string> = {
   'rag.query': 'Truy vấn knowledge base',
   'ai.analysis': 'Phân tích AI',
   'landing_page.inline_ai': 'Landing page — gợi ý chữ AI',
+  'landing_page.generate': 'Landing page — tạo nội dung AI',
+  'ai.vision': 'Phân tích ảnh bằng AI',
+  'email.send': 'Gửi email Marketing',
 };
 
 export const CREDIT_TYPE_LABELS: Record<string, string> = {

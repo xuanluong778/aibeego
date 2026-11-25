@@ -1,5 +1,6 @@
 import {
-  assertPublicHttpUrl,
+  fetchPublicHtmlSafe,
+  assertPublicHttpUrl as sharedAssertPublicHttpUrl,
   SsrfValidationError,
   FetchPublicError,
 } from '@marketingspa/shared/dist/ssrf-fetch';
@@ -28,6 +29,8 @@ const CHUNK_SIZE = 800;
 const MAX_BYTES = 50_000;
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 15_000;
+/** Giới hạn tải thô (trước khi strip HTML) — đọc theo luồng, dừng khi vượt. */
+const MAX_DOWNLOAD_BYTES = MAX_BYTES * 4;
 
 export function chunkWebsiteContent(content: string): string[] {
   const text = content.trim();
@@ -46,93 +49,83 @@ export function chunkWebsiteContent(content: string): string[] {
   return chunks.length ? chunks : [text];
 }
 
-function extractText(html: string, fallbackHost: string): { title: string; content: string } {
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || fallbackHost;
-  const content = html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_BYTES);
-  return { title, content };
+function mapSsrfToCrawlValidation(e: SsrfValidationError): CrawlValidationError {
+  const internalCodes = new Set([
+    'PRIVATE_IP',
+    'LOCALHOST',
+    'METADATA',
+    'DNS_FAILED',
+    'EMPTY_URL',
+    'INVALID_URL',
+    'BAD_SCHEME',
+    'USERINFO',
+  ]);
+  if (internalCodes.has(e.code)) {
+    return new CrawlValidationError('Không quét URL nội bộ.');
+  }
+  return new CrawlValidationError(e.message);
+}
+
+function mapFetchToCrawlFetch(e: FetchPublicError): CrawlFetchError {
+  switch (e.code) {
+    case 'TIMEOUT':
+      return new CrawlFetchError('Hết thời gian chờ khi tải trang.');
+    case 'TOO_LARGE':
+      return new CrawlFetchError('Phản hồi quá lớn.');
+    case 'TOO_MANY_REDIRECTS':
+      return new CrawlFetchError('Quá nhiều lần redirect.');
+    case 'BAD_REDIRECT':
+      return new CrawlFetchError('Redirect thiếu Location.');
+    case 'HTTP_ERROR': {
+      const m = e.message.match(/HTTP (\d+)/);
+      return new CrawlFetchError(m ? `HTTP ${m[1]}` : e.message);
+    }
+    case 'INSUFFICIENT_CONTENT':
+      return new CrawlFetchError('Không trích xuất được nội dung trang.');
+    default:
+      return new CrawlFetchError(e.message);
+  }
 }
 
 /**
- * Crawl public websites with shared SSRF guard (DNS + private/link-local/metadata + redirect re-check).
+ * Crawl public websites — pinned TLS, redirect re-check, streaming size cap (@marketingspa/shared).
  */
 export async function fetchAndExtractUrl(url: string): Promise<CrawlExtractResult> {
   const raw = url.trim();
   if (!raw) throw new CrawlValidationError('URL không được để trống.');
 
   try {
-    let current = await assertPublicHttpUrl(raw, { skipCommerceHostBlock: true });
-    let redirects = 0;
-
-    while (true) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      let response: Response;
-      try {
-        response = await fetch(current.toString(), {
-          method: 'GET',
-          redirect: 'manual',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; AIBeego-ChatbotCrawler/1.0)',
-            Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-          },
-          signal: controller.signal,
-        });
-      } catch (e) {
-        clearTimeout(timer);
-        if (e instanceof Error && e.name === 'AbortError') {
-          throw new CrawlFetchError('Hết thời gian chờ khi tải trang.');
-        }
-        throw new CrawlFetchError(e instanceof Error ? e.message : 'Không tải được trang.');
-      } finally {
-        clearTimeout(timer);
-      }
-
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        const loc = response.headers.get('location');
-        if (!loc) throw new CrawlFetchError('Redirect thiếu Location.');
-        redirects += 1;
-        if (redirects > MAX_REDIRECTS) {
-          throw new CrawlFetchError('Quá nhiều lần redirect.');
-        }
-        const next = new URL(loc, current);
-        current = await assertPublicHttpUrl(next.toString(), { skipCommerceHostBlock: true });
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new CrawlFetchError(`HTTP ${response.status}`);
-      }
-
-      const buf = Buffer.from(await response.arrayBuffer());
-      if (buf.byteLength > MAX_BYTES * 4) {
-        throw new CrawlFetchError('Phản hồi quá lớn.');
-      }
-      const html = buf.toString('utf8');
-      const { title, content } = extractText(html, current.hostname);
-      if (content.length < 10) {
-        throw new CrawlFetchError('Không trích xuất được nội dung trang.');
-      }
-      return {
-        pageUrl: current.toString().slice(0, 2000),
-        title,
-        content,
-      };
+    const fetched = await fetchPublicHtmlSafe(raw, {
+      timeoutMs: TIMEOUT_MS,
+      maxBytes: MAX_DOWNLOAD_BYTES,
+      maxRedirects: MAX_REDIRECTS,
+      skipCommerceHostBlock: true,
+      userAgent: 'Mozilla/5.0 (compatible; AIBeego-ChatbotCrawler/1.0)',
+      minExtractChars: 10,
+      maxExtractChars: MAX_BYTES,
+    });
+    const content = fetched.text.trim().slice(0, MAX_BYTES);
+    if (content.length < 10) {
+      throw new CrawlFetchError('Không trích xuất được nội dung trang.');
     }
+    return {
+      pageUrl: fetched.finalUrl.slice(0, 2000),
+      title: fetched.title,
+      content,
+    };
   } catch (e) {
-    if (e instanceof SsrfValidationError) {
-      throw new CrawlValidationError(e.message);
-    }
-    if (e instanceof FetchPublicError) {
-      throw new CrawlFetchError(e.message);
-    }
+    if (e instanceof SsrfValidationError) throw mapSsrfToCrawlValidation(e);
+    if (e instanceof FetchPublicError) throw mapFetchToCrawlFetch(e);
     if (e instanceof CrawlFetchError || e instanceof CrawlValidationError) throw e;
     throw new CrawlFetchError(e instanceof Error ? e.message : 'Không tải được trang.');
+  }
+}
+
+export async function assertPublicHttpUrl(raw: string): Promise<URL> {
+  try {
+    return await sharedAssertPublicHttpUrl(raw, { skipCommerceHostBlock: true });
+  } catch (e) {
+    if (e instanceof SsrfValidationError) throw mapSsrfToCrawlValidation(e);
+    throw e;
   }
 }

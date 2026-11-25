@@ -76,6 +76,9 @@ marketingspa-db-full-*.zip
 # Dump thô (chỉ giữ bản zip trong backups/github-sync/)
 backups/github-sync/*.dump
 
+# Legacy chatbot export — không commit data SQL (chỉ schema tham chiếu)
+chatbot_cskh_bundle_*/database/*_data_*.sql
+
 # Isolated platform-subdomain QA runtime
 .platform-subdomain-qa/
 

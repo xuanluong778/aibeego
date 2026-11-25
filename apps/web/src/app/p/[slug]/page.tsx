@@ -5,17 +5,44 @@ import {
   PublicLandingPageClient,
   type PublicLandingPayload,
 } from '@/components/landing-pages/public-landing-page-client';
+import { JsonLdScript } from '@/components/landing-pages/json-ld-script';
 import { landingPagePublicApiBase } from '@/lib/landing-page-public-api';
+import {
+  landingPagePublicCacheTags,
+  landingPageScopeCacheTag,
+  type LandingPageCacheScope,
+} from '@marketingspa/shared';
 
 export const revalidate = 60;
 
-async function fetchPublic(slug: string): Promise<PublicLandingPayload | null> {
+async function resolveCacheScope(slug: string): Promise<LandingPageCacheScope | null> {
+  if (slug.startsWith('lp-domain-') || slug.startsWith('lp-platform-')) return null;
   try {
     const res = await fetch(
+      `${landingPagePublicApiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}/cache-scope`,
+      { next: { revalidate: 60, tags: [landingPageScopeCacheTag(slug)] } },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as LandingPageCacheScope;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPublic(slug: string): Promise<PublicLandingPayload | null> {
+  try {
+    const isDomainKey = slug.startsWith('lp-domain-') || slug.startsWith('lp-platform-');
+    const scope = isDomainKey ? null : await resolveCacheScope(slug);
+    const isrTags = scope
+      ? landingPagePublicCacheTags(scope)
+      : isDomainKey
+        ? undefined
+        : [`lp-public-${slug}`];
+    const res = await fetch(
       `${landingPagePublicApiBase()}/api/v1/landing-pages/public/${encodeURIComponent(slug)}`,
-      slug.startsWith('lp-domain-') || slug.startsWith('lp-platform-')
+      isDomainKey || !isrTags
         ? { cache: 'no-store' }
-        : { next: { revalidate: 60, tags: [`lp-public-${slug}`] } },
+        : { next: { revalidate: 60, tags: isrTags } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicLandingPayload;
@@ -37,13 +64,12 @@ export async function generateMetadata({
   const title = data.seo.title || data.name;
   const description = data.seo.description || '';
   const indexable = data.seo.robotsIndex !== false;
-  // Relative library assets must resolve on the public origin, not Next's internal :3000.
   const requestHeaders = await headers();
   const host = (requestHeaders.get('x-forwarded-host') || requestHeaders.get('host') || '').split(',')[0]!.trim();
   const protocol = requestHeaders.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https' ? 'https' : 'http';
   let metadataBase: URL | undefined;
   if (/^[a-z0-9.[\]:-]+$/i.test(host)) {
-    try { metadataBase = new URL(`${protocol}://${host}`); } catch { /* Keep framework fallback for malformed hosts. */ }
+    try { metadataBase = new URL(`${protocol}://${host}`); } catch { /* malformed host */ }
   }
   return {
     metadataBase,
@@ -69,9 +95,8 @@ export async function generateMetadata({
 }
 
 /**
- * Public landing page — Server Component (SSR/ISR).
- * SEO meta via generateMetadata; interactive shell is a thin client child.
- * Does not import builder/sidebar/free-drag modules.
+ * Public landing page — Server Component (ISR).
+ * Apex /p/:slug — cache gắn tag theo org/page từ cache-scope API (xem LANDING_PAGE_APEX_SLUG_AMBIGUITY_NOTE).
  */
 export default async function PublicLandingPage({
   params,
@@ -92,10 +117,7 @@ export default async function PublicLandingPage({
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <JsonLdScript data={jsonLd} />
       <PublicLandingPageClient initial={data} />
     </>
   );

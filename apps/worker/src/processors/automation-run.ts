@@ -10,6 +10,7 @@ import { renderTemplate } from '../lib/template';
 import { checkMessagingEligibilityBeforeSend } from '../lib/messaging-eligibility';
 
 type AutomationAction =
+  | { type: 'WEBHOOK'; url: string }
   | { type: 'SEND_MESSAGE'; templateId?: string }
   | { type: 'SEND_EMAIL'; templateId?: string }
   | { type: 'CREATE_TASK'; title: string; dueInMinutes?: number }
@@ -60,6 +61,8 @@ export async function processAutomationMessage(job: Job) {
   if (!flow || !flow.isActive || flow.isPaused) {
     return { skipped: true, reason: 'flow_inactive' };
   }
+  await new PlanPolicy(prisma).assertFeature(organizationId, 'marketing_automation');
+  await new PlanPolicy(prisma).consume(organizationId, 'automationSteps', `flow:${idempotencyKey}`, Math.max(1, Array.isArray(flow.actions) ? flow.actions.length : 1));
 
   if (inQuietHours(flow.quietHoursStart, flow.quietHoursEnd)) {
     return { skipped: true, reason: 'quiet_hours' };
@@ -314,3 +317,4 @@ export async function processAutomationMessage(job: Job) {
 
   return { logId: log.id, steps: steps.length };
 }
+import { PlanPolicy } from '@marketingspa/database';

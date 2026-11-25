@@ -27,7 +27,8 @@ import {
   normalizePhoneDigits,
 } from '../common/utils/email-normalize.util';
 import { hashSignal } from '../common/utils/hash-signal.util';
-import { CREDIT_GRANT_SOURCES } from '@marketingspa/shared';
+import { buildSubscriptionDisplay, CREDIT_GRANT_SOURCES, planDefinition, planBonusMonths, requiredPlanFeature, billingAnniversary } from '@marketingspa/shared';
+import { organizationPlan } from '@marketingspa/database';
 
 const ACB_BIN = '970416';
 const ORDER_TTL_MS = 30 * 60 * 1000;
@@ -80,11 +81,26 @@ export class BillingService {
     return (this.config.get<string>('PAYMENT_CODE_PREFIX') || 'MKTA').trim().toUpperCase();
   }
 
-  listPlans() {
-    return this.prisma.subscriptionPlan.findMany({
-      where: { isActive: true, durationMonths: { in: [6, 12] } },
+  async listPlans() {
+    const plans = await this.prisma.subscriptionPlan.findMany({
+      where: { isActive: true, code: { startsWith: 'abg-' }, durationMonths: { in: [1, 6, 12] } },
       orderBy: [{ sortOrder: 'asc' }, { durationMonths: 'asc' }],
     });
+    return plans.map((plan) => ({ ...plan, entitlement: planDefinition(plan.code),
+      bonusMonths: planBonusMonths(plan.code),
+      totalUsageMonths: plan.durationMonths + planBonusMonths(plan.code) }));
+  }
+
+  async getPlanEntitlements(organizationId: string) {
+    const { subscription, definition } = await organizationPlan(this.prisma, organizationId);
+    const scheduled = await this.prisma.subscription.findMany({
+      where: { organizationId, status: 'ACTIVE', currentPeriodStart: { gt: new Date() } },
+      include: { plan: { select: { name: true } } }, orderBy: { currentPeriodStart: 'asc' },
+    });
+    return { tier: definition?.tier ?? (subscription ? 'LEGACY' : null),
+      features: definition?.features ?? [], limits: definition?.limits ?? null,
+      monthlyCredits: definition?.monthlyCredits ?? 0, legacy: Boolean(subscription && !definition),
+      scheduled: scheduled.map((row) => ({ name: row.plan.name, startsAt: row.currentPeriodStart, endsAt: row.currentPeriodEnd })) };
   }
 
   async getTrialSettings() {
@@ -148,6 +164,7 @@ export class BillingService {
       where: {
         organizationId,
         status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: { lte: now },
         currentPeriodEnd: { gt: now },
       },
       select: { id: true },
@@ -193,7 +210,11 @@ export class BillingService {
   async isFeatureAllowedForOrg(organizationId: string, apiPath: string): Promise<boolean> {
     const ent = await this.hasValidEntitlement(organizationId);
     if (!ent.ok) return false;
-    if (!ent.isTrial) return true;
+    if (!ent.isTrial) {
+      const { definition } = await organizationPlan(this.prisma, organizationId);
+      const feature = requiredPlanFeature(apiPath);
+      return !definition || !feature || definition.features.includes(feature);
+    }
     const settings = await this.getTrialSettings();
     const prefixes = Array.isArray(settings.allowedFeaturePrefixes)
       ? (settings.allowedFeaturePrefixes as string[])
@@ -227,6 +248,7 @@ export class BillingService {
       where: {
         organizationId,
         status: { not: SubscriptionStatus.CANCELLED },
+        currentPeriodStart: { lte: new Date() },
       },
       include: { plan: true },
       orderBy: { currentPeriodEnd: 'desc' },
@@ -315,8 +337,26 @@ export class BillingService {
     const isExpired = status === 'EXPIRED' || status === 'TRIAL_EXPIRED';
     const hasPlan = status === 'ACTIVE' || status === 'EXPIRING' || status === 'TRIALING';
 
+    const monthlyPayment = sub.plan.code === 'msp-pro-1m'
+      ? await this.prisma.paymentOrder.findFirst({
+          where: { organizationId, planId: sub.planId, status: PaymentOrderStatus.PAID },
+          select: { id: true },
+        })
+      : null;
+    const monthlyDisplay = sub.plan.code === 'msp-pro-1m'
+      ? buildSubscriptionDisplay({
+          status,
+          planCode: sub.plan.code,
+          durationMonths: sub.plan.durationMonths,
+          rawExpiresAt: new Date(expiresMs),
+          paidPeriodEnd: monthlyPayment ? new Date(expiresMs) : null,
+          now,
+        })
+      : null;
+
     return {
       ...identity,
+      ...(monthlyDisplay ? { display: monthlyDisplay } : {}),
       id: sub.id,
       hasPlan,
       planCode: sub.plan.code,
@@ -555,7 +595,7 @@ export class BillingService {
     const plan = await this.prisma.subscriptionPlan.findFirst({
       where: { code: planCode, isActive: true },
     });
-    if (!plan || ![6, 12].includes(plan.durationMonths)) {
+    if (!plan || ![1, 6, 12].includes(plan.durationMonths)) {
       throw new BadRequestException('Gói không hợp lệ');
     }
 
@@ -1787,6 +1827,8 @@ export class BillingService {
     },
   ): Promise<{ granted: number; idempotent: boolean; skipped: boolean }> {
     const amount = Number(params.plan.creditGrant ?? 0);
+    // New catalogue grants monthly through CreditLedger, not once per payment.
+    if (planDefinition(params.plan.code)) return { granted: 0, idempotent: false, skipped: true };
     if (!Number.isFinite(amount) || amount <= 0) {
       return { granted: 0, idempotent: false, skipped: true };
     }
@@ -1819,6 +1861,7 @@ export class BillingService {
     durationMonths: number,
     paidAt: Date,
   ) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`subscription:${organizationId}`}))`;
     const existing = await tx.subscription.findFirst({
       where: {
         organizationId,
@@ -1847,8 +1890,19 @@ export class BillingService {
       existing.currentPeriodEnd.getTime() > paidAt.getTime()
         ? existing.currentPeriodEnd
         : paidAt;
-    const end = new Date(base);
-    end.setMonth(end.getMonth() + durationMonths);
+    const newPlan = await tx.subscriptionPlan.findUniqueOrThrow({ where: { id: planId } });
+    const end = billingAnniversary(base, durationMonths + planBonusMonths(newPlan.code));
+
+    // Changing tiers starts after the already purchased term. No loss of time or rights.
+    if (existing && !fromTrial && existing.currentPeriodEnd > paidAt) {
+      const oldPlan = await tx.subscriptionPlan.findUniqueOrThrow({ where: { id: existing.planId } });
+      const oldTier = planDefinition(oldPlan.code)?.tier ?? oldPlan.code;
+      const newTier = planDefinition(newPlan.code)?.tier ?? newPlan.code;
+      if (oldTier !== newTier) return tx.subscription.create({ data: {
+        organizationId, planId, status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: base, currentPeriodEnd: end,
+      } });
+    }
 
     if (existing) {
       return tx.subscription.update({
@@ -1936,6 +1990,8 @@ export class BillingService {
             code: order.plan.code,
             name: order.plan.name,
             durationMonths: order.plan.durationMonths,
+            bonusMonths: planBonusMonths(order.plan.code),
+            totalUsageMonths: order.plan.durationMonths + planBonusMonths(order.plan.code),
             priceVnd: Number(order.plan.priceVnd),
           }
         : undefined,

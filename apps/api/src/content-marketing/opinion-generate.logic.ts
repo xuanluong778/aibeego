@@ -787,6 +787,7 @@ export async function generateOpinionPair(
       temperature: prepared.intensity === 'strong' ? 0.86 : 0.78,
     });
     const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as Partial<OpinionGenerateResult>;
+    if (typeof parsed.facebookPost !== 'string' || !parsed.facebookPost.trim()) return fallback;
     return finalizeResult(normalizeResult(parsed, templateGenerate(prepared)), prepared);
   } catch {
     return fallback;

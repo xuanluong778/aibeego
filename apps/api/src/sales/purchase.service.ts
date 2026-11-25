@@ -9,6 +9,13 @@ import { AuditService } from '../audit/audit.service';
 import { InventoryService } from './inventory.service';
 import { buildPaginatedResult, getPaginationParams } from '../common/utils/pagination.util';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import {
+  loadSalesIdempotentResult,
+  requireIdempotencyKey,
+  saveSalesIdempotentResult,
+  stablePayloadHash,
+} from './sales-idempotency.util';
+import { SalesDocumentCodeService, SALES_DOC_TYPES } from './sales-document-code.service';
 
 @Injectable()
 export class SalesPurchaseService {
@@ -16,6 +23,7 @@ export class SalesPurchaseService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly docCodes: SalesDocumentCodeService,
   ) {}
 
   private decimal(n: number) {
@@ -110,18 +118,6 @@ export class SalesPurchaseService {
 
   // ── Purchase Orders ──────────────────────────────────────────────────────
 
-  private async nextPoCode(organizationId: string) {
-    const day = new Date();
-    const y = day.getFullYear();
-    const m = String(day.getMonth() + 1).padStart(2, '0');
-    const d = String(day.getDate()).padStart(2, '0');
-    const prefix = `PO-${y}${m}${d}-`;
-    const count = await this.prisma.salesPurchaseOrder.count({
-      where: { organizationId, code: { startsWith: prefix } },
-    });
-    return `${prefix}${String(count + 1).padStart(4, '0')}`;
-  }
-
   async listPurchaseOrders(
     organizationId: string,
     query: PaginationDto & { status?: string },
@@ -187,7 +183,6 @@ export class SalesPurchaseService {
     }
     const byId = new Map(products.map((p) => [p.id, p]));
 
-    const code = await this.nextPoCode(organizationId);
     const lines = dto.items.map((it) => {
       const qty = Math.max(1, Math.trunc(Number(it.quantity) || 0));
       const unitCost = Math.max(0, Number(it.unitCost) || 0);
@@ -203,6 +198,11 @@ export class SalesPurchaseService {
     const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
 
     const po = await this.prisma.$transaction(async (tx) => {
+      const code = await this.docCodes.nextInTransaction(
+        tx,
+        organizationId,
+        SALES_DOC_TYPES.PURCHASE_ORDER,
+      );
       const created = await tx.salesPurchaseOrder.create({
         data: {
           organizationId,
@@ -252,19 +252,49 @@ export class SalesPurchaseService {
     poId: string,
     dto: {
       items: Array<{
-        productId: string;
+        purchaseOrderItemId?: string;
+        productId?: string;
         quantity: number;
         batchCode?: string;
         expiryDate?: string;
       }>;
+      idempotencyKey: string;
       note?: string;
     },
     userId?: string,
   ) {
     if (!dto.items?.length) throw new BadRequestException('Thiếu dòng nhận hàng');
+    const idempotencyKey = requireIdempotencyKey(dto.idempotencyKey);
+    const payloadForHash = {
+      poId,
+      items: dto.items.map((i) => ({
+        purchaseOrderItemId: i.purchaseOrderItemId ?? null,
+        productId: i.productId ?? null,
+        quantity: Math.trunc(Number(i.quantity) || 0),
+        batchCode: i.batchCode?.trim() || null,
+        expiryDate: i.expiryDate ?? null,
+      })),
+      note: dto.note?.trim() || null,
+    };
+    const payloadHash = stablePayloadHash(payloadForHash);
+    const normalized = this.normalizeReceiveLines(dto.items);
 
     return this.prisma.$transaction(
       async (tx) => {
+        const replay = await loadSalesIdempotentResult<{ poId: string }>(tx, {
+          organizationId,
+          operation: 'PO_RECEIVE',
+          idempotencyKey,
+          payloadHash,
+        });
+        if (replay) {
+          const po = await tx.salesPurchaseOrder.findFirstOrThrow({
+            where: { id: replay.poId, organizationId },
+            include: { supplier: true, items: true },
+          });
+          return this.serializePo(po);
+        }
+
         const locked = await tx.$queryRaw<Array<{ id: string; status: string; code: string }>>`
           SELECT id, status, code FROM sales_purchase_orders
           WHERE id = ${poId} AND organization_id = ${organizationId}
@@ -272,31 +302,35 @@ export class SalesPurchaseService {
         `;
         if (!locked.length) throw new NotFoundException('Không tìm thấy PO');
         const header = locked[0]!;
-        if (
-          header.status === SalesPurchaseOrderStatus.CANCELLED ||
-          header.status === SalesPurchaseOrderStatus.RECEIVED
-        ) {
-          // Idempotent: already fully received
-          if (header.status === SalesPurchaseOrderStatus.RECEIVED) {
-            return this.getPurchaseOrder(organizationId, poId);
-          }
+        if (header.status === SalesPurchaseOrderStatus.CANCELLED) {
           throw new BadRequestException('PO đã hủy');
         }
 
         const poItems = await tx.salesPurchaseOrderItem.findMany({
           where: { purchaseOrderId: poId },
         });
+        const byId = new Map(poItems.map((i) => [i.id, i]));
         const byProduct = new Map(poItems.map((i) => [i.productId, i]));
 
-        for (const recv of dto.items) {
-          const line = byProduct.get(recv.productId);
-          if (!line) throw new BadRequestException(`SP không có trên PO: ${recv.productId}`);
-          const qty = Math.trunc(Number(recv.quantity) || 0);
+        for (const recv of normalized) {
+          const line = recv.purchaseOrderItemId
+            ? byId.get(recv.purchaseOrderItemId)
+            : recv.productId
+              ? byProduct.get(recv.productId)
+              : undefined;
+          if (!line) {
+            throw new BadRequestException(
+              recv.purchaseOrderItemId
+                ? `Dòng PO không hợp lệ: ${recv.purchaseOrderItemId}`
+                : `SP không có trên PO: ${recv.productId}`,
+            );
+          }
+          const qty = recv.quantity;
           if (qty <= 0) continue;
           const remain = line.quantity - line.receivedQty;
           if (qty > remain) {
             throw new BadRequestException(
-              `Nhận vượt PO cho ${line.productName} (còn ${remain})`,
+              `Nhận vượt PO cho ${line.productName} (còn ${remain}, yêu cầu ${qty})`,
             );
           }
 
@@ -304,27 +338,37 @@ export class SalesPurchaseService {
             recv.batchCode?.trim() ||
             `PO-${header.code}-${line.productId.slice(0, 6).toUpperCase()}`;
 
-          await this.inventory.applyInboundInTx(
-            tx,
-            organizationId,
-            {
-              productId: line.productId,
-              batchCode,
-              quantity: qty,
-              unitCost: Number(line.unitCost),
-              expiryDate: recv.expiryDate,
-              reason: `Nhận hàng PO ${header.code}`,
-              note: dto.note?.trim() || undefined,
+          const inboundRef = `PO_RECEIVE:${poId}:${line.id}:${idempotencyKey}`;
+          const priorInbound = await tx.salesStockMovement.findFirst({
+            where: {
+              organizationId,
+              type: 'INBOUND',
               referenceType: 'PURCHASE_ORDER',
-              referenceId: poId,
+              referenceId: inboundRef,
             },
-            userId,
-          );
-
-          await tx.salesPurchaseOrderItem.update({
-            where: { id: line.id },
-            data: { receivedQty: { increment: qty } },
           });
+          if (!priorInbound) {
+            await this.inventory.applyInboundInTx(
+              tx,
+              organizationId,
+              {
+                productId: line.productId,
+                batchCode,
+                quantity: qty,
+                unitCost: Number(line.unitCost),
+                expiryDate: recv.expiryDate,
+                reason: `Nhận hàng PO ${header.code}`,
+                note: dto.note?.trim() || undefined,
+                referenceType: 'PURCHASE_ORDER',
+                referenceId: inboundRef,
+              },
+              userId,
+            );
+            await tx.salesPurchaseOrderItem.update({
+              where: { id: line.id },
+              data: { receivedQty: { increment: qty } },
+            });
+          }
         }
 
         const refreshed = await tx.salesPurchaseOrderItem.findMany({
@@ -353,21 +397,61 @@ export class SalesPurchaseService {
             action: 'SALES_PO_RECEIVED',
             entityType: 'SALES_PURCHASE_ORDER',
             entityId: poId,
-            metadata: { code: header.code, status, items: dto.items },
+            metadata: { code: header.code, status, idempotencyKey, items: normalized },
           },
           tx,
         );
 
-        return tx.salesPurchaseOrder.findFirstOrThrow({
+        const po = await tx.salesPurchaseOrder.findFirstOrThrow({
           where: { id: poId, organizationId },
-          include: {
-            supplier: true,
-            items: true,
-          },
-        }).then((po) => this.serializePo(po));
+          include: { supplier: true, items: true },
+        });
+        const serialized = this.serializePo(po);
+        await saveSalesIdempotentResult(tx, {
+          organizationId,
+          operation: 'PO_RECEIVE',
+          idempotencyKey,
+          payloadHash,
+          resourceId: poId,
+          resultJson: { poId },
+        });
+        return serialized;
       },
       { timeout: 30_000 },
     );
+  }
+
+  private normalizeReceiveLines(
+    items: Array<{
+      purchaseOrderItemId?: string;
+      productId?: string;
+      quantity: number;
+      batchCode?: string;
+      expiryDate?: string;
+    }>,
+  ) {
+    const keyCounts = new Map<string, number>();
+    for (const raw of items) {
+      if (!raw.purchaseOrderItemId && !raw.productId) {
+        throw new BadRequestException('Mỗi dòng nhận cần purchaseOrderItemId hoặc productId');
+      }
+      const key = raw.purchaseOrderItemId ? `id:${raw.purchaseOrderItemId}` : `pid:${raw.productId}`;
+      keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of keyCounts) {
+      if (count > 1) {
+        throw new BadRequestException(
+          `Trùng dòng nhận trong cùng yêu cầu (${key.replace(/^(id|pid):/, '')}) — gộp số lượng hoặc tách lần nhận`,
+        );
+      }
+    }
+    return items.map((raw) => ({
+      purchaseOrderItemId: raw.purchaseOrderItemId,
+      productId: raw.productId,
+      quantity: Math.trunc(Number(raw.quantity) || 0),
+      batchCode: raw.batchCode,
+      expiryDate: raw.expiryDate,
+    }));
   }
 
   private serializePo<

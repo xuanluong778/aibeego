@@ -2,6 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -125,6 +126,10 @@ export class UpdateSalesOrderDto {
   @IsString()
   @MaxLength(80)
   source?: string;
+
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 
   @IsOptional()
   @IsArray()
@@ -528,15 +533,20 @@ export class RecordSalesPaymentDto {
   @MaxLength(1000)
   note?: string;
 
-  @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(128)
-  idempotencyKey?: string;
+  idempotencyKey!: string;
 }
 
 export class CreateSalesReturnDto {
   @IsUUID()
   orderId!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  idempotencyKey!: string;
 
   @IsOptional()
   @IsString()
@@ -547,6 +557,11 @@ export class CreateSalesReturnDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+
+  /** RESTOCK nhập lại kho bán; HOLD/SCRAP chỉ ghi nhận trả, không cộng tồn bán. */
+  @IsOptional()
+  @IsIn(['RESTOCK', 'HOLD', 'SCRAP'])
+  disposition?: 'RESTOCK' | 'HOLD' | 'SCRAP';
 
   @IsOptional()
   @Type(() => Number)
@@ -653,6 +668,11 @@ export class ReceivePurchaseOrderDto {
   @Type(() => ReceivePurchaseOrderItemDto)
   items!: ReceivePurchaseOrderItemDto[];
 
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  idempotencyKey!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(1000)
@@ -660,8 +680,13 @@ export class ReceivePurchaseOrderDto {
 }
 
 export class ReceivePurchaseOrderItemDto {
+  @IsOptional()
   @IsUUID()
-  productId!: string;
+  purchaseOrderItemId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
 
   @Type(() => Number)
   @IsInt()

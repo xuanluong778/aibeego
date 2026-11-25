@@ -52,6 +52,12 @@ export class BillingController {
     });
   }
 
+  @Get('billing/entitlements')
+  @UseGuards(JwtAuthGuard, TenantGuard)
+  entitlements(@CurrentUser() user: AuthUser) {
+    return this.billing.getPlanEntitlements(user.organizationId);
+  }
+
   @Get('billing/trial/status')
   @UseGuards(JwtAuthGuard, TenantGuard)
   trialStatus(@CurrentUser() user: AuthUser) {

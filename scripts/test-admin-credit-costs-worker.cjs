@@ -1,0 +1,10 @@
+const req=require('node:module').createRequire('/app/package.json'),assert=require('node:assert/strict');
+process.env.DATABASE_URL='postgresql://planqa:planqa-local-only@subscription-postgres:5432/plan_tiers_qa_v2?schema=public';
+const {prisma:db,CreditLedger}=req('@marketingspa/database');
+(async()=>{const input=require('/fixtures/worker-readback.json'),ledger=new CreditLedger(db);
+  assert.equal(await ledger.getFeatureCost(input.featureCode),input.creditCost);
+  const before=await ledger.getBalance(input.organizationId);
+  await ledger.runPaidFeature({organizationId:input.organizationId,featureCode:input.featureCode,referenceId:`admin-worker-test:${Date.now()}`,fn:async context=>{context.markProviderStarted();return 'provider fixture';}});
+  assert.equal(before.balance-(await ledger.getBalance(input.organizationId)).balance,input.creditCost);
+  console.log('PASS: separate worker process immediately uses the price saved through the admin API. No paid provider calls.');
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>db.$disconnect());

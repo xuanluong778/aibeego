@@ -1,0 +1,5 @@
+services:
+  api:
+    image: aibeego-api:content-flat20-20261122
+  web:
+    image: aibeego-web:content-flat20-20261122

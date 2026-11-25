@@ -1,3 +1,4 @@
+import { planBilledChat } from './utils/plan-billed-chat';
 import { Injectable } from '@nestjs/common';
 import { AdPlatform, ChatbotBotStatus } from '@marketingspa/database';
 import { PrismaService } from '../prisma/prisma.service';
@@ -143,7 +144,7 @@ export class ChatbotCskhPublicService {
       this.chatbot.getUsageSnapshot(bot.organizationId),
     ]);
 
-    const openAiChat = this.openAi.isConfigured()
+    const openAiChat = planBilledChat(this.prisma, bot.organizationId, this.openAi.isConfigured()
       ? async (input: {
           model: string;
           systemPrompt: string;
@@ -163,7 +164,7 @@ export class ChatbotCskhPublicService {
               { role: 'user', content: input.userText },
             ],
           })
-      : undefined;
+      : undefined);
 
     history.reverse();
     const knowledge = await this.chatbot.getReplyKnowledge(bot.organizationId, bot.id, dto.message, history);

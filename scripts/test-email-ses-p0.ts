@@ -6,7 +6,7 @@
  *   SES_SNS_TOPIC_ARN
  *   SES_SNS_WEBHOOK_TEST_SIGNING_KEY (for signed HTTP + in-process service tests)
  */
-import { PrismaClient, EmailContactStatus, EmailRecipientStatus } from '@prisma/client';
+import { PrismaClient, EmailContactStatus, EmailRecipientStatus } from '@marketingspa/database';
 import { NestFactory } from '@nestjs/core';
 import { verifyAmazonSnsMessage } from '../packages/shared/dist/sns-signature';
 import {
@@ -120,6 +120,45 @@ async function testTopicFailClosed() {
   const { expectedSnsTopicArn } = await import('../apps/api/dist/email-marketing/ses-webhook.util.js');
   record('topic_arn_fail_closed_empty', expectedSnsTopicArn() === '', 'missing ARN returns empty');
   process.env.SES_SNS_TOPIC_ARN = prev || TEST_TOPIC;
+}
+
+async function testHttpWebhook() {
+  const msgId = `http-p0-${Date.now()}`;
+  const envelope = signedNotification({
+    eventType: 'Send',
+    mail: { messageId: msgId },
+  });
+  const raw = JSON.stringify(envelope);
+  const ok = await api('/email-marketing/public/ses-events', {
+    method: 'POST',
+    body: raw,
+    testSig: buildSnsTestHmac(raw, TEST_HMAC_KEY),
+  });
+  record(
+    'http_signed_accept',
+    ok.status >= 200 && ok.status < 300,
+    `status=${ok.status}`,
+  );
+
+  const badSig = await api('/email-marketing/public/ses-events', {
+    method: 'POST',
+    body: raw,
+    testSig: 'not-a-valid-hmac',
+  });
+  record('http_bad_signature_rejected', badSig.status === 403, `status=${badSig.status}`);
+
+  const replay = await api('/email-marketing/public/ses-events', {
+    method: 'POST',
+    body: raw,
+    testSig: buildSnsTestHmac(raw, TEST_HMAC_KEY),
+  });
+  const u1 = typeof ok.json?.updated === 'number' ? ok.json.updated : 0;
+  const u2 = typeof replay.json?.updated === 'number' ? replay.json.updated : 0;
+  record(
+    'http_replay_idempotent',
+    replay.status >= 200 && replay.status < 300 && u2 === 0,
+    `status=${replay.status} updated1=${u1} updated2=${u2}`,
+  );
 }
 
 async function testServiceRejections() {
@@ -379,6 +418,7 @@ async function main() {
 
   await testSnsSignatureUnit();
   await testTopicFailClosed();
+  await testHttpWebhook();
   await testServiceRejections();
   await testServiceSignedAccept();
   await testServiceFlow();
@@ -391,6 +431,7 @@ async function main() {
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) process.exit(1);
+  process.exit(0);
 }
 
 main()

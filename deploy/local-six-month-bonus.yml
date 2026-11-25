@@ -1,0 +1,5 @@
+services:
+  api:
+    image: aibeego-api:six-month-bonus-20261122
+  web:
+    image: aibeego-web:six-month-bonus-20261122

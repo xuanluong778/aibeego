@@ -201,7 +201,7 @@ ${industry.isSpaBeauty ? '' : 'CẤM dùng từ spa/liệu trình da trừ khi c
       content: parsed.content || fallback.content,
       hooks: Array.isArray(parsed.hooks) ? parsed.hooks.slice(0, 5) : fallback.hooks,
       ctas: Array.isArray(parsed.ctas) ? parsed.ctas.slice(0, 5) : fallback.ctas,
-      source: 'ai',
+      source: typeof parsed.content === 'string' && parsed.content.trim() ? 'ai' : 'template',
       headline: parsed.headline ?? fallback.headline,
       shortDescription: parsed.shortDescription ?? fallback.shortDescription,
       mediaSuggestions: Array.isArray(parsed.mediaSuggestions)

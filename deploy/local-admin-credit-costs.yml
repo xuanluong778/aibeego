@@ -1,0 +1,5 @@
+services:
+  api:
+    image: aibeego-api:admin-credit-costs-20261122
+  web:
+    image: aibeego-web:admin-credit-costs-20261122

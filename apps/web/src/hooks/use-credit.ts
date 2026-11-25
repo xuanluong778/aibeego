@@ -14,6 +14,12 @@ export function invalidateCredits(qc: QueryClient) {
 
 export type CreditBalance = CreditBalanceSnapshot;
 
+export function useCreditPricing() {
+  return useQuery({ queryKey: ['credits', 'pricing'], queryFn: () => apiClient<Array<{
+    featureCode: string; name: string; creditCost: number; description: string | null;
+  }>>('/credits/pricing'), staleTime: 60_000 });
+}
+
 export type CreditHistoryItem = {
   id: string;
   createdAt: string;

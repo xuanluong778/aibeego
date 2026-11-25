@@ -6187,7 +6187,9 @@ export function LandingPageBuilder({ pageId }: { pageId: string }) {
       clearLocalLandingDraft(pageId);
       const publicPath = updated.publicUrl || updated.publicPath || (updated.slug ? `/p/${updated.slug}` : null);
       setPublishPublicPath(publicPath);
-      const fresh = await revalidatePublicLandingPage(updated.slug);
+      const fresh =
+        (updated.publicCacheRefresh?.ok ?? false) ||
+        (await revalidatePublicLandingPage(pageId));
       setSaveMsg(
         fresh
           ? 'Đã xuất bản thành công'

@@ -47,8 +47,13 @@ export class EmailMarketingPublicController {
   }
 
   @Get('click/:rid')
-  async click(@Param('rid') rid: string, @Query('url') url: string | undefined, @Res() res: Response) {
-    const dest = await this.service.trackClick(rid, url);
+  async click(
+    @Param('rid') rid: string,
+    @Query('url') url: string | undefined,
+    @Query('sig') sig: string | undefined,
+    @Res() res: Response,
+  ) {
+    const dest = await this.service.trackClick(rid, url, sig);
     res.redirect(dest.startsWith('http') ? dest : '/');
   }
 

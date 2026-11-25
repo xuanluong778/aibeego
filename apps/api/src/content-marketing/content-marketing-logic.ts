@@ -713,10 +713,11 @@ export async function generatePersonalContent(
       temperature: intensity === 'very_strong' || intensity === 'strong' ? 0.9 : 0.85,
     });
     const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as GeneratePersonalResult;
+    if (typeof parsed.content !== 'string' || !parsed.content.trim()) return templateGeneratePersonal(dto);
     const fallback = templateGeneratePersonal(dto);
     let content = parsed.content || fallback.content;
     if (contentUsesForbiddenOpener(content)) {
-      content = fallback.content;
+      return fallback;
     }
     return {
       content,

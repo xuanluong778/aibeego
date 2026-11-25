@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
   CreditError,
+  PlanPolicyError,
+  creditCallContext,
   CreditLedger,
   CreditTransactionType,
   Prisma,
@@ -157,6 +160,14 @@ export class CreditService {
     }));
   }
 
+  async listPricing() {
+    const rows = await this.prisma.creditFeaturePricing.findMany({
+      where: { isActive: true, featureCode: { notIn: ['content_ai.image', 'assistant.write'] } }, orderBy: { sortOrder: 'asc' },
+    });
+    return rows.map(row => ({ featureCode: row.featureCode, name: row.name,
+      creditCost: Number(row.creditCost), description: row.description }));
+  }
+
   async listHistory(
     organizationId: string,
     query: { page?: number; pageSize?: number; includeInternal?: boolean } = {},
@@ -233,7 +244,11 @@ export class CreditService {
     try {
       return await fn();
     } catch (err) {
-      throw this.toHttp(err);
+      try { this.toHttp(err); } catch (mapped) {
+        const context = creditCallContext.getStore();
+        if (context && (err instanceof CreditError || err instanceof PlanPolicyError || mapped instanceof HttpException)) context.billingError = mapped as Error;
+        throw mapped;
+      }
     }
   }
 

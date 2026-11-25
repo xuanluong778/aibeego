@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import {
   EmailAutomationAction,
@@ -26,7 +27,11 @@ import { normalizeEmail, renderEmailMerge, type SegmentRules } from './email-mar
 import { parseContactSpreadsheet, parseTagList } from './email-spreadsheet.util';
 import { OpenAiService } from '../openai/openai.service';
 import { CreditService } from '../credit/credit.service';
-import { CREDIT_FEATURE_CODES } from '@marketingspa/shared';
+import {
+  CREDIT_FEATURE_CODES,
+  collectEmailTrackableDestinations,
+  resolveEmailClickDestination,
+} from '@marketingspa/shared';
 import { createEmailProvider } from '@marketingspa/shared/dist/email-providers/create';
 import {
   formatEmailSendError,
@@ -149,6 +154,7 @@ export class EmailMarketingService {
     private readonly queue: EmailMarketingQueueService,
     private readonly openAi: OpenAiService,
     private readonly credit: CreditService,
+    private readonly config: ConfigService,
   ) {}
 
   private async scopedCampaign(organizationId: string, id: string) {
@@ -1498,7 +1504,13 @@ export class EmailMarketingService {
     return { ok: true };
   }
 
+  private async planAllowsEmailAutomation(organizationId: string) {
+    try { await new PlanPolicy(this.prisma).assertFeature(organizationId, 'email_automation'); return true; }
+    catch (error) { if (error instanceof PlanPolicyError) return false; throw error; }
+  }
+
   async runAutomation(organizationId: string, id: string) {
+    await new PlanPolicy(this.prisma).assertFeature(organizationId, 'email_automation');
     const automation = await this.prisma.emailAutomation.findFirst({
       where: { id, organizationId },
     });
@@ -1622,19 +1634,47 @@ export class EmailMarketingService {
     return true;
   }
 
-  async trackClick(recipientId: string, url?: string) {
+  private emailClickSafeFallback(): string {
+    const app = (this.config.get<string>('APP_URL') || '').replace(/\/$/, '');
+    return app ? `${app}/` : '/';
+  }
+
+  private emailClickSignSecret(): string {
+    return (
+      this.config.get<string>('EMAIL_CLICK_SIGNING_SECRET') ||
+      this.config.get<string>('JWT_SECRET') ||
+      ''
+    ).trim();
+  }
+
+  async trackClick(recipientId: string, url?: string, signature?: string) {
     const recipient = await this.prisma.emailCampaignRecipient.findFirst({
       where: { id: recipientId },
+      include: { campaign: { include: { template: true } } },
     });
-    if (!recipient) return url || '/';
+    const fallback = this.emailClickSafeFallback();
+    if (!recipient) return fallback;
+    const templateHtml = recipient.campaign?.template?.htmlBody || '';
+    const allowed = collectEmailTrackableDestinations(templateHtml);
+    const resolved = resolveEmailClickDestination({
+      requestedUrl: url,
+      signature,
+      recipientId: recipient.id,
+      campaignId: recipient.campaignId,
+      allowedDestinations: allowed,
+      signSecret: this.emailClickSignSecret(),
+      safeFallbackUrl: fallback,
+    });
+    const dest = resolved.destination;
+    if (!resolved.ok) return dest;
     if (
       recipient.status === EmailRecipientStatus.BOUNCED ||
       recipient.status === EmailRecipientStatus.FAILED ||
       recipient.status === EmailRecipientStatus.UNSUBSCRIBED
     ) {
-      return url || '/';
+      return dest;
     }
-    if (recipient.clickedAt) return url || '/';
+    if (recipient.clickedAt) return dest;
 
     const implicitOpen = !recipient.openedAt;
     await this.prisma.$transaction([
@@ -1653,7 +1693,10 @@ export class EmailMarketingService {
           recipientId: recipient.id,
           contactId: recipient.contactId,
           type: EmailEventType.CLICK,
-          metadata: { url: url ?? null } as Prisma.InputJsonValue,
+          metadata: {
+            url: dest,
+            verifyMode: resolved.mode,
+          } as Prisma.InputJsonValue,
         },
       }),
       ...(implicitOpen
@@ -1690,7 +1733,7 @@ export class EmailMarketingService {
         recipient.contactId,
       );
     }
-    return url || '/';
+    return dest;
   }
 
   async handleCrmTrigger(
@@ -1967,6 +2010,7 @@ export class EmailMarketingService {
     trigger: EmailAutomationTrigger,
     contactId: string,
   ) {
+    if (!(await this.planAllowsEmailAutomation(organizationId))) return;
     const automations = await this.prisma.emailAutomation.findMany({
       where: { organizationId, trigger, status: EmailAutomationStatus.ACTIVE },
     });
@@ -1991,6 +2035,7 @@ export class EmailMarketingService {
     contactId: string,
     listId?: string,
   ) {
+    if (!(await this.planAllowsEmailAutomation(organizationId))) return;
     const automations = await this.prisma.emailAutomation.findMany({
       where: {
         organizationId,
@@ -2031,6 +2076,7 @@ export class EmailMarketingService {
   }
 
   async scheduleNotOpenFollowups(organizationId: string, recipientId: string) {
+    if (!(await this.planAllowsEmailAutomation(organizationId))) return;
     const automations = await this.prisma.emailAutomation.findMany({
       where: {
         organizationId,
@@ -2058,6 +2104,7 @@ export class EmailMarketingService {
     contactId: string,
     email: string,
   ) {
+    if (!(await this.planAllowsEmailAutomation(organizationId))) return;
     if (!automation.templateId) return;
     const normalized = normalizeEmail(email);
     const contact = await this.prisma.emailContact.findFirst({
@@ -2109,7 +2156,6 @@ export class EmailMarketingService {
       referenceId: `email.ai:${organizationId}:${randomUUID()}`,
       reason: 'email AI generate',
       fn: async (ctx) => {
-        ctx.markProviderStarted();
         const raw = await this.openAi.chatCompletion({
       messages: [
         {
@@ -2156,7 +2202,7 @@ Quy tắc:
     });
   }
 
-  async sendTestEmail(dto: SendTestEmailDto) {
+  async sendTestEmail(dto: SendTestEmailDto, organizationId: string) {
     const to = normalizeEmail(dto.to);
     const health = getEmailProviderHealth();
     const provider = createEmailProvider({ purpose: 'marketing' });
@@ -2186,13 +2232,18 @@ Quy tắc:
         : (process.env.SMTP_FROM || '').trim() ||
           `Ai Bee Go <${(process.env.SMTP_USER || 'noreply@aibeego.com').trim()}>`;
     try {
-      await provider.send({
+      await this.credit.runPaidFeature({ organizationId, featureCode: 'email.send',
+        referenceId: `email.test:${randomUUID()}`, fn: async context => {
+      const result = await provider.send({
         to,
         from,
         subject: `[Thử] ${subject}`,
         html,
         text,
       });
+      context.markProviderStarted();
+      return result;
+      } });
     } catch (err) {
       throw new BadRequestException(formatEmailSendError(err, provider.name));
     }
@@ -2656,3 +2707,4 @@ function extractJsonObject(text: string): string {
   if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
   throw new Error('AI response is not JSON');
 }
+import { PlanPolicy, PlanPolicyError } from '@marketingspa/database';

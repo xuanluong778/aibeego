@@ -48,6 +48,8 @@ export async function processCanvasRuntime(job: Job) {
     throw new Error('Invalid canvas runtime job');
   }
   const live = await loadLive(data.organizationId, data.leadId, data.funnelId);
+  await new PlanPolicy(prisma).assertFeature(data.organizationId, 'marketing_automation');
+  await new PlanPolicy(prisma).consume(data.organizationId, 'automationSteps', `canvas:${job.id}`);
   if (!live) return { skipped: true, reason: 'inactive' };
   if (live.funnel.publishedVersion !== data.publishedVersion) {
     return { skipped: true, reason: 'version_mismatch' };
@@ -531,3 +533,4 @@ async function executeNode(
 
   return { skipped: true, reason: 'noop' };
 }
+import { PlanPolicy } from '@marketingspa/database';

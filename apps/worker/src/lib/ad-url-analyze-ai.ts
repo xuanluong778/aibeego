@@ -147,6 +147,8 @@ function templateMap(input: {
 }
 
 export async function analyzeAdUrlContent(input: {
+  organizationId: string;
+  billingReference: string;
   adPostKind: 'product' | 'service';
   title: string;
   text: string;
@@ -233,6 +235,7 @@ Trả JSON thuần:
 }`;
 
   try {
+    // Content editor analysis and suggestions are free.
     const res = await fetch(`${openaiBaseUrl()}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -247,6 +250,7 @@ Trả JSON thuần:
       }),
       signal: AbortSignal.timeout(60_000),
     });
+
     if (!res.ok) {
       return {
         ...templateMap(input),
@@ -346,7 +350,8 @@ Trả JSON thuần:
       finalUrl: input.finalUrl,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.6,
     };
-  } catch {
+  } catch (error) {
+
     return templateMap(input);
   }
 }

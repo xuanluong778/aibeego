@@ -1,3 +1,5 @@
+import { planFanpageIds } from '@marketingspa/database';
+import { PlanPolicy } from '@marketingspa/database';
 import {
   BadRequestException,
   Inject,
@@ -1174,7 +1176,15 @@ export class ChannelConnectionsService {
       throw new NotFoundException('Kết nối kênh không tồn tại');
     }
 
-    const row = await this.prisma.messagingChannelConnection.upsert({
+    const row = await new PlanPolicy(this.prisma).resource(params.organizationId, params.channel === 'ZALO' ? 'zaloOas' : 'fanpages',
+      async (tx) => {
+        if (params.channel === 'MESSENGER') {
+          const ids = await planFanpageIds(tx, params.organizationId);
+          return ids.size - (ids.has(params.accountRef) ? 1 : 0);
+        }
+        return tx.messagingChannelConnection.count({ where: { organizationId: params.organizationId, channel: params.channel, status: 'ACTIVE' } });
+      },
+      (tx) => tx.messagingChannelConnection.upsert({
       where: {
         organizationId_channel_accountRef: {
           organizationId: params.organizationId,
@@ -1209,7 +1219,7 @@ export class ChannelConnectionsService {
         webhookSubscribed: params.webhookSubscribed ?? undefined,
         metadata: metadata as Prisma.InputJsonValue,
       },
-    });
+    }), params.channel !== 'MESSENGER' && existingGlobal?.status === 'ACTIVE' ? 0 : 1);
 
     await this.audit.log({
       organizationId: params.organizationId,

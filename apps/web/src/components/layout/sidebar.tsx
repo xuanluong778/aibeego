@@ -1,16 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
-import { ChevronDown, Crown, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { ChevronLeft, ChevronRight, Crown, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { sidebarNavGroups, type NavGroup, type NavItem } from '@/config/navigation';
 import { useT } from '@/i18n/i18n-provider';
 import { useCurrentUser } from '@/hooks/use-auth';
 import { useSubscriptionDisplay } from '@/hooks/use-subscription-display';
 import { CONTENT_AUTO_POST_BASE } from '@/lib/content-auto-post-routes';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CollapsedNavHoverLabel } from './collapsed-nav-hover-label';
 
 /** Canonicalize create-section for active match (`ads-check` → `facebook-check`). */
@@ -24,11 +24,17 @@ interface SidebarProps {
   onNavigate?: () => void;
   /** Main app sidebar rail (icon-only). Does not affect LP builder white toolbar. */
   collapsed?: boolean;
+  mobile?: boolean;
   /** Desktop-only: collapse/expand main green sidebar. */
   onToggleCollapsed?: () => void;
 }
 
-export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: SidebarProps) {
+export function Sidebar({
+  onNavigate,
+  collapsed = false,
+  mobile = false,
+  onToggleCollapsed,
+}: SidebarProps) {
   const t = useT();
   const { data: currentUser } = useCurrentUser();
   const isPlatformAdmin = currentUser?.role === 'SUPER_ADMIN';
@@ -40,8 +46,12 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
     [isPlatformAdmin],
   );
   const pathname = usePathname();
+  const router = useRouter();
   // Keep editing focused on this page; prefetching other routes loads unused CSS.
-  const prefetchNavigation = (pathname.startsWith('/landing-pages/builder/') || pathname === '/landing-pages/manage-templates') ? false : undefined;
+  const prefetchNavigation =
+    pathname.startsWith('/landing-pages/builder/') || pathname === '/landing-pages/manage-templates'
+      ? false
+      : undefined;
   const searchParams = useSearchParams();
   const currentPathWithQuery = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
@@ -223,26 +233,11 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
     [isNavItemActive, pathname],
   );
 
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => {
-    setOpenGroups((prev) => {
-      const next = { ...prev };
-      for (const group of navGroups) {
-        if (group.items?.length && next[group.title] == null) {
-          next[group.title] = isGroupActive(group);
-        }
-        if (group.items?.length && isGroupActive(group)) {
-          next[group.title] = true;
-        }
-      }
-      return next;
-    });
-  }, [isGroupActive]);
-
-  const toggleGroup = (title: string) => {
-    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
-  };
+    setOpenGroup(null);
+  }, [currentPathWithQuery, collapsed]);
 
   const { display: subscriptionDisplay } = useSubscriptionDisplay();
   const upgradeNav = subscriptionDisplay?.upgradeButton;
@@ -256,295 +251,324 @@ export function Sidebar({ onNavigate, collapsed = false, onToggleCollapsed }: Si
   const sidebarPlanIsUpgrade =
     upgradeNav?.show !== false && subscriptionDisplay?.tier !== 'PRO_12M';
 
+  const navigate = () => {
+    setOpenGroup(null);
+    onNavigate?.();
+  };
+  const renderGroup = (group: NavGroup) => {
+    const active = isGroupActive(group);
+    const label = t(group.title);
+    const rowClass = cn(
+      'relative flex h-[clamp(1.5rem,calc((100dvh_-_12.5rem)/12),2.25rem)] w-full min-w-0 items-center rounded-lg text-sm font-medium transition-colors touch-manipulation',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-inset',
+      collapsed ? 'justify-center px-0' : 'gap-3 px-3',
+      active
+        ? 'bg-white/15 text-white before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-full before:bg-orange-500'
+        : 'text-white/80 hover:bg-white/10 hover:text-white',
+    );
+    if (group.items?.length) {
+      // Keep the hub URL available in the panel heading, including one-child groups.
+      const activeItems = group.items.filter(isNavItemActive);
+      const bestMatch = activeItems.sort((a, b) => b.href.length - a.href.length)[0]?.href;
+      const hubHref = group.href || group.items[0]!.href;
+      return (
+        <SidebarFlyout
+          key={group.title}
+          label={label}
+          mobile={mobile}
+          open={openGroup === group.title}
+          onOpenChange={(value) =>
+            setOpenGroup((current) =>
+              value ? group.title : current === group.title ? null : current,
+            )
+          }
+          onHubClick={() => {
+            router.push(hubHref);
+            navigate();
+          }}
+          trigger={
+            <button type="button" aria-label={label} className={rowClass}>
+              <group.icon
+                aria-hidden
+                className={cn('h-[18px] w-[18px] shrink-0', active && 'text-orange-400')}
+              />
+              {!collapsed && (
+                <>
+                  <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+                  <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-white/60" />
+                </>
+              )}
+            </button>
+          }
+        >
+          <Link
+            href={group.href || group.items[0]!.href}
+            prefetch={prefetchNavigation}
+            onClick={navigate}
+            className="mb-2 flex min-h-11 items-center gap-3 rounded-lg px-3 font-semibold text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+          >
+            <group.icon aria-hidden className="h-5 w-5 shrink-0 text-orange-400" />
+            <span>{label}</span>
+            <ChevronRight aria-hidden className="ml-auto h-4 w-4" />
+          </Link>
+          <nav aria-label={label} className="grid gap-1">
+            {group.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch={prefetchNavigation}
+                onClick={navigate}
+                aria-current={bestMatch === item.href ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-inset',
+                  bestMatch === item.href
+                    ? 'bg-white font-semibold text-[#0A3D30] shadow-sm'
+                    : 'text-white/85 hover:bg-white/10 hover:text-white',
+                )}
+              >
+                <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
+                <span>{t(item.title)}</span>
+              </Link>
+            ))}
+          </nav>
+        </SidebarFlyout>
+      );
+    }
+    if (!group.href) return null;
+    return (
+      <CollapsedNavHoverLabel key={group.title} enabled={collapsed} label={label}>
+        <Link
+          href={group.href}
+          prefetch={prefetchNavigation}
+          onClick={navigate}
+          aria-label={label}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            rowClass,
+            active && 'bg-white text-[#0A3D30] hover:bg-white hover:text-[#0A3D30]',
+          )}
+        >
+          <group.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
+          {!collapsed && <span className="truncate">{label}</span>}
+        </Link>
+      </CollapsedNavHoverLabel>
+    );
+  };
+
   return (
     <div
-      className="relative flex h-full min-h-0 flex-col text-white"
+      className="relative flex h-full min-h-0 flex-col bg-gradient-to-b from-[#0A3D30] to-[#063327] text-white"
       data-main-sidebar-nav={collapsed ? 'collapsed' : 'expanded'}
     >
       <div
         className={cn(
           'flex h-14 shrink-0 items-center border-b border-white/10',
-          collapsed ? 'justify-center px-1' : 'gap-2 px-4 pr-10',
+          collapsed ? 'flex-col justify-center gap-1 px-1' : 'gap-2 px-4',
         )}
       >
-        <Sparkles className="h-5 w-5 shrink-0 text-white" />
-        {!collapsed ? (
-          <span className="whitespace-nowrap text-base font-bold leading-tight text-white">
+        <Sparkles
+          aria-hidden
+          className={cn('shrink-0 text-white', collapsed ? 'h-5 w-5' : 'h-6 w-6')}
+        />
+        {!collapsed && (
+          <span className="flex-1 whitespace-nowrap text-lg font-bold tracking-tight">
             Ai Bee Go
           </span>
-        ) : null}
+        )}
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpenGroup(null);
+              onToggleCollapsed();
+            }}
+            aria-label={collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+            aria-expanded={!collapsed}
+            data-testid="main-app-sidebar-toggle"
+            className={cn(
+              'flex shrink-0 items-center justify-center rounded-md bg-white text-[#0A3D30] shadow-sm hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300',
+              collapsed ? 'h-6 w-8' : 'h-8 w-8',
+            )}
+          >
+            {collapsed ? (
+              <ChevronRight aria-hidden className="h-4 w-4" />
+            ) : (
+              <ChevronLeft aria-hidden className="h-4 w-4" />
+            )}
+          </button>
+        )}
       </div>
-      <ScrollArea className="min-h-0 flex-1 py-4">
-        <nav className={cn('grid gap-2 pb-24', collapsed ? 'px-1' : 'px-2')}>
-          {navGroups.map((group) => {
-            const active = isGroupActive(group);
-            const hasChildren = Boolean(group.items?.length);
-            const iconOnlyLinkClass = cn(
-              'flex items-center rounded-lg text-sm font-medium transition-colors touch-manipulation',
-              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5',
-            );
-
-            if (hasChildren && group.items?.length === 1) {
-              const onlyItem = group.items[0]!;
-              const itemActive = isNavItemActive(onlyItem);
-              return (
-                <CollapsedNavHoverLabel
-                  key={group.title}
-                  enabled={collapsed}
-                  label={t(group.title)}
-                >
-                  <Link
-                    prefetch={prefetchNavigation}
-                    href={onlyItem.href}
-                    onClick={onNavigate}
-                    className={cn(
-                      iconOnlyLinkClass,
-                      itemActive
-                        ? 'bg-white text-[#0A3D30] shadow-sm'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white',
-                    )}
-                  >
-                    <group.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed ? <span className="truncate">{t(group.title)}</span> : null}
-                  </Link>
-                </CollapsedNavHoverLabel>
-              );
-            }
-
-            if (!hasChildren && group.href) {
-              const isOverview = group.title === 'nav.overview';
-              const overviewToggle =
-                isOverview && onToggleCollapsed ? (
-                  <button
-                    type="button"
-                    aria-label={collapsed ? 'Mở sidebar chính' : 'Đóng sidebar chính'}
-                    aria-expanded={!collapsed}
-                    data-testid="main-app-sidebar-toggle"
-                    onClick={onToggleCollapsed}
-                    className={cn(
-                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-                      'border border-white/25 bg-white text-[#0A3D30] shadow-sm',
-                      'text-sm font-semibold leading-none transition hover:bg-emerald-50',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300',
-                    )}
-                  >
-                    {collapsed ? '→' : '←'}
-                  </button>
-                ) : null;
-
-              if (overviewToggle && collapsed) {
-                return (
-                  <div
-                    key={group.title}
-                    className="flex flex-col items-center gap-1.5"
-                    data-main-sidebar-overview-row="collapsed"
-                  >
-                    {overviewToggle}
-                    <CollapsedNavHoverLabel enabled label={t(group.title)}>
-                      <Link
-                        prefetch={prefetchNavigation}
-                        href={group.href}
-                        onClick={onNavigate}
-                        className={cn(
-                          iconOnlyLinkClass,
-                          'w-full',
-                          active
-                            ? 'bg-white text-[#0A3D30] shadow-sm'
-                            : 'text-white/70 hover:bg-white/10 hover:text-white',
-                        )}
-                      >
-                        <group.icon className="h-4 w-4 shrink-0" />
-                      </Link>
-                    </CollapsedNavHoverLabel>
-                  </div>
-                );
-              }
-
-              if (overviewToggle && !collapsed) {
-                return (
-                  <div
-                    key={group.title}
-                    className="flex items-center gap-1"
-                    data-main-sidebar-overview-row="expanded"
-                  >
-                    <Link
-                      prefetch={prefetchNavigation}
-                      href={group.href}
-                      onClick={onNavigate}
-                      className={cn(
-                        iconOnlyLinkClass,
-                        'min-w-0 flex-1',
-                        active
-                          ? 'bg-white text-[#0A3D30] shadow-sm'
-                          : 'text-white/70 hover:bg-white/10 hover:text-white',
-                      )}
-                    >
-                      <group.icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{t(group.title)}</span>
-                    </Link>
-                    {overviewToggle}
-                  </div>
-                );
-              }
-
-              return (
-                <CollapsedNavHoverLabel
-                  key={group.title}
-                  enabled={collapsed}
-                  label={t(group.title)}
-                >
-                  <Link
-                    prefetch={prefetchNavigation}
-                    href={group.href}
-                    onClick={onNavigate}
-                    className={cn(
-                      iconOnlyLinkClass,
-                      active
-                        ? 'bg-white text-[#0A3D30] shadow-sm'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white',
-                    )}
-                  >
-                    <group.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed ? <span className="truncate">{t(group.title)}</span> : null}
-                  </Link>
-                </CollapsedNavHoverLabel>
-              );
-            }
-
-            const hubHref = group.href || group.items?.[0]?.href || '#';
-            const isHubExact =
-              pathname === hubHref ||
-              (hubHref === '/settings' && pathname === '/settings' && !searchParams.get('tab'));
-
-            if (collapsed) {
-              return (
-                <CollapsedNavHoverLabel key={group.title} enabled label={t(group.title)}>
-                  <Link
-                    prefetch={prefetchNavigation}
-                    href={hubHref}
-                    onClick={onNavigate}
-                    className={cn(
-                      iconOnlyLinkClass,
-                      active || isHubExact
-                        ? 'bg-white/15 text-white'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white',
-                    )}
-                  >
-                    <group.icon className="h-4 w-4 shrink-0" />
-                  </Link>
-                </CollapsedNavHoverLabel>
-              );
-            }
-
-            return (
-              <div
-                key={group.title}
-                className="rounded-xl border border-transparent bg-transparent"
-              >
-                <div
-                  className={cn(
-                    'flex w-full items-stretch rounded-lg transition-colors',
-                    active || isHubExact
-                      ? 'bg-white/15 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white',
-                  )}
-                >
-                  <Link
-                    prefetch={prefetchNavigation}
-                    href={hubHref}
-                    onClick={() => {
-                      setOpenGroups((prev) => ({ ...prev, [group.title]: true }));
-                      onNavigate?.();
-                    }}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left text-sm font-medium touch-manipulation"
-                  >
-                    <group.icon className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{t(group.title)}</span>
-                  </Link>
-                  <button
-                    type="button"
-                    aria-label={t('moduleHub.toggleSubmenu')}
-                    aria-expanded={Boolean(openGroups[group.title])}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      toggleGroup(group.title);
-                    }}
-                    className="flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2.5 touch-manipulation hover:bg-white/10 rounded-r-lg"
-                  >
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 shrink-0 transition-transform',
-                        openGroups[group.title] ? 'rotate-180' : '',
-                      )}
-                    />
-                  </button>
-                </div>
-                {openGroups[group.title] ? (
-                  <div className="mt-1 ml-3 space-y-1 border-l border-white/15 pl-3">
-                    {group.items?.map((item) => {
-                      const itemActive = isNavItemActive(item);
-                      return (
-                        <Link
-                          prefetch={prefetchNavigation}
-                          key={`${group.title}-${item.title}`}
-                          href={item.href}
-                          onClick={onNavigate}
-                          className={cn(
-                            'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors touch-manipulation',
-                            itemActive
-                              ? 'bg-white text-[#0A3D30] shadow-sm'
-                              : 'text-white/65 hover:bg-white/10 hover:text-white',
-                          )}
-                        >
-                          <item.icon className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{t(item.title)}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </nav>
-      </ScrollArea>
-
       <div
-        className={cn(
-          'pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-gradient-to-t from-[#0A3D30] via-[#0A3D30]/95 to-transparent',
-          collapsed && 'hidden',
-        )}
-        aria-hidden
-      />
-
-      <div
-        className={cn(
-          'absolute z-20',
-          collapsed
-            ? 'bottom-3 left-1 right-1'
-            : 'bottom-4 left-4 right-4 lg:fixed lg:bottom-4 lg:left-4 lg:right-auto lg:w-[calc(var(--app-sidebar-width,16rem)-2rem)]',
-        )}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        data-sidebar-menu-scroll
       >
-        <Link
-          prefetch={prefetchNavigation}
-          href={sidebarPlanHref}
-          onClick={onNavigate}
-          title={collapsed ? sidebarPlanLabel : undefined}
+        <nav
+          aria-label="Menu chính"
           className={cn(
-            'flex w-full items-center justify-center font-semibold transition-all touch-manipulation',
-            collapsed ? 'rounded-lg p-2' : 'gap-2.5 rounded-xl px-4 py-3 text-sm',
-            sidebarPlanIsUpgrade
-              ? 'bg-gradient-to-r from-amber-400 via-amber-400 to-yellow-300 text-[#0A3D30] shadow-lg shadow-amber-500/30 ring-1 ring-white/25 hover:from-amber-300 hover:via-amber-300 hover:to-yellow-200 hover:shadow-amber-400/40'
-              : 'bg-emerald-500/25 text-emerald-50 ring-1 ring-emerald-300/40 hover:bg-emerald-500/35',
-            'active:scale-[0.98]',
-            pathname.startsWith('/pricing') && 'ring-2 ring-white shadow-amber-300/50',
+            'flex min-h-full flex-col justify-evenly gap-0.5 py-3 [&>*]:shrink-0',
+            collapsed ? 'px-2' : 'px-3',
           )}
         >
-          <Crown className="h-4 w-4 shrink-0" aria-hidden />
-          {!collapsed ? <span className="truncate">{sidebarPlanLabel}</span> : null}
-        </Link>
+          {navGroups.filter((group) => group.title !== 'nav.settings').map(renderGroup)}
+        </nav>
+      </div>
+      <div
+        data-sidebar-footer
+        className={cn(
+          'shrink-0 space-y-1 border-t border-white/20 py-2',
+          collapsed ? 'px-2' : 'px-3',
+        )}
+      >
+        {navGroups.filter((group) => group.title === 'nav.settings').map(renderGroup)}
+        <CollapsedNavHoverLabel enabled={collapsed} label={sidebarPlanLabel}>
+          <Link
+            href={sidebarPlanHref}
+            prefetch={prefetchNavigation}
+            onClick={navigate}
+            aria-label={sidebarPlanLabel}
+            className={cn(
+              'flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A3D30]',
+              sidebarPlanIsUpgrade
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-sm ring-1 ring-inset ring-white/0 transition-shadow hover:ring-2 hover:ring-white hover:shadow-[0_0_16px_rgba(255,255,255,0.65),0_0_28px_rgba(253,224,71,0.45)]'
+                : 'bg-white/10 text-white hover:bg-white/20',
+            )}
+          >
+            <Crown aria-hidden className="h-5 w-5 shrink-0" />
+            {!collapsed && <span className="truncate">{sidebarPlanLabel}</span>}
+          </Link>
+        </CollapsedNavHoverLabel>
       </div>
     </div>
+  );
+}
+
+/** Radix supplies collision handling, outside dismissal and a focus scope inside the drawer. */
+function SidebarFlyout({
+  label,
+  mobile,
+  open,
+  onOpenChange,
+  onHubClick,
+  trigger,
+  children,
+}: {
+  label: string;
+  mobile: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Click main tab → module hub (feature cards) in the main pane; hover flyout unchanged. */
+  onHubClick?: () => void;
+  trigger: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const keyboardOpen = useRef(false);
+  const openedByHover = useRef(false);
+  const restoreFocus = useRef(false);
+  const cancelClose = () => {
+    if (timer.current) clearTimeout(timer.current);
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    timer.current = setTimeout(() => {
+      if (!content.current?.contains(document.activeElement)) onOpenChange(false);
+    }, 220);
+  };
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <div
+        onPointerEnter={(event) => {
+          cancelClose();
+          if (!mobile && event.pointerType === 'mouse' && !open) {
+            keyboardOpen.current = false;
+            openedByHover.current = true;
+            onOpenChange(true);
+          }
+        }}
+        onPointerLeave={() => {
+          if (!mobile) scheduleClose();
+        }}
+      >
+        <PopoverTrigger
+          asChild
+          onClick={(event) => {
+            if (onHubClick) {
+              event.preventDefault();
+              openedByHover.current = false;
+              keyboardOpen.current = false;
+              onOpenChange(false);
+              onHubClick();
+              return;
+            }
+            if (openedByHover.current && open) event.preventDefault();
+            openedByHover.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (['ArrowRight', 'ArrowDown', 'Enter', ' '].includes(event.key)) {
+              event.preventDefault();
+              cancelClose();
+              keyboardOpen.current = true;
+              onOpenChange(true);
+              content.current?.querySelector<HTMLAnchorElement>('a')?.focus();
+            }
+          }}
+        >
+          {trigger}
+        </PopoverTrigger>
+      </div>
+      <PopoverContent
+        ref={content}
+        side={mobile ? 'bottom' : 'right'}
+        align="start"
+        sideOffset={mobile ? 8 : 16}
+        aria-label={label}
+        data-sidebar-flyout
+        onPointerEnter={cancelClose}
+        onPointerLeave={() => {
+          if (!mobile) scheduleClose();
+        }}
+        onOpenAutoFocus={(event) => {
+          if (!keyboardOpen.current) event.preventDefault();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (!restoreFocus.current) event.preventDefault();
+          restoreFocus.current = false;
+        }}
+        onEscapeKeyDown={() => {
+          restoreFocus.current = true;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            restoreFocus.current = true;
+            onOpenChange(false);
+          }
+          if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+            const links = Array.from(
+              content.current?.querySelectorAll<HTMLAnchorElement>('a') || [],
+            );
+            const index = links.indexOf(document.activeElement as HTMLAnchorElement);
+            const next =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? links.length - 1
+                  : (index + (event.key === 'ArrowDown' ? 1 : -1) + links.length) % links.length;
+            links[next]?.focus();
+          }
+        }}
+        className="w-64 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain border-white/25 bg-[#124c3c] p-2 text-white shadow-xl shadow-black/15 data-[state=closed]:hidden dark:border-white/25 dark:bg-[#124c3c] dark:text-white"
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }

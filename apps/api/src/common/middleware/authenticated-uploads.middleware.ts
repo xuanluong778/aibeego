@@ -20,7 +20,7 @@ type JwtPayloadLite = {
 /**
  * /uploads/* handler:
  * - public/{...} + image ext → public (safe media for <img>)
- * - private → JWT Bearer / ?access_token= OR HMAC ?exp=&sig=
+ * - private → Bearer (ưu tiên), HMAC ?exp=&sig=, legacy ?access_token= (deprecated)
  * Never serves executables / traversal.
  */
 export function createAuthenticatedUploadsHandler(opts: {
@@ -85,6 +85,13 @@ export function createAuthenticatedUploadsHandler(opts: {
             ? auth.slice(7).trim()
             : '';
         const q = typeof req.query.access_token === 'string' ? req.query.access_token.trim() : '';
+        if (q && !bearer) {
+          res.setHeader('Deprecation', 'true');
+          res.setHeader(
+            'Link',
+            '</docs/auth-session-file-access>; rel="deprecation"; type="text/markdown"',
+          );
+        }
         const token = bearer || q;
         if (!token) {
           res.status(401).json({ success: false, message: 'Unauthorized' });

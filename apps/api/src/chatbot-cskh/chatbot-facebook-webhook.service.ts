@@ -1,3 +1,4 @@
+import { planBilledChat } from './utils/plan-billed-chat';
 import {
   Inject,
   Injectable,
@@ -1218,7 +1219,7 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
       this.chatbot.getSettings(fbPage.organizationId),
     ]);
 
-    const openAiChat = this.openAi.isConfigured()
+    const openAiChat = planBilledChat(this.prisma, fbPage.organizationId, this.openAi.isConfigured()
       ? async (input: {
           model: string;
           systemPrompt: string;
@@ -1239,7 +1240,7 @@ export class ChatbotFacebookWebhookService implements OnModuleInit {
               { role: 'user', content: input.userText },
             ],
           })
-      : undefined;
+      : undefined);
 
     let aiResult: {
       reply: string;

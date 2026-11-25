@@ -1,3 +1,4 @@
+import { writePlanFile } from '../common/uploads/plan-storage';
 import {
   BadRequestException,
   ForbiddenException,
@@ -245,7 +246,7 @@ export class HrmLeaveService {
     await this.assertNoLeaveOverlap(organizationId, employeeId, fromDate, toDate);
     await this.assertLeaveBalance(organizationId, employee, dto.leaveType, days, fromDate);
 
-    const attachment = file ? this.saveLeaveAttachment(organizationId, file) : null;
+    const attachment = file ? await this.saveLeaveAttachment(organizationId, file) : null;
 
     const created = await this.prisma.leaveRequest.create({
       data: {
@@ -905,7 +906,7 @@ export class HrmLeaveService {
     return updated;
   }
 
-  private saveLeaveAttachment(organizationId: string, file: UploadedFile) {
+  private async saveLeaveAttachment(organizationId: string, file: UploadedFile) {
     if (!file.buffer?.length) {
       throw new BadRequestException('File đính kèm trống');
     }
@@ -925,7 +926,7 @@ export class HrmLeaveService {
     const safeExt = extname(file.originalname || '').slice(0, 16);
     const filename = `${randomUUID()}${safeExt}`;
     const absPath = join(dir, filename);
-    writeFileSync(absPath, file.buffer);
+    await writePlanFile(this.prisma, organizationId, absPath, file.buffer.length, async () => writeFileSync(absPath, file.buffer!));
 
     const key = `hrm/${organizationId}/leave/${filename}`;
     return {

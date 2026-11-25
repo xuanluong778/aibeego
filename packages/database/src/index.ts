@@ -17,6 +17,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 export { PrismaClient };
+export * from './credit-context';
 export { withPrismaPoolParams, applyPrismaPoolEnv } from './prisma-url';
 export * from '@prisma/client';
 export * from './hrm-attendance-calc';
@@ -83,3 +84,4 @@ export type {
   ActivationEventType,
   RecordActivationEventInput,
 } from './activation-events';
+export * from './plan-policy';

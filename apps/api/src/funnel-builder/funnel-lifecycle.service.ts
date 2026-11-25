@@ -1,3 +1,4 @@
+import { PlanPolicy } from '@marketingspa/database';
 import {
   BadRequestException,
   ForbiddenException,
@@ -525,9 +526,9 @@ export class FunnelLifecycleService {
       if (row) {
         await this.prisma.automationFlow.update({ where: { id: row.id }, data });
       } else {
-        await this.prisma.automationFlow.create({
+        await new PlanPolicy(this.prisma).resource(organizationId, 'flows', (tx) => tx.automationFlow.count({ where: { organizationId } }), (tx) => tx.automationFlow.create({
           data: { organizationId, ...data },
-        });
+        }));
       }
     }
   }

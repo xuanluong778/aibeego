@@ -40,6 +40,7 @@ const TERMINAL_STATUSES: MessagingCampaignRecipientStatus[] = [
 
 export async function processMessagingSend(job: Job<MessagingSendJobData>, redis: Redis) {
   const { organizationId, campaignId, recipientId } = job.data;
+  await new PlanPolicy(prisma).assertFeature(organizationId, 'messaging_campaigns');
 
   const recipient = await prisma.messagingCampaignRecipient.findFirst({
     where: { id: recipientId, organizationId, campaignId },
@@ -379,3 +380,4 @@ async function executeProviderSend(params: {
     text: params.text,
   });
 }
+import { PlanPolicy } from '@marketingspa/database';
