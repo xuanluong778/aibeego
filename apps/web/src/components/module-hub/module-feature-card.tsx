@@ -27,9 +27,9 @@ export function ModuleFeatureCard({
     <Link
       href={href}
       className={cn(
-        'group flex h-full min-h-[148px] flex-col rounded-xl border border-white/10 bg-white/5 p-4 transition-all',
-        'hover:border-[#F97316]/50 hover:bg-white/[0.08] hover:shadow-lg hover:shadow-black/20',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F97316]/60',
+        'flex h-full min-h-[148px] flex-col rounded-xl bg-white/5 p-4',
+        'transition-colors duration-200 motion-reduce:transition-none hover:bg-white/[0.15]',
+        'focus-visible:bg-white/[0.15] focus-visible:outline-none',
         className,
       )}
     >
@@ -47,9 +47,9 @@ export function ModuleFeatureCard({
       <p className="mt-1 line-clamp-2 flex-1 text-xs leading-relaxed text-white/65">
         {t(descriptionKey)}
       </p>
-      <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-[#F97316] group-hover:gap-1.5">
+      <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-[#F97316]">
         {t('moduleHub.viewDetails')}
-        <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden />
       </span>
     </Link>
   );
