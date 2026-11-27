@@ -1,0 +1,8 @@
+# Local release: hạng mục checklist có người được giao + ngày bắt đầu/kết thúc + menu "Chuyển thành thẻ / Xóa".
+# LƯU Ý: API mới tự thêm 3 cột vào bảng work_checklist_items khi khởi động (ADD COLUMN IF NOT EXISTS).
+# Stack local đang nối DATABASE_URL tới DB VPS (production) nên khởi động API này sẽ đổi schema DB đó.
+services:
+  web:
+    image: aibeego-web:local-checklist-item-assign-20261127
+  api:
+    image: aibeego-api:local-checklist-item-assign-20261127

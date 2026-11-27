@@ -27,6 +27,18 @@ export class WorkManagementSchemaService implements OnModuleInit {
       ALTER TABLE "work_tasks"
         ADD COLUMN IF NOT EXISTS "custom_fields" JSONB DEFAULT '{}'::jsonb;
     `);
-    this.logger.log('Work management schema columns OK (custom_field_defs / custom_fields)');
+    await this.prisma.$executeRawUnsafe(`
+      ALTER TABLE "work_checklist_items"
+        ADD COLUMN IF NOT EXISTS "assignee_id" TEXT,
+        ADD COLUMN IF NOT EXISTS "start_date" DATE,
+        ADD COLUMN IF NOT EXISTS "due_date" DATE;
+    `);
+    await this.prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "work_checklist_items_assignee_id_idx"
+        ON "work_checklist_items"("assignee_id");
+    `);
+    this.logger.log(
+      'Work management schema columns OK (custom_field_defs / custom_fields / checklist assignee+dates)',
+    );
   }
 }

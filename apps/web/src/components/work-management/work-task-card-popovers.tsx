@@ -34,7 +34,84 @@ import type { HrmEmployee } from '@/types/hrm';
 const lightInput =
   'border-slate-200 bg-white text-black placeholder:text-slate-400 focus-visible:ring-slate-300 focus-visible:ring-offset-0 focus-visible:ring-offset-white';
 
+/** Max round avatars shown next to the "Thành viên" chip; the rest collapse into a "+N" bubble. */
+const MAX_VISIBLE_MEMBER_AVATARS = 6;
+
+/** Initials of the last two words ("Lưu Xuân Lượng" → "XL"); same rule in the picker list and the avatar row. */
+function memberInitials(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(-2)
+      .map((p) => p[0])
+      .join('')
+      .toUpperCase() || '?'
+  );
+}
+
 export type CardPopoverKey = 'add' | 'labels' | 'dates' | 'checklist' | 'members' | null;
+
+/**
+ * Round avatars of the members chosen for the card. The task modal renders them in its top bar, on the
+ * same row as the main assignee's e-mail; the "Thành viên" chip itself stays with the other action chips.
+ */
+export function WorkTaskMemberAvatars({
+  employees,
+  assigneeIds,
+  className,
+}: {
+  employees: HrmEmployee[];
+  assigneeIds: string[];
+  className?: string;
+}) {
+  // Same order as the picker list, so the first round icon is the main assignee shown next to it.
+  const selectedMembers = useMemo(
+    () => employees.filter((e) => assigneeIds.includes(e.id)),
+    [employees, assigneeIds],
+  );
+  if (assigneeIds.length === 0) return null;
+
+  const visibleMembers = selectedMembers.slice(0, MAX_VISIBLE_MEMBER_AVATARS);
+  // Counts ids that are not in `employees` too, so the row never under-reports the chip's own counter.
+  const hiddenMemberCount = Math.max(0, assigneeIds.length - visibleMembers.length);
+  const hiddenMemberNames = selectedMembers
+    .slice(MAX_VISIBLE_MEMBER_AVATARS)
+    .map((e) => e.name)
+    .join(', ');
+
+  return (
+    <div
+      className={cn('flex min-w-0 flex-wrap items-center gap-1', className)}
+      role="group"
+      aria-label={`Thành viên của thẻ (${assigneeIds.length})`}
+      data-testid="card-member-avatars"
+    >
+      {visibleMembers.map((emp) => (
+        <span
+          key={emp.id}
+          role="img"
+          aria-label={emp.name}
+          title={emp.name}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-semibold text-white ring-2 ring-white dark:ring-slate-950"
+        >
+          {memberInitials(emp.name)}
+        </span>
+      ))}
+      {hiddenMemberCount > 0 && (
+        <span
+          role="img"
+          aria-label={`${hiddenMemberCount} thành viên khác`}
+          title={hiddenMemberNames || `${hiddenMemberCount} thành viên khác`}
+          className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold text-slate-700 ring-2 ring-white dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-950"
+        >
+          +{hiddenMemberCount}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function PopoverShell({
   title,
@@ -197,7 +274,6 @@ export function WorkTaskActionPopovers({
     () => filterByQuery(employees, memberQuery, (e) => e.name),
     [employees, memberQuery],
   );
-
   function open(key: Exclude<CardPopoverKey, null>) {
     onPopoverChange(key);
   }
@@ -621,14 +697,15 @@ export function WorkTaskActionPopovers({
         </PopoverContent>
       </Popover>
 
-      {/* Thành viên */}
+      {/* Thành viên: chỉ còn nút chip; avatar tròn của các thành viên đã chọn hiển thị ở thanh trên cùng
+          của modal (cùng hàng với Gmail người phụ trách) — xem WorkTaskMemberAvatars. */}
       <Popover
         modal={false}
         open={popover === 'members'}
         onOpenChange={(o) => onKeyOpenChange('members', o)}
       >
         <PopoverTrigger asChild>
-          <ActionChip active={popover === 'members'}>
+          <ActionChip active={popover === 'members'} className="shrink-0">
             <UserPlus className="h-3.5 w-3.5" />
             Thành viên
             {assigneeIds.length > 0 && (
@@ -665,15 +742,7 @@ export function WorkTaskActionPopovers({
                 <ul className="max-h-56 space-y-0.5 overflow-y-auto">
                   {filteredEmployees.map((emp) => {
                     const on = assigneeIds.includes(emp.id);
-                    const initials =
-                      emp.name
-                        .trim()
-                        .split(/\s+/)
-                        .filter(Boolean)
-                        .slice(-2)
-                        .map((p) => p[0])
-                        .join('')
-                        .toUpperCase() || '?';
+                    const initials = memberInitials(emp.name);
                     return (
                       <li key={emp.id}>
                         <button

@@ -220,6 +220,7 @@ export function AgencyPortfolioBlock({
     alt: string,
     field = 'image',
     style?: LandingPageImageStyle,
+    frame?: { className: string; badge?: ReactNode },
   ) => (
     <ElementChrome
       blockId={block.id}
@@ -230,15 +231,30 @@ export function AgencyPortfolioBlock({
       className={block.type === 'Header' && field === 'image' ? 'lp-header-logo' : undefined}
       blockStyle={block.style as Record<string, unknown>}
     >
-      <LpContentImage
-        key={src}
-        src={src || ''}
-        alt={alt}
-        fallbackLabel="Ảnh minh họa chưa được cung cấp"
-        loading="eager"
-        style={lpImgStyle(style)}
-        data-lp-img-motion={lpImgMotionAttr(style)}
-      />
+      {frame ? (
+        <div className={frame.className} data-lp-image-frame="1">
+          <LpContentImage
+            key={src}
+            src={src || ''}
+            alt={alt}
+            fallbackLabel="Ảnh minh họa chưa được cung cấp"
+            loading="eager"
+            style={lpImgStyle(style)}
+            data-lp-img-motion={lpImgMotionAttr(style)}
+          />
+          {frame.badge}
+        </div>
+      ) : (
+        <LpContentImage
+          key={src}
+          src={src || ''}
+          alt={alt}
+          fallbackLabel="Ảnh minh họa chưa được cung cấp"
+          loading="eager"
+          style={lpImgStyle(style)}
+          data-lp-img-motion={lpImgMotionAttr(style)}
+        />
+      )}
     </ElementChrome>
   );
   const section = (className: string, children: ReactNode, id?: string) => (
@@ -331,15 +347,16 @@ export function AgencyPortfolioBlock({
             </div>
           </div>
           <figure className="hero-figure">
-            <div className="photo-frame">
-              {media(
-                block.imageUrl,
-                block.imageStyle?.alt || 'Ảnh minh họa hoạt động phối hợp.',
-                'image',
-                { fit: 'cover', position: '50% 48%', ...block.imageStyle },
-              )}
-              <span className="image-badge">ẢNH MINH HỌA</span>
-            </div>
+            {media(
+              block.imageUrl,
+              block.imageStyle?.alt || 'Ảnh minh họa hoạt động phối hợp.',
+              'image',
+              { fit: 'cover', position: '50% 48%', ...block.imageStyle },
+              {
+                className: 'photo-frame',
+                badge: <span className="image-badge">ẢNH MINH HỌA</span>,
+              },
+            )}
             <figcaption>{block.imageStyle?.alt || 'Ảnh minh họa hoạt động phối hợp.'}</figcaption>
           </figure>
         </div>,
@@ -411,14 +428,13 @@ export function AgencyPortfolioBlock({
                   >
                     {gallery ? (
                       <>
-                        <div className="work-media">
-                          {media(
-                            it.imageUrl,
-                            it.imageStyle?.alt || it.title,
-                            `itemImage:${it.id}`,
-                            { fit: 'contain', ...it.imageStyle },
-                          )}
-                        </div>
+                        {media(
+                          it.imageUrl,
+                          it.imageStyle?.alt || it.title,
+                          `itemImage:${it.id}`,
+                          { fit: 'contain', ...it.imageStyle },
+                          { className: 'work-media' },
+                        )}
                         <div className="work-copy">
                           <span className="media-label">{it.role}</span>
                           {text(`itemTitle:${it.id}`, it.title, 'h3')}

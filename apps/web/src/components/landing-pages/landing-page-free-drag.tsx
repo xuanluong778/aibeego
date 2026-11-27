@@ -341,7 +341,7 @@ export function beginFreeDragFromShell(
         : undefined);
     if (begin) {
       begin(e);
-      return true;
+      if (node.getAttribute('data-lp-free-dragging') === '1') return true;
     }
     node = node.parentElement;
   }
@@ -350,10 +350,17 @@ export function beginFreeDragFromShell(
     const begin = freeDragBeginByFreeId.get(freeId);
     if (begin) {
       begin(e);
-      return true;
+      if (shell.getAttribute('data-lp-free-dragging') === '1') return true;
     }
   }
   return false;
+}
+
+function freeDragDidStart(freeId: string): boolean {
+  const el = document.querySelector(
+    `[data-lp-free-id="${CSS.escape(freeId)}"]`,
+  ) as HTMLElement | null;
+  return el?.getAttribute('data-lp-free-dragging') === '1';
 }
 
 export function beginFreeDragByFreeId(
@@ -364,7 +371,7 @@ export function beginFreeDragByFreeId(
   const begin = freeDragBeginByFreeId.get(freeId);
   if (!begin) return false;
   begin(e);
-  return true;
+  return freeDragDidStart(freeId);
 }
 
 /** Arm hold-to-move (threshold) — used by LeadForm body drag when already selected. */
@@ -485,6 +492,77 @@ export function resolveFreeSurface(el: HTMLElement): HTMLElement {
   if (canvas) return canvas;
   const parent = el.offsetParent as HTMLElement | null;
   return parent || el.parentElement || el;
+}
+
+const PAINT_HOST_STOP =
+  '[data-lp-canvas-root],[data-lp-section-chrome],[data-lp-free-surface],[data-lp-block-id]';
+
+function ancestorClips(node: HTMLElement): boolean {
+  const cs = getComputedStyle(node);
+  return (
+    (cs.overflow !== 'visible' && cs.overflow !== '') ||
+    (cs.overflowX !== 'visible' && cs.overflowX !== '') ||
+    (cs.overflowY !== 'visible' && cs.overflowY !== '')
+  );
+}
+
+/**
+ * Image/box chrome is often nested inside a clipped visual frame (.photo-frame,
+ * .work-media). Translating the inner chrome leaves the rounded box behind.
+ * Drag/persist the nearby frame instead so the painted card follows the cursor.
+ */
+export function resolveClippedPaintHost(el: HTMLElement): HTMLElement {
+  const surface = resolveFreeSurface(el);
+  const kind = el.getAttribute('data-lp-element-kind');
+  if (kind && kind !== 'image' && kind !== 'box') return el;
+
+  let node: HTMLElement | null = el.parentElement;
+  let hops = 0;
+  while (node && hops < 6 && node !== surface) {
+    if (node.matches(PAINT_HOST_STOP)) break;
+    const marked =
+      node.hasAttribute('data-lp-image-frame') ||
+      node.hasAttribute('data-lp-hero-visual') ||
+      node.classList.contains('photo-frame') ||
+      node.classList.contains('work-media');
+    if (marked) return node;
+    if (ancestorClips(node)) {
+      // A resized image can occupy only part of its original frame. Keep that
+      // frame with it, but do not promote a card containing other editable copy.
+      const editableChildren = Array.from(
+        node.querySelectorAll<HTMLElement>(
+          '[data-lp-element-id],[data-lp-inline-wrap],[data-lp-item-id]',
+        ),
+      );
+      const imageOnlyFrame =
+        kind === 'image' &&
+        editableChildren.every((child) => child === el || el.contains(child));
+      if (imageOnlyFrame) return node;
+      const nw = node.offsetWidth;
+      const nh = node.offsetHeight;
+      const ew = el.offsetWidth;
+      const eh = el.offsetHeight;
+      if (nw >= 8 && nh >= 8 && ew >= 8 && eh >= 8) {
+        const similar = Math.abs(nw - ew) <= 20 && Math.abs(nh - eh) <= 20;
+        const covers =
+          nw >= ew - 2 && nh >= eh - 2 && nw - ew < 48 && nh - eh < 48;
+        if (similar || covers) return node;
+      }
+    }
+    node = node.parentElement;
+    hops += 1;
+  }
+  return el;
+}
+
+function sessionVisualEl(s: DragSession): HTMLElement {
+  const paint = s.paintEl;
+  return paint && paint.isConnected ? paint : s.el;
+}
+
+function writeOffsetTransform(target: HTMLElement, x: number, y: number, rotate: number) {
+  const rot = rotate ? ` rotate(${rotate}deg)` : '';
+  target.style.transform = `translate3d(${x}px, ${y}px, 0)${rot}`;
 }
 
 /**
@@ -724,6 +802,12 @@ type DragSession = {
   pendingClientX?: number;
   pendingClientY?: number;
   pendingShift?: boolean;
+  /**
+   * Nearby clipped visual frame (photo-frame / work-media). Transforms go here
+   * so the painted box moves with the cursor, not only the inner chrome.
+   */
+  paintEl?: HTMLElement;
+  paintOriginalStyle?: string;
 };
 
 type PendingArm = {
@@ -989,16 +1073,42 @@ export function useFreeDragBox({
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
 
-  const clearTransform = useCallback(() => {
+  const paintHostRef = useRef<HTMLElement | null>(null);
+  const paintHostOriginalStyleRef = useRef<string>('');
+
+  const restorePaintHost = useCallback((host: HTMLElement | null | undefined, original?: string) => {
+    if (!host) return;
+    if (original != null) host.style.cssText = original;
+    else {
+      host.style.transform = '';
+      host.style.willChange = '';
+      host.style.cursor = '';
+    }
+    host.removeAttribute('data-lp-free-dragging');
+    host.removeAttribute('data-lp-free-resizing');
+    host.removeAttribute('data-lp-free-rotating');
+    host.removeAttribute('data-lp-free-paint-host');
+  }, []);
+
+  const clearTransform = useCallback((preserveGeometry = false) => {
     const el = shellRef.current;
+    const session = sessionRef.current;
+    const paint = session?.paintEl;
+    if (paint && paint !== el) {
+      restorePaintHost(paint, session?.paintOriginalStyle);
+    }
+    const persisted = paintHostRef.current;
+    if (persisted && persisted !== el && persisted !== paint) {
+      restorePaintHost(persisted);
+    }
     if (!el) return;
-    el.style.transform = '';
+    if (!preserveGeometry) el.style.transform = '';
     el.style.willChange = '';
     el.style.cursor = '';
     el.removeAttribute('data-lp-free-dragging');
     el.removeAttribute('data-lp-free-resizing');
     el.removeAttribute('data-lp-free-rotating');
-    if (modeRef.current === 'offset') {
+    if (modeRef.current === 'offset' && !preserveGeometry) {
       // Never leave absolute pin on card items (legacy bug residue).
       el.style.position = '';
       el.style.left = '';
@@ -1016,7 +1126,7 @@ export function useFreeDragBox({
       }
       el.style.zIndex = '';
     }
-  }, []);
+  }, [restorePaintHost]);
 
   const detachWindow = useRef<(() => void) | null>(null);
   const cancelerRef = useRef<(() => void) | null>(null);
@@ -1054,7 +1164,10 @@ export function useFreeDragBox({
         !layoutRef.current &&
         s.el?.getAttribute('data-lp-section-chrome') === '1';
       const flowHPending = Math.round(s.lastH);
-      clearTransform();
+      // React already rendered the live coordinates during the gesture. When
+      // the committed coordinates match, React does not rewrite those styles.
+      // Keep them on the shell or the frame jumps back when the pointer lifts.
+      clearTransform(commit && s.mode === 'offset' && !flowResizeCommit && !s.paintEl);
       if (s.el.getAttribute('data-lp-text-hug') === '1') {
         // Text width belongs to inlineTextStyles. Clearing it here makes Undo or
         // the next gesture expand an unchanged React width to max-content.
@@ -1217,6 +1330,7 @@ export function useFreeDragBox({
       sess.shiftLock = shiftKey;
 
       if (sess.kind === 'rotate') {
+        const visual = sessionVisualEl(sess);
         const cx = sess.centerClientX ?? clientX;
         const cy = sess.centerClientY ?? clientY;
         const ang = Math.atan2(clientY - cy, clientX - cx);
@@ -1224,15 +1338,16 @@ export function useFreeDragBox({
         const deltaDeg = ((ang - startAng) * 180) / Math.PI;
         let next = normalizeRotate(sess.rotate + deltaDeg);
         next = snapRotateDegrees(next, shiftKey);
-        const priorTransform = sess.el.style.transform;
-        sess.el.style.transform = `rotate(${next}deg)`;
-        if (sess.el.closest('[data-lp-non-overlap="1"]') && collisionNodes(sess.el).some(n=>intersects(elementRect(sess.el),elementRect(n),1))) { sess.el.style.transform=priorTransform; return; }
+        const priorTransform = visual.style.transform;
+        visual.style.transform = `rotate(${next}deg)`;
+        if (visual.closest('[data-lp-non-overlap="1"]') && collisionNodes(visual).some(n=>intersects(elementRect(visual),elementRect(n),1))) { visual.style.transform=priorTransform; return; }
         sess.lastRotate = next;
         sess.lastX = sess.originX;
         sess.lastY = sess.originY;
         sess.lastW = sess.width;
         sess.lastH = sess.height;
-        sess.el.style.transform = `rotate(${next}deg)`;
+        visual.style.transform = `rotate(${next}deg)`;
+        if (visual !== sess.el) sess.el.style.transform = 'none';
         setLiveAngle(next);
         publishGuidesRef.current?.(EMPTY_GUIDES);
         if (sess.mode !== 'offset') syncCanvasFreeReserve(sess.el);
@@ -1241,7 +1356,7 @@ export function useFreeDragBox({
       }
 
       if (sess.kind === 'resize' && sess.handle) {
-        const previous={x:sess.lastX,y:sess.lastY,w:sess.lastW,h:sess.lastH,css:sess.el.style.cssText};
+        const previous={x:sess.lastX,y:sess.lastY,w:sess.lastW,h:sess.lastH,css:sessionVisualEl(sess).style.cssText};
         const scale = sess.canvasScale && sess.canvasScale > 0 ? sess.canvasScale : 1;
         // Snapshot geometry at pointerdown — never re-measure DOM size per frame.
         const { dx: rawDx, dy: rawDy } = surfacePointerDelta(sess, clientX, clientY, scale);
@@ -1301,13 +1416,15 @@ export function useFreeDragBox({
         }
         sess.lastRotate = sess.rotate;
         sess.reserveHeight = sess.lastH;
+        const visual = sessionVisualEl(sess);
         if (sess.mode === 'offset') {
-          sess.el.style.width = `${sess.lastW}px`;
-          sess.el.style.height = `${sess.lastH}px`;
-          sess.el.style.minHeight = `${sess.lastH}px`;
-          sess.el.style.maxWidth = 'none';
-          sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
-          applyParentSectionLiveFit(sess.el);
+          visual.style.width = `${sess.lastW}px`;
+          visual.style.height = `${sess.lastH}px`;
+          visual.style.minHeight = `${sess.lastH}px`;
+          visual.style.maxWidth = 'none';
+          writeOffsetTransform(visual, sess.lastX, sess.lastY, sess.rotate);
+          if (visual !== sess.el) sess.el.style.transform = 'none';
+          applyParentSectionLiveFit(visual);
         } else {
           sess.el.style.left = `${sess.lastX}px`;
           sess.el.style.top = `${sess.lastY}px`;
@@ -1318,7 +1435,7 @@ export function useFreeDragBox({
           sess.el.style.transform = sess.rotate ? `rotate(${sess.rotate}deg)` : '';
           syncCanvasFreeReserve(sess.el);
         }
-        if(sess.el.closest('[data-lp-non-overlap="1"]')&&collisionNodes(sess.el).some(n=>intersects(elementRect(sess.el),elementRect(n),1))){sess.el.style.cssText=previous.css;sess.lastX=previous.x;sess.lastY=previous.y;sess.lastW=previous.w;sess.lastH=previous.h;}
+        if(visual.closest('[data-lp-non-overlap="1"]')&&collisionNodes(visual).some(n=>intersects(elementRect(visual),elementRect(n),1))){visual.style.cssText=previous.css;sess.lastX=previous.x;sess.lastY=previous.y;sess.lastW=previous.w;sess.lastH=previous.h;}
         publishGuidesRef.current?.(EMPTY_GUIDES);
         emitFreeDragFrame();
         return;
@@ -1336,8 +1453,9 @@ export function useFreeDragBox({
       const isOffset = sess.mode === 'offset';
       // Parent live-fit / grid reflow moves the card's natural flow position
       // mid-drag; re-derive base each frame so the box stays under the pointer.
+      const visual = sessionVisualEl(sess);
       if (isOffset && !sess.rotate && sess.canvasEl) {
-        const rNow = readRect(sess.el, sess.canvasEl.getBoundingClientRect(), scale);
+        const rNow = readRect(visual, sess.canvasEl.getBoundingClientRect(), scale);
         sess.baseLeft = rNow.left - sess.lastX;
         sess.baseTop = rNow.top - sess.lastY;
         proposedX += (sess.startBaseLeft ?? sess.baseLeft) - sess.baseLeft;
@@ -1377,8 +1495,9 @@ export function useFreeDragBox({
         sess.lastW = sess.width;
         sess.lastH = sess.height;
         sess.lastRotate = sess.rotate;
-        sess.el.style.transform = `translate3d(${sess.lastX}px, ${sess.lastY}px, 0) rotate(${sess.rotate}deg)`;
-        applyParentSectionLiveFit(sess.el);
+        writeOffsetTransform(visual, sess.lastX, sess.lastY, sess.rotate);
+        if (visual !== sess.el) sess.el.style.transform = 'none';
+        applyParentSectionLiveFit(visual);
       } else {
         sess.lastX = snap.x;
         sess.lastY = snap.y;
@@ -1465,6 +1584,12 @@ export function useFreeDragBox({
       const onLostCapture = (ev: Event) => {
         const pe = ev as PointerEvent;
         if (pe.pointerId != null && pe.pointerId !== pointerId) return;
+        const s = sessionRef.current;
+        // Press started on the Move toolbar (body portal), then capture moved onto
+        // the canvas shell. That fires lostpointercapture on the button — ignore it
+        // or the box never follows the cursor.
+        if (s && ev.target !== s.el) return;
+        if (!s && pendingRef.current) return;
         endGesture(false);
       };
       // Canvas scroll without pointer motion: re-run the frame with last pointer.
@@ -1472,14 +1597,14 @@ export function useFreeDragBox({
         if (sessionRef.current) applyMove();
       };
       window.addEventListener('scroll', onScroll, true);
-      window.addEventListener('pointermove', onMove, { passive: false });
+      window.addEventListener('pointermove', onMove, { capture: true, passive: false });
       window.addEventListener('pointerup', onUp, true);
       window.addEventListener('pointercancel', onCancel, true);
       window.addEventListener('blur', onBlur);
       document.addEventListener('lostpointercapture', onLostCapture, true);
       detachWindow.current = () => {
         window.removeEventListener('scroll', onScroll, true);
-        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointermove', onMove, true);
         window.removeEventListener('pointerup', onUp, true);
         window.removeEventListener('pointercancel', onCancel, true);
         window.removeEventListener('blur', onBlur);
@@ -1505,6 +1630,11 @@ export function useFreeDragBox({
          * offset so the shell stays in document flow (absolute = jump).
          */
         forceMode?: 'absolute' | 'offset';
+        /**
+         * Node that received pointerdown. Capture on the shell only when the
+         * press started inside it — toolbar Move lives in a body portal.
+         */
+        captureFrom?: EventTarget | null;
       },
     ) => {
       if (!enabledRef.current) return;
@@ -1545,8 +1675,10 @@ export function useFreeDragBox({
       const canvasScale = readCanvasPointerScale(el);
       const surfaceRect = surfaceEl.getBoundingClientRect();
       const surfaceCss = surfaceLayoutSize(surfaceEl, canvasScale);
-      const box = readRect(el, surfaceRect, canvasScale);
       const useOffset = (opts?.forceMode ?? modeRef.current) === 'offset';
+      const paintEl = useOffset ? resolveClippedPaintHost(el) : el;
+      const paintOriginalStyle = paintEl === el ? originalStyle : paintEl.style.cssText;
+      const box = readRect(paintEl, surfaceRect, canvasScale);
       const preserveBoxSize = opts?.preserveBoxSize === true;
 
       const siblingEls = Array.from(
@@ -1610,29 +1742,35 @@ export function useFreeDragBox({
         // Offset mode: x/y are translate deltas; box stays in document flow (never vanishes).
         originX = currentLayout?.x ?? 0;
         originY = currentLayout?.y ?? 0;
+        const lockEl = paintEl;
         // Clear any leftover absolute pin from older buggy builds.
-        if(el.style.position==='absolute')el.style.position='relative';
-        el.style.left = '';
-        el.style.top = '';
+        if (lockEl.style.position === 'absolute') lockEl.style.position = 'relative';
+        lockEl.style.left = '';
+        lockEl.style.top = '';
         // Lock measured width so children do not reflow while dragging.
-        el.style.width = `${dragW}px`;
-        el.style.maxWidth = 'none';
-        el.style.boxSizing = 'border-box';
-        el.style.zIndex = '30';
+        lockEl.style.width = `${dragW}px`;
+        lockEl.style.maxWidth = 'none';
+        lockEl.style.boxSizing = 'border-box';
+        lockEl.style.zIndex = '30';
         // Text hug: don't lock free-layout height during move — unless the text
         // box itself has a persisted height from the 8-handle resize chrome.
         if (el.getAttribute('data-lp-text-hug') === '1') {
           if (el.getAttribute('data-lp-heading-height-locked') === '1') {
             const lockedH = el.style.getPropertyValue('--lp-text-box-height');
-            if (lockedH) el.style.height = lockedH;
-            el.style.minHeight = 'max-content';
+            if (lockedH) lockEl.style.height = lockedH;
+            lockEl.style.minHeight = 'max-content';
           } else {
-            el.style.height = 'auto';
-            el.style.minHeight = '0';
+            lockEl.style.height = 'auto';
+            lockEl.style.minHeight = '0';
           }
         } else {
-          el.style.height = `${dragH}px`;
-          el.style.minHeight = `${dragH}px`;
+          lockEl.style.height = `${dragH}px`;
+          lockEl.style.minHeight = `${dragH}px`;
+        }
+        if (paintEl !== el) {
+          el.style.width = '100%';
+          el.style.height = '100%';
+          el.style.transform = 'none';
         }
       } else {
         // Absolute free: preserveBoxSize is the only path (move/rotate/resize all pass it).
@@ -1745,6 +1883,8 @@ export function useFreeDragBox({
         pendingClientX: clientX,
         pendingClientY: clientY,
         pendingShift: shiftKey,
+        paintEl: paintEl !== el ? paintEl : undefined,
+        paintOriginalStyle: paintEl !== el ? paintOriginalStyle : undefined,
       };
       // Stash base flow position for offset clamp (natural left/top without current translate).
       session.baseLeft = useOffset ? box.left - (currentLayout?.x ?? 0) : 0;
@@ -1759,10 +1899,29 @@ export function useFreeDragBox({
       el.setAttribute('data-lp-free-dragging', '1');
       el.style.willChange = 'transform';
       el.style.cursor = 'grabbing';
-      try {
-        el.setPointerCapture(pointerId);
-      } catch {
-        /* ignore */
+      if (paintEl !== el) {
+        paintEl.setAttribute('data-lp-free-dragging', '1');
+        paintEl.setAttribute('data-lp-free-paint-host', '1');
+        paintEl.style.willChange = 'transform';
+        paintEl.style.cursor = 'grabbing';
+        writeOffsetTransform(paintEl, originX, originY, rotate);
+        el.style.transform = 'none';
+      }
+      const from = opts?.captureFrom;
+      const pressInsideShell =
+        !from || from === el || (from instanceof Node && el.contains(from));
+      if (pressInsideShell) {
+        try {
+          el.setPointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      } else if (from instanceof HTMLElement) {
+        try {
+          from.setPointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
       }
       setDragging(true);
       emitFreeDragFrame();
@@ -1801,6 +1960,7 @@ export function useFreeDragBox({
         startSession(e.pointerId, e.clientX, e.clientY, e.shiftKey, {
           preserveBoxSize: true,
           allowWhileEditing: force,
+          captureFrom: e.target,
         });
         return;
       }
@@ -1837,6 +1997,47 @@ export function useFreeDragBox({
       if (freeId) freeDragArmByFreeId.delete(freeId);
     };
   });
+
+  // Persist offset transform on the clipped visual frame so the rounded box
+  // (not only the inner image) stays where the user dropped it.
+  useLayoutEffect(() => {
+    const el = shellRef.current;
+    if (!el || mode !== 'offset') return;
+    if (dragging) return;
+    const host = resolveClippedPaintHost(el);
+    const prev = paintHostRef.current;
+    if (prev && prev !== host && prev !== el) {
+      restorePaintHost(prev, paintHostOriginalStyleRef.current);
+    }
+    if (host === el) {
+      paintHostRef.current = null;
+      return;
+    }
+    if (prev !== host) paintHostOriginalStyleRef.current = host.style.cssText;
+    paintHostRef.current = host;
+    const x = layout?.x ?? 0;
+    const y = layout?.y ?? 0;
+    const rot = normalizeRotate(layout?.rotate ?? 0);
+    if (layout) {
+      if (layout.width) host.style.width = `${layout.width}px`;
+      if (layout.height) host.style.height = `${layout.height}px`;
+      host.style.boxSizing = 'border-box';
+      writeOffsetTransform(host, x, y, rot);
+      host.setAttribute('data-lp-free-paint-host', '1');
+      el.style.transform = 'none';
+      el.style.width = '100%';
+      el.style.height = '100%';
+    } else {
+      restorePaintHost(host, paintHostOriginalStyleRef.current);
+    }
+  }, [layout, dragging, mode, restorePaintHost]);
+
+  useEffect(() => {
+    return () => {
+      restorePaintHost(paintHostRef.current, paintHostOriginalStyleRef.current);
+      paintHostRef.current = null;
+    };
+  }, [restorePaintHost]);
 
   const beginResize = useCallback(
     (handle: FreeResizeHandle, e: ReactPointerEvent) => {
@@ -1946,7 +2147,7 @@ export function useFreeDragBox({
   // During flow-section resize there is no freeLayout — still emit a React style
   // from live geometry so parent re-renders do not snap minHeight back to 56.
   const sessMode = dragging ? sessionRef.current?.mode : undefined;
-  const shellStyle =
+  const geometryStyle =
     freeLayoutStyle(layout, dragging, mode, live) ??
     (dragging && live && sessMode === 'offset'
       ? ({
@@ -1966,6 +2167,14 @@ export function useFreeDragBox({
               : null),
         } as CSSProperties)
       : undefined);
+
+  // Geometry belongs to the visual frame. React must not apply the same
+  // translation again to its inner chrome during a parent render mid-gesture.
+  const shell = shellRef.current;
+  const visual = sessionRef.current?.paintEl || paintHostRef.current;
+  const shellStyle = shell && visual && visual !== shell
+    ? { ...geometryStyle, transform: 'none', width: '100%', height: '100%', minHeight: 0 }
+    : geometryStyle;
 
   return {
     shellRef,

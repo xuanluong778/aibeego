@@ -6216,12 +6216,17 @@ model WorkChecklistItem {
   title     String   @db.VarChar(300)
   isDone    Boolean  @default(false) @map("is_done")
   sortOrder Int      @default(0) @map("sort_order")
+  /// Nhân viên được giao riêng cho hạng mục (employees.id; không ràng buộc FK — kiểm tra thuộc org ở service)
+  assigneeId String? @map("assignee_id")
+  startDate DateTime? @map("start_date") @db.Date
+  dueDate   DateTime? @map("due_date") @db.Date
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   task WorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId, sortOrder])
+  @@index([assigneeId])
   @@map("work_checklist_items")
 }
 

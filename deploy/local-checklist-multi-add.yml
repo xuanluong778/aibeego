@@ -1,0 +1,4 @@
+# Local web release: work-task checklist — add many items at once, editable rows, white "Thêm" label.
+services:
+  web:
+    image: aibeego-web:local-checklist-multi-add-20261127

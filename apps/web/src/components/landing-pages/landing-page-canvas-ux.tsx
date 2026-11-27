@@ -1631,6 +1631,11 @@ export function ElementChrome({
         if (isFormChrome && isPrimary) {
           armFreeDragByFreeId(blockId, e);
         }
+        // The image shell owns its full visual frame, including empty padding
+        // and badges. Allow a selected image to move from any part of that frame.
+        if (kind === 'image' && isPrimary && freeEnabled) {
+          freeDrag.beginDrag(e, { force: true });
+        }
       }}
       onPointerMove={(e) => {
         const p = pointerRef.current;

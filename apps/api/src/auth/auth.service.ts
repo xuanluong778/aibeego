@@ -1259,7 +1259,7 @@ export class AuthService {
       role: { code: string };
     },
     meta?: { ip?: string; userAgent?: string; rotationRootId?: string },
-    db: Pick<PrismaService, 'authSession'> | Prisma.TransactionClient = this.prisma,
+    db: Pick<PrismaService, 'authSession' | '$executeRaw'> | Prisma.TransactionClient = this.prisma,
   ) {
     const refreshSecret = this.refreshSecret();
     const refreshExpiresIn = this.config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');

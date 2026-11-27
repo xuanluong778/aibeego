@@ -17,6 +17,12 @@ export interface WorkChecklistItem {
   title: string;
   isDone: boolean;
   sortOrder: number;
+  /** Nhân viên được giao riêng cho hạng mục */
+  assigneeId?: string | null;
+  /** YYYY-MM-DD */
+  startDate?: string | null;
+  /** YYYY-MM-DD */
+  dueDate?: string | null;
 }
 
 export type WorkCustomFieldDef = {
@@ -186,7 +192,14 @@ export interface CreateWorkTaskInput {
   priority?: string;
   labels?: string[];
   progress?: number;
-  checklist?: Array<{ title: string; isDone?: boolean; sortOrder?: number }>;
+  checklist?: Array<{
+    title: string;
+    isDone?: boolean;
+    sortOrder?: number;
+    assigneeId?: string | null;
+    startDate?: string | null;
+    dueDate?: string | null;
+  }>;
   customFields?: Record<string, unknown>;
 }
 

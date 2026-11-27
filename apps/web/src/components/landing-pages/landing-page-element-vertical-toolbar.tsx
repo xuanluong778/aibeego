@@ -266,7 +266,12 @@ function findAnchorForTarget(target: LpSelectionTarget): HTMLElement | null {
   }
 
   if (element === 'image') {
-    return blockEl.querySelector('[data-lp-content-image="1"]') as HTMLElement | null;
+    return (
+      (blockEl.querySelector(
+        `[data-lp-element-id="${CSS.escape(`${blockId}::image`)}"]`,
+      ) as HTMLElement | null) ||
+      (blockEl.querySelector('[data-lp-content-image="1"]') as HTMLElement | null)
+    );
   }
   // Form / section: always anchor to the outer free shell so the vertical toolbar
   // sits beside the section outline — never on nested CTA/privacy text.
@@ -576,11 +581,10 @@ export function LandingPageElementVerticalToolbar({
     // Section-level only: HTML5 DnD reorder (form is free-drag below).
     if (isSectionReorder) return;
 
-    // Row/column layout elements move between rows/columns (legacy elements keep free drag).
-    const rowElement = sectionRowElementOf(anchor);
-    if (rowElement) {
-      beginSectionRowMove(e, rowElement);
-      return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* window listeners still drive the gesture */
     }
 
     // Exit inline edit so drag doesn't fight caret / contentEditable.
@@ -656,6 +660,13 @@ export function LandingPageElementVerticalToolbar({
           pointerType: e.pointerType,
         }),
       );
+      return;
+    }
+
+    // Row/column blocks without a free-drag shell: reorder with a live follow preview.
+    const rowElement = sectionRowElementOf(anchor);
+    if (rowElement && rowElement.dataset.lpBlockId === displayTarget.blockId) {
+      beginSectionRowMove(e, rowElement);
     }
   };
 

@@ -22,6 +22,7 @@ export function beginSectionRowMove(
   if (!id) return;
   const startX = e.clientX,
     startY = e.clientY;
+  const originalCss = el.style.cssText;
   let active = false;
   let target: SidebarDropTarget | null = null;
   const resolve = (x: number, y: number) => {
@@ -47,8 +48,14 @@ export function beginSectionRowMove(
       active = true;
       el.setAttribute('data-lp-row-moving', '1');
       document.body.setAttribute('data-lp-row-moving', '1');
+      document.body.style.cursor = 'grabbing';
     }
     ev.preventDefault();
+    el.style.transition = 'none';
+    el.style.willChange = 'transform';
+    el.style.zIndex = '10000';
+    el.style.pointerEvents = 'none';
+    el.style.transform = `translate(${ev.clientX - startX}px, ${ev.clientY - startY}px)`;
     target = resolve(ev.clientX, ev.clientY);
     showSidebarDropTarget(target);
   };
@@ -61,6 +68,8 @@ export function beginSectionRowMove(
     window.removeEventListener('lp-canvas-zoom-change', onScroll);
     el.removeAttribute('data-lp-row-moving');
     document.body.removeAttribute('data-lp-row-moving');
+    document.body.style.cursor = '';
+    el.style.cssText = originalCss;
     showSidebarDropTarget(null);
   };
   const onUp = (ev: PointerEvent) => {

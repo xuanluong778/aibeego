@@ -7,7 +7,41 @@ export type WorkChecklistDraftItem = {
   title: string;
   isDone: boolean;
   sortOrder: number;
+  /** Nhân viên được giao riêng cho hạng mục (employees.id) */
+  assigneeId?: string | null;
+  /** YYYY-MM-DD */
+  startDate?: string | null;
+  /** YYYY-MM-DD */
+  dueDate?: string | null;
 };
+
+/** "2026-11-29" → "29/11" (thêm "/26" nếu khác năm hiện tại). */
+export function formatChecklistDate(value: string | null | undefined): string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}/.test(value)) return '';
+  const [y, m, d] = value.slice(0, 10).split('-');
+  const sameYear = Number(y) === new Date().getFullYear();
+  return sameYear ? `${d}/${m}` : `${d}/${m}/${y!.slice(2)}`;
+}
+
+/** Nhãn ngắn cho khoảng thời gian của hạng mục: "27/11 – 29/11", "Hạn 29/11", "Từ 27/11". */
+export function checklistDateLabel(item: Pick<WorkChecklistDraftItem, 'startDate' | 'dueDate'>): string {
+  const s = formatChecklistDate(item.startDate);
+  const d = formatChecklistDate(item.dueDate);
+  if (s && d) return s === d ? s : `${s} – ${d}`;
+  if (d) return `Hạn ${d}`;
+  if (s) return `Từ ${s}`;
+  return '';
+}
+
+/** Hạng mục quá hạn: có ngày kết thúc đã qua (so theo ngày, giờ địa phương) và chưa hoàn thành. */
+export function isChecklistItemOverdue(
+  item: Pick<WorkChecklistDraftItem, 'dueDate' | 'isDone'>,
+  now: Date = new Date(),
+): boolean {
+  if (item.isDone || !item.dueDate) return false;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return item.dueDate.slice(0, 10) < today;
+}
 
 /** Default Trello-like color palette (id is stable; stored in task.labels). */
 export const WORK_LABEL_COLORS = [
@@ -145,6 +179,18 @@ export function toggleChecklistItem(
   index: number,
 ): WorkChecklistDraftItem[] {
   return items.map((it, i) => (i === index ? { ...it, isDone: !it.isDone } : it));
+}
+
+/**
+ * Tách văn bản nhiều dòng thành danh sách hạng mục checklist.
+ * Mỗi dòng không rỗng = 1 mục; bỏ ký hiệu đầu dòng (-, *, •, "1.", "2)") khi dán từ danh sách.
+ */
+export function parseChecklistLines(raw: string, maxLength = 300): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*•–]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean)
+    .map((line) => line.slice(0, maxLength));
 }
 
 export function checklistProgress(items: WorkChecklistDraftItem[]): number {

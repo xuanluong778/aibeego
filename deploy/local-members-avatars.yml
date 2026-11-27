@@ -1,0 +1,8 @@
+# Local release: avatar tròn của các thành viên đã chọn hiện cùng hàng với nút "Thành viên" trong chi tiết thẻ.
+# Chỉ đổi giao diện web. API giữ nguyên image của bản checklist-item-assign (KHÔNG build/khởi động lại API,
+# vì stack local đang nối DATABASE_URL tới DB VPS).
+services:
+  web:
+    image: aibeego-web:local-members-avatars-20261127
+  api:
+    image: aibeego-api:local-checklist-item-assign-20261127

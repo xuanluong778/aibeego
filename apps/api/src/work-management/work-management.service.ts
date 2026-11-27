@@ -352,6 +352,7 @@ export class WorkManagementService {
       ...(dto.assignerId ? [dto.assignerId] : []),
       ...assigneeIds,
       ...watcherIds,
+      ...this.checklistAssigneeIds(dto.checklist),
     ]);
 
     const task = await this.prisma.workTask.create({
@@ -381,6 +382,7 @@ export class WorkManagementService {
             title: c.title.trim(),
             isDone: c.isDone ?? false,
             sortOrder: c.sortOrder ?? i,
+            ...this.checklistItemExtras(c),
           })),
         },
       },
@@ -414,7 +416,7 @@ export class WorkManagementService {
     const scope = await resolveWorkScope(this.prisma, organizationId, user);
     const existing = await this.prisma.workTask.findFirst({
       where: { id: taskId, organizationId, deletedAt: null },
-      include: { assignees: true, watchers: true },
+      include: { assignees: true, watchers: true, checklist: { select: { assigneeId: true } } },
     });
     if (!existing) throw new NotFoundException('Không tìm thấy công việc');
 
@@ -443,6 +445,20 @@ export class WorkManagementService {
       ]);
     }
 
+    // Hạng mục checklist được giao cho ai → người đó phải thuộc tổ chức, và được tự thêm làm
+    // người theo dõi thẻ (nếu chưa là người thực hiện/theo dõi) để nhìn thấy và tick được hạng mục của mình.
+    const itemAssigneeIds = this.checklistAssigneeIds(dto.checklist);
+    let nextWatcherIds = dto.watcherIds;
+    if (itemAssigneeIds.length) {
+      await this.assertEmployeesInOrg(organizationId, itemAssigneeIds);
+      const baseWatchers = dto.watcherIds ?? existing.watchers.map((w) => w.employeeId);
+      const assigned = dto.assigneeIds ?? existing.assignees.map((a) => a.employeeId);
+      const missing = itemAssigneeIds.filter(
+        (id) => !baseWatchers.includes(id) && !assigned.includes(id),
+      );
+      if (missing.length) nextWatcherIds = [...baseWatchers, ...missing];
+    }
+
     if (dto.customFields !== undefined) {
       const proj = await this.prisma.workProject.findUnique({
         where: { id: existing.projectId },
@@ -467,12 +483,13 @@ export class WorkManagementService {
         ...(dto.assigneeIds !== undefined ? { assignees: {
           deleteMany: {}, create: dto.assigneeIds.map(employeeId => ({ employeeId })),
         } } : {}),
-        ...(dto.watcherIds !== undefined ? { watchers: {
-          deleteMany: {}, create: dto.watcherIds.map(employeeId => ({ employeeId })),
+        ...(nextWatcherIds !== undefined ? { watchers: {
+          deleteMany: {}, create: nextWatcherIds.map(employeeId => ({ employeeId })),
         } } : {}),
         ...(dto.checklist !== undefined ? { checklist: {
           deleteMany: {}, create: dto.checklist.map((item, index) => ({
             title: item.title.trim(), isDone: item.isDone ?? false, sortOrder: item.sortOrder ?? index,
+            ...this.checklistItemExtras(item),
           })),
         } } : {}),
         ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
@@ -502,6 +519,23 @@ export class WorkManagementService {
         type: WORK_NOTIFICATION_TYPES.TASK_ASSIGNED,
         title: `Được giao việc: ${task.title}`,
         body: 'Bạn được gán là người thực hiện', actorId: user.employeeId,
+        taskId, projectId: task.projectId,
+      });
+    }
+
+    // Thông báo người mới được giao hạng mục (bỏ qua người vừa nhận thông báo giao việc ở trên).
+    const hadItemAssignee = new Set(
+      existing.checklist.flatMap((c) => (c.assigneeId ? [c.assigneeId] : [])),
+    );
+    const newItemAssignees = itemAssigneeIds.filter(
+      (id) => !hadItemAssignee.has(id) && !newlyAssigned.includes(id),
+    );
+    if (newItemAssignees.length) {
+      await this.collab.notify(organizationId, newItemAssignees, {
+        type: WORK_NOTIFICATION_TYPES.TASK_ASSIGNED,
+        title: `Được giao hạng mục: ${task.title}`,
+        body: 'Bạn được giao một hạng mục trong danh sách việc cần làm',
+        actorId: user.employeeId,
         taskId, projectId: task.projectId,
       });
     }
@@ -662,9 +696,30 @@ export class WorkManagementService {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
+  /** Danh sách (không trùng) nhân viên được giao riêng cho từng hạng mục checklist. */
+  private checklistAssigneeIds(
+    checklist?: { assigneeId?: string | null }[] | null,
+  ): string[] {
+    return [...new Set((checklist ?? []).flatMap((c) => (c.assigneeId ? [c.assigneeId] : [])))];
+  }
+
+  /** Các cột bổ sung của hạng mục checklist (người được giao + ngày) dùng khi create/update. */
+  private checklistItemExtras(c: {
+    assigneeId?: string | null;
+    startDate?: string | null;
+    dueDate?: string | null;
+  }) {
+    return {
+      assigneeId: c.assigneeId || null,
+      startDate: c.startDate ? new Date(c.startDate) : null,
+      dueDate: c.dueDate ? new Date(c.dueDate) : null,
+    };
+  }
+
   private validateTaskInput(dto: {
     title?: string; startDate?: string | null; deadline?: string | null;
-    assigneeIds?: string[]; watcherIds?: string[]; checklist?: { title: string }[];
+    assigneeIds?: string[]; watcherIds?: string[];
+    checklist?: { title: string; startDate?: string | null; dueDate?: string | null }[];
   }) {
     if (dto.title !== undefined && !dto.title.trim()) throw new BadRequestException('Tên công việc không được để trống');
     for (const value of [dto.startDate, dto.deadline]) {
@@ -680,6 +735,19 @@ export class WorkManagementService {
       if (ids && new Set(ids).size !== ids.length) throw new BadRequestException('Danh sách nhân viên không được trùng lặp');
     }
     if (dto.checklist?.some(item => !item.title.trim())) throw new BadRequestException('Tên việc trong checklist không được để trống');
+    for (const item of dto.checklist ?? []) {
+      for (const value of [item.startDate, item.dueDate]) {
+        if (value && (!Number.isFinite(Date.parse(value))
+          || (/^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(value).toISOString().slice(0, 10) !== value))) {
+          throw new BadRequestException(`Ngày của hạng mục "${item.title.trim()}" không hợp lệ`);
+        }
+      }
+      if (item.startDate && item.dueDate && Date.parse(item.dueDate) < Date.parse(item.startDate)) {
+        throw new BadRequestException(
+          `Hạng mục "${item.title.trim()}": ngày kết thúc phải bằng hoặc sau ngày bắt đầu`,
+        );
+      }
+    }
   }
 
   private validateCustomFields(
@@ -757,6 +825,9 @@ export class WorkManagementService {
         title: c.title,
         isDone: c.isDone,
         sortOrder: c.sortOrder,
+        assigneeId: c.assigneeId,
+        startDate: c.startDate?.toISOString().slice(0, 10) ?? null,
+        dueDate: c.dueDate?.toISOString().slice(0, 10) ?? null,
       })),
       commentCount: task._count.comments,
       canSubmitReview:

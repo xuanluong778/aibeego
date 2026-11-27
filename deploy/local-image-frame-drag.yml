@@ -1,0 +1,4 @@
+# Local web release: keep the gray image frame and its image in the same drag shell.
+services:
+  web:
+    image: aibeego-web:local-image-frame-drag-20261126

@@ -1,6 +1,7 @@
 services:
   api:
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-marketingspa}:${POSTGRES_PASSWORD:-change_me_strong_password}@116.118.45.72:5433/${POSTGRES_DB:-marketingspa}?schema=public&connection_limit=10&pool_timeout=20
       HOST: "0.0.0.0"
       OAUTH_CONNECTION: "false"
       APP_URL: http://localhost:8080
@@ -16,6 +17,7 @@ services:
 
   worker:
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-marketingspa}:${POSTGRES_PASSWORD:-change_me_strong_password}@116.118.45.72:5433/${POSTGRES_DB:-marketingspa}?schema=public&connection_limit=10&pool_timeout=20
       MESSAGING_LIVE_SEND: "false"
       ADS_ACTIONS_LIVE: "false"
       ADS_ACTIONS_PROVIDER_WRITE: "false"

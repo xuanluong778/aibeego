@@ -1,0 +1,9 @@
+# Local release: avatar tròn của các thành viên đã chọn nằm trên thanh trên cùng của chi tiết thẻ,
+# cùng hàng với Gmail người phụ trách (không còn nằm cạnh nút "Thành viên").
+# Chỉ đổi giao diện web. API giữ nguyên image của bản checklist-item-assign (KHÔNG build/khởi động lại API,
+# vì stack local đang nối DATABASE_URL tới DB VPS).
+services:
+  web:
+    image: aibeego-web:local-members-avatars-topbar-20261127
+  api:
+    image: aibeego-api:local-checklist-item-assign-20261127

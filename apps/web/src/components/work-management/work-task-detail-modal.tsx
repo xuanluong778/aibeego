@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   useWorkTask,
+  useCreateWorkTask,
   useUpdateWorkTask,
   useWorkComments,
   useCreateWorkComment,
@@ -72,15 +73,17 @@ import {
   fileExtensionBadge,
   isDescriptionDirty,
   mergeActivityFeed,
+  parseChecklistLines,
   removeAttachmentFromDescription,
   type WorkChecklistDraftItem,
 } from '@/lib/work-task-detail';
 import {
   SelectedLabelChips,
   WorkTaskActionPopovers,
+  WorkTaskMemberAvatars,
   type CardPopoverKey,
 } from '@/components/work-management/work-task-card-popovers';
-import { WorkEmployeePicker } from '@/components/work-management/work-employee-picker';
+import { WorkChecklistItemRow } from '@/components/work-management/work-checklist-item-row';
 import { useT } from '@/i18n/i18n-provider';
 import { ApiError } from '@/lib/api-client';
 
@@ -92,6 +95,9 @@ function toChecklistDraft(items: WorkChecklistItem[] | undefined): WorkChecklist
     title: c.title,
     isDone: c.isDone,
     sortOrder: c.sortOrder ?? i,
+    assigneeId: c.assigneeId ?? null,
+    startDate: c.startDate ?? null,
+    dueDate: c.dueDate ?? null,
   }));
 }
 
@@ -100,13 +106,6 @@ function initials(name: string) {
   if (!parts.length) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase();
-}
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function cleanMentionIds(ids: string[]) {
-  return ids.filter((id) => UUID_RE.test(id));
 }
 
 function DescriptionReadView({ text }: { text: string }) {
@@ -211,6 +210,7 @@ export function WorkTaskDetailDialog({
     || (!!currentUser.data.employeeId && currentUser.data.employeeId === task?.assignerId)
   );
   const updateTask = useUpdateWorkTask();
+  const createTask = useCreateWorkTask();
   const archiveTask = useArchiveWorkTask();
   const copyTask = useCopyWorkTask();
 
@@ -239,6 +239,9 @@ export function WorkTaskDetailDialog({
   const [showChecklist, setShowChecklist] = useState(false);
   const [hideCompletedChecklist, setHideCompletedChecklist] = useState(false);
   const [newCheckItem, setNewCheckItem] = useState('');
+  const [checklistError, setChecklistError] = useState<string | null>(null);
+  // Bản mới nhất của checklist cho callback bất đồng bộ (tạo thẻ xong mới xóa mục khỏi danh sách).
+  const checklistRef = useRef<WorkChecklistDraftItem[]>([]);
   const [descEditing, setDescEditing] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [formSeededFor, setFormSeededFor] = useState<string | null>(null);
@@ -250,7 +253,6 @@ export function WorkTaskDetailDialog({
 
   const [body, setBody] = useState('');
   const [replyTo, setReplyTo] = useState<string | null>(null);
-  const [mentionIds, setMentionIds] = useState<string[]>([]);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentBody, setEditCommentBody] = useState('');
   const [reviewNote, setReviewNote] = useState('');
@@ -290,7 +292,6 @@ export function WorkTaskDetailDialog({
       setFormSeededFor(null);
       setBody('');
       setReplyTo(null);
-      setMentionIds([]);
       setEditingCommentId(null);
       setEditCommentBody('');
       setReviewNote('');
@@ -302,6 +303,7 @@ export function WorkTaskDetailDialog({
       setHideCompletedChecklist(false);
       setDescEditing(false);
       setCommentError(null);
+      setChecklistError(null);
       setChecklistTitle('Việc cần làm');
     }
   }, [open]);
@@ -339,6 +341,7 @@ export function WorkTaskDetailDialog({
     [historyQ.data, reviewsQ.data],
   );
 
+  checklistRef.current = checklist;
   const doneCount = checklist.filter((c) => c.isDone).length;
   const checklistPercent =
     checklist.length > 0 ? Math.round((doneCount / checklist.length) * 100) : 0;
@@ -355,6 +358,10 @@ export function WorkTaskDetailDialog({
       title: c.title,
       isDone: c.isDone,
       sortOrder: i,
+      // Luôn gửi đủ các trường: server thay toàn bộ checklist mỗi lần lưu, thiếu là mất người/ngày đã đặt.
+      assigneeId: c.assigneeId || null,
+      startDate: c.startDate || null,
+      dueDate: c.dueDate || null,
     }));
   }
 
@@ -424,6 +431,56 @@ export function WorkTaskDetailDialog({
     });
   }
 
+  /**
+   * "Chuyển thành thẻ": tạo công việc mới (cùng dự án, cùng cột với thẻ hiện tại) từ hạng mục,
+   * mang theo người được giao và ngày; tạo xong mới xóa hạng mục khỏi danh sách để không mất việc.
+   */
+  function convertChecklistItemToCard(item: WorkChecklistDraftItem) {
+    const title = item.title.trim();
+    if (!task || !title || createTask.isPending) return;
+    setChecklistError(null);
+    createTask.mutate(
+      {
+        projectId: task.projectId,
+        columnId: task.columnId,
+        title,
+        startDate: item.startDate || null,
+        deadline: item.dueDate || null,
+        ...(item.assigneeId ? { assigneeIds: [item.assigneeId] } : {}),
+      },
+      {
+        onSuccess: () => {
+          const current = checklistRef.current;
+          let at = current.indexOf(item);
+          if (at < 0) at = current.findIndex((it) => it.title.trim() === title);
+          if (at >= 0) persistChecklist(current.filter((_, i) => i !== at));
+        },
+        onError: (err) =>
+          setChecklistError(
+            err instanceof ApiError
+              ? err.message
+              : 'Không chuyển được thành thẻ. Vui lòng thử lại.',
+          ),
+      },
+    );
+  }
+
+  /** Thêm nhiều hạng mục một lần: mỗi dòng trong ô nhập = 1 mục. */
+  function addChecklistItemsFromText() {
+    const titles = parseChecklistLines(newCheckItem);
+    if (titles.length === 0) return;
+    const next = [
+      ...checklist,
+      ...titles.map((title, i) => ({
+        title,
+        isDone: false,
+        sortOrder: checklist.length + i,
+      })),
+    ];
+    setNewCheckItem('');
+    persistChecklist(next);
+  }
+
   function addChecklistFromPopover() {
     const name = checklistTitle.trim() || 'Việc cần làm';
     setChecklistTitle(name);
@@ -473,19 +530,16 @@ export function WorkTaskDetailDialog({
     const text = body.trim();
     if (!text || !taskId) return;
     setCommentError(null);
-    const mentions = cleanMentionIds(mentionIds);
     createComment.mutate(
       {
         taskId,
         body: text,
         parentId: replyTo || undefined,
-        mentionIds: mentions.length ? mentions : undefined,
       },
       {
         onSuccess: () => {
           setBody('');
           setReplyTo(null);
-          setMentionIds([]);
           setCommentError(null);
         },
         onError: (err) => {
@@ -655,48 +709,52 @@ export function WorkTaskDetailDialog({
 
           {/* Top bar: assignee · actions */}
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex max-w-[min(100%,280px)] items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-900"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-semibold text-white">
-                    {initials(primaryName)}
-                  </span>
-                  <span className="truncate font-medium text-slate-800 dark:text-slate-100">
-                    {primaryName}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {employees.slice(0, 40).map((emp) => {
-                  const on = assigneeIds.includes(emp.id);
-                  return (
-                    <DropdownMenuItem
-                      key={emp.id}
-                      onClick={() => {
-                        const next = on
-                          ? assigneeIds.filter((x) => x !== emp.id)
-                          : [...assigneeIds, emp.id];
-                        persistAssignees(next);
-                      }}
-                    >
-                      <span
-                        className={cn(
-                          'mr-2 h-2 w-2 rounded-full',
-                          on ? 'bg-sky-500' : 'bg-slate-300',
-                        )}
-                      />
-                      {emp.name}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Người phụ trách chính (Gmail) + avatar tròn của các thành viên đã chọn, cùng một hàng. */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex max-w-[min(100%,280px)] items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-900"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-semibold text-white">
+                      {initials(primaryName)}
+                    </span>
+                    <span className="truncate font-medium text-slate-800 dark:text-slate-100">
+                      {primaryName}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {employees.slice(0, 40).map((emp) => {
+                    const on = assigneeIds.includes(emp.id);
+                    return (
+                      <DropdownMenuItem
+                        key={emp.id}
+                        onClick={() => {
+                          const next = on
+                            ? assigneeIds.filter((x) => x !== emp.id)
+                            : [...assigneeIds, emp.id];
+                          persistAssignees(next);
+                        }}
+                      >
+                        <span
+                          className={cn(
+                            'mr-2 h-2 w-2 rounded-full',
+                            on ? 'bg-sky-500' : 'bg-slate-300',
+                          )}
+                        />
+                        {emp.name}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <WorkTaskMemberAvatars employees={employees} assigneeIds={assigneeIds} />
+            </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <Button
                 type="button"
                 size="sm"
@@ -893,59 +951,56 @@ export function WorkTaskDetailDialog({
                     {visibleChecklist.map((item) => {
                       const index = checklist.indexOf(item);
                       return (
-                      <li
-                        key={`${item.id || item.title}-${index}`}
-                        className="flex items-center gap-2"
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-slate-300"
-                          checked={item.isDone}
-                          onChange={() => {
-                            const next = checklist.map((it, i) =>
-                              i === index ? { ...it, isDone: !it.isDone } : it,
-                            );
-                            persistChecklist(next);
-                          }}
-                        />
-                        <Input
-                          className={cn(
-                            'h-8 border-transparent bg-transparent px-1 text-black shadow-none placeholder:text-slate-400 focus-visible:border-slate-200 focus-visible:bg-white focus-visible:ring-0 focus-visible:ring-offset-0',
-                            item.isDone && 'line-through opacity-50',
-                          )}
-                          value={item.title}
-                          onChange={(e) =>
-                            setChecklist((prev) =>
-                              prev.map((it, i) =>
-                                i === index ? { ...it, title: e.target.value } : it,
+                        <WorkChecklistItemRow
+                          // Key phải ổn định khi gõ — nếu chứa item.title thì mỗi ký tự làm input remount và mất focus.
+                          key={`check-${index}`}
+                          item={item}
+                          employees={employees}
+                          converting={createTask.isPending}
+                          onToggle={() =>
+                            persistChecklist(
+                              checklist.map((it, i) =>
+                                i === index ? { ...it, isDone: !it.isDone } : it,
                               ),
                             )
                           }
-                          onBlur={() => persistChecklist(checklist)}
+                          onTitleChange={(title) =>
+                            setChecklist((prev) =>
+                              prev.map((it, i) => (i === index ? { ...it, title } : it)),
+                            )
+                          }
+                          // Server yêu cầu title ≥ 1 ký tự: bỏ các mục đã xóa trống thay vì gửi lỗi 400.
+                          onTitleBlur={() => persistChecklist(checklist.filter((it) => it.title.trim()))}
+                          onAssigneeChange={(assigneeId) =>
+                            persistChecklist(
+                              checklist.map((it, i) => (i === index ? { ...it, assigneeId } : it)),
+                            )
+                          }
+                          onDatesChange={(startDate, dueDate) =>
+                            persistChecklist(
+                              checklist.map((it, i) =>
+                                i === index ? { ...it, startDate, dueDate } : it,
+                              ),
+                            )
+                          }
+                          onConvertToCard={() => convertChecklistItemToCard(item)}
+                          onDelete={() => persistChecklist(checklist.filter((_, i) => i !== index))}
                         />
-                      </li>
-                    );
+                      );
                     })}
                   </ul>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Thêm mục…"
-                      className={cn('h-8', lightInput)}
+                  <div className="flex items-start gap-2">
+                    <Textarea
+                      placeholder="Thêm mục… (mỗi dòng 1 mục)"
+                      rows={Math.min(6, Math.max(1, newCheckItem.split('\n').length))}
+                      className={cn('min-h-8 resize-none py-1.5', lightInput)}
                       value={newCheckItem}
                       onChange={(e) => setNewCheckItem(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newCheckItem.trim()) {
+                        // Enter = thêm tất cả các dòng; Shift+Enter = xuống dòng. Bỏ qua khi đang gõ dấu (IME/Telex).
+                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault();
-                          const next = [
-                            ...checklist,
-                            {
-                              title: newCheckItem.trim(),
-                              isDone: false,
-                              sortOrder: checklist.length,
-                            },
-                          ];
-                          setNewCheckItem('');
-                          persistChecklist(next);
+                          addChecklistItemsFromText();
                         }
                       }}
                     />
@@ -953,23 +1008,22 @@ export function WorkTaskDetailDialog({
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => {
-                        if (!newCheckItem.trim()) return;
-                        const next = [
-                          ...checklist,
-                          {
-                            title: newCheckItem.trim(),
-                            isDone: false,
-                            sortOrder: checklist.length,
-                          },
-                        ];
-                        setNewCheckItem('');
-                        persistChecklist(next);
-                      }}
+                      className="shrink-0 text-white hover:text-white"
+                      onClick={addChecklistItemsFromText}
                     >
-                      Thêm
+                      {parseChecklistLines(newCheckItem).length > 1
+                        ? `Thêm ${parseChecklistLines(newCheckItem).length} mục`
+                        : 'Thêm'}
                     </Button>
                   </div>
+                  <p className="text-[11px] text-slate-500">
+                    Enter để thêm · Shift+Enter để xuống dòng · Dán nhiều dòng để thêm nhiều mục cùng lúc
+                  </p>
+                  {checklistError && (
+                    <p role="alert" className="text-xs text-red-600">
+                      {checklistError}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1325,18 +1379,10 @@ export function WorkTaskDetailDialog({
                         </button>
                       ))}
                       <Smile className="ml-0.5 h-3.5 w-3.5 text-slate-400" />
-                      <div className="ml-auto min-w-[140px] max-w-[200px] flex-1">
-                        <WorkEmployeePicker
-                          label="Nhắc tên"
-                          value={mentionIds}
-                          onChange={setMentionIds}
-                          multiple
-                        />
-                      </div>
                       <Button
                         type="button"
                         size="sm"
-                        className="h-7 bg-sky-600 hover:bg-sky-700"
+                        className="ml-auto h-7 bg-sky-600 hover:bg-sky-700"
                         disabled={!body.trim() || !taskId || createComment.isPending}
                         onClick={postComment}
                       >

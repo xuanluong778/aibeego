@@ -94,6 +94,19 @@ export class ChecklistItemInputDto {
   @IsOptional()
   @IsInt()
   sortOrder?: number;
+
+  /** Nhân viên được giao riêng cho hạng mục (null = bỏ giao). */
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
 }
 
 export class CreateWorkTaskDto {
